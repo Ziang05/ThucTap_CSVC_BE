@@ -1,0 +1,86 @@
+using CSVC.API.Filters;
+using CSVC.UseCases.Areas;
+using CSVC.UseCases.Areas.DTOs;
+using CSVC.UseCases.Common;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace CSVC.API.Controllers;
+
+[ApiController]
+[Authorize]
+[Route("api/v1/areas")]
+[TypeFilter(typeof(AreaValidationAuditFilter), Order = -3000)]
+[Produces("application/json")]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+public sealed class AreasController(IAreaService areas) : ControllerBase
+{
+    [HttpGet]
+    [ProducesResponseType<PagedResult<AreaListItemDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<AreaListItemDto>>> List([FromQuery] AreaListQuery query, CancellationToken cancellationToken)
+        => Ok(await areas.ListAsync(query, cancellationToken));
+
+    [HttpGet("{id:guid}/children")]
+    [ProducesResponseType<PagedResult<AreaListItemDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<AreaListItemDto>>> GetChildren(Guid id, [FromQuery] AreaListQuery query,
+        CancellationToken cancellationToken) => Ok(await areas.GetChildrenAsync(id, query, cancellationToken));
+
+    [HttpGet("{id:guid}")]
+    [ProducesResponseType<AreaDetailDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AreaDetailDto>> Get(Guid id, CancellationToken cancellationToken)
+        => Ok(await areas.GetAsync(id, cancellationToken));
+
+    [HttpPost]
+    [ProducesResponseType<AreaDetailDto>(StatusCodes.Status201Created)]
+    public async Task<ActionResult<AreaDetailDto>> Create(CreateAreaRequest request, CancellationToken cancellationToken)
+    {
+        var result = await areas.CreateAsync(request, cancellationToken);
+        return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Update(Guid id, UpdateAreaRequest request, CancellationToken cancellationToken)
+    {
+        await areas.UpdateAsync(id, request, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPut("{id:guid}/lock")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Lock(Guid id, CancellationToken cancellationToken)
+    {
+        await areas.SetLockedAsync(id, true, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}/lock")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Unlock(Guid id, CancellationToken cancellationToken)
+    {
+        await areas.SetLockedAsync(id, false, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpGet("{id:guid}/lock-impact")]
+    [ProducesResponseType<AreaLockImpactDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AreaLockImpactDto>> GetLockImpact(Guid id, CancellationToken cancellationToken)
+        => Ok(await areas.GetLockImpactAsync(id, cancellationToken));
+
+    [HttpGet("{id:guid}/history")]
+    [ProducesResponseType<PagedResult<AreaHistoryDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<AreaHistoryDto>>> GetHistory(Guid id, [FromQuery] AreaHistoryQuery query,
+        CancellationToken cancellationToken) => Ok(await areas.GetHistoryAsync(id, query, cancellationToken));
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> DenyDelete(Guid id, CancellationToken cancellationToken)
+    {
+        await areas.DenyDeleteAsync(id, cancellationToken);
+        return Forbid();
+    }
+}
