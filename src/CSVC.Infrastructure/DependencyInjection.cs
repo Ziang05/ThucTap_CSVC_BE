@@ -1,4 +1,8 @@
 using CSVC.Core.Common;
+using CSVC.Infrastructure.Email;
+using CSVC.Infrastructure.Security;
+using CSVC.UseCases.Abstractions.Security;
+using CSVC.UseCases.Accounts.Mapping;
 using CSVC.Infrastructure.Health;
 using CSVC.Infrastructure.Persistence;
 using CSVC.Infrastructure.Persistence.Repositories;
@@ -12,6 +16,8 @@ namespace CSVC.Infrastructure;
 
 public static class DependencyInjection
 {
+    private static readonly DatabaseEnumNameTranslator EnumNames = new();
+
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services, IConfiguration configuration)
     {
@@ -34,8 +40,14 @@ public static class DependencyInjection
         services.AddDbContext<CsvcDbContext>(options => options.UseNpgsql(
             connectionString,
             postgres => postgres.CommandTimeout(30)
-                .MapEnum<EntityStatus>("entity_status", nameTranslator: new DatabaseEnumNameTranslator())
-                .MapEnum<AuditOutcome>("audit_outcome", nameTranslator: new DatabaseEnumNameTranslator())));
+                .MapEnum<EntityStatus>("entity_status", nameTranslator: EnumNames)
+                .MapEnum<AuditOutcome>("audit_outcome", nameTranslator: EnumNames)));
+        services.AddLogging();
+        services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
+        services.AddScoped<IAccountTransaction, AccountTransaction>();
+        services.AddScoped<IAccountPasswordHasher, AccountPasswordHasher>();
+        services.AddScoped<IPasswordResetSender, SmtpPasswordResetSender>();
+        services.AddScoped<ISessionValidator, DatabaseSessionValidator>();
         services.AddScoped(typeof(IRepository<>), typeof(GenericRepository<>));
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<IDepartmentRepository, DepartmentRepository>();

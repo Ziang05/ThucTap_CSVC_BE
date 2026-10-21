@@ -3,6 +3,8 @@ namespace CSVC.UseCases.Exceptions;
 public enum FailureKind
 {
     Validation,
+    Unauthorized,
+    Unavailable,
     NotFound,
     Conflict,
     Forbidden

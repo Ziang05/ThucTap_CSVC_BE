@@ -124,7 +124,9 @@ public sealed class RepositoryTests
             new DepartmentRepository(context),
             new DepartmentHistoryRepository(context),
             new UserProfileRepository(context),
-            new AccountRepository(context),
+            new AccountRepository(context, new AutoMapper.MapperConfiguration(configuration =>
+                configuration.AddProfile<UseCases.Accounts.Mapping.AccountMappingProfile>(),
+                Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper()),
             new AccountHistoryRepository(context),
             new AuthSessionRepository(context),
             new AuthHistoryRepository(context),
