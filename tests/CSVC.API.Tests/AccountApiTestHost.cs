@@ -21,13 +21,15 @@ namespace CSVC.API.Tests;
 internal sealed class AccountApiTestHost(string connectionString) : WebApplicationFactory<Program>
 {
     public TestResetSender Sender { get; } = new();
+    public FixedClock Clock { get; } = new();
     public AuditFailureInterceptor Failures { get; } = new();
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
         builder.ConfigureHostConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["ConnectionStrings:Database"] = connectionString
+            ["ConnectionStrings:Database"] = connectionString,
+            ["Authentication:ExpirationEnabled"] = "false"
         }));
         return base.CreateHost(builder);
     }
@@ -38,7 +40,7 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         builder.ConfigureServices(services =>
         {
             services.AddSingleton<IPasswordResetSender>(Sender);
-            services.AddSingleton<TimeProvider>(new FixedClock());
+            services.AddSingleton<TimeProvider>(Clock);
             services.AddDbContext<CsvcDbContext>(options => options.AddInterceptors(Failures));
         });
     }
@@ -79,7 +81,9 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
 
     internal sealed class FixedClock : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => new(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
+        private long _ticks = new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero).Ticks;
+        public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref _ticks), TimeSpan.Zero);
+        public void Advance(TimeSpan amount) => Interlocked.Add(ref _ticks, amount.Ticks);
     }
 
     internal sealed class TestResetSender : IPasswordResetSender
@@ -96,6 +100,8 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
     internal sealed class AuditFailureInterceptor : SaveChangesInterceptor
     {
         public bool FailNextAccountCreation { get; set; }
+        public bool FailNextSessionCreation { get; set; }
+        public bool FailNextLoginFailure { get; set; }
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
@@ -104,6 +110,18 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
             {
                 FailNextAccountCreation = false;
                 throw new InvalidOperationException("Simulated audit storage failure.");
+            }
+            var actions = eventData.Context!.ChangeTracker.Entries<AuthHistory>()
+                .Where(entry => entry.State == EntityState.Added).Select(entry => entry.Entity.ActionCode).ToArray();
+            if (FailNextSessionCreation && actions.Contains("SESSION_CREATED"))
+            {
+                FailNextSessionCreation = false;
+                throw new InvalidOperationException("Simulated session audit failure.");
+            }
+            if (FailNextLoginFailure && actions.Contains("LOGIN_FAILED"))
+            {
+                FailNextLoginFailure = false;
+                throw new InvalidOperationException("Simulated failed-login audit failure.");
             }
             return base.SavingChangesAsync(eventData, result, cancellationToken);
         }

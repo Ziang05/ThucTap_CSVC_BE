@@ -11,7 +11,10 @@ namespace CSVC.API.Tests;
 public sealed class AccountMappingTests
 {
     private readonly IMapper _mapper = new MapperConfiguration(configuration =>
-        configuration.AddProfile<AccountMappingProfile>(), NullLoggerFactory.Instance).CreateMapper();
+        {
+            configuration.AddProfile<AccountMappingProfile>();
+            configuration.AddProfile<UseCases.Authentication.Mapping.AuthenticationMappingProfile>();
+        }, NullLoggerFactory.Instance).CreateMapper();
 
     [Fact]
     public void Mapping_configuration_is_valid_and_profile_update_preserves_identity_and_department()
@@ -33,7 +36,7 @@ public sealed class AccountMappingTests
     [Fact]
     public void Public_responses_have_no_password_token_or_hash_properties()
     {
-        foreach (var type in new[] { typeof(AccountListItemDto), typeof(AccountDetailDto), typeof(CreatedAccountDto) })
+        foreach (var type in new[] { typeof(AccountListItemDto), typeof(AccountDetailDto), typeof(CreatedAccountDto), typeof(UseCases.Authentication.DTOs.AuthenticatedUserDto) })
         {
             Assert.DoesNotContain(type.GetProperties(), property =>
                 property.Name.Contains("Password", StringComparison.OrdinalIgnoreCase)
