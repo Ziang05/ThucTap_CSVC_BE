@@ -4,7 +4,7 @@
 
 Đã đọc `Documents/Danh sách nghiệp vụ.xlsx` (danh sách tổng và 4 sheet đặc tả), `Documents/qltb_4nhom.dbml`, xem phần mô tả tổng quan trong 4 SRS cũ, và tham khảo cấu trúc `D:/Git_Project/Do_An_1/src`. Workbook và DBML là cơ sở cho 4 nhóm được ưu tiên. Tài liệu SRS, activity và sequence cũ chỉ cung cấp bối cảnh hệ thống thiết bị; không dùng để ghi đè 4 nhóm đã chỉnh sửa.
 
-Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Chưa có API/use case nghiệp vụ hoặc tài khoản mặc định. Các quy tắc về quyền, audit tự động, thu hồi phiên, hiệu lực tổ tiên và xử lý phiếu bên dưới thuộc bước triển khai use case; các ràng buộc đã thực hiện được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
+Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Chưa có tài khoản mặc định, bootstrap hoặc endpoint đăng nhập/cấp phiên. Quy tắc phòng ban/khu vực, xử lý phiếu và phần còn lại của Nhóm 2 triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
 
 ## Tổ chức solution
 
@@ -13,11 +13,11 @@ Giữ tên 4 tầng quen thuộc từ project tham khảo:
 | Project | Trách nhiệm | Phụ thuộc |
 | --- | --- | --- |
 | `CSVC.Core` | Entity, value object, quy tắc domain, `DomainException` | Thư viện chuẩn .NET |
-| `CSVC.UseCases` | Điều phối nghiệp vụ, DTO, interface persistence và dịch vụ ngoài | Core, DI abstractions |
+| `CSVC.UseCases` | Điều phối nghiệp vụ, DTO, interface persistence và dịch vụ ngoài | Core, DI abstractions, AutoMapper |
 | `CSVC.Infrastructure` | EF Core, PostgreSQL, repository, email và dịch vụ ngoài khi cần | Core, UseCases |
 | `CSVC.API` | HTTP, controller, DI composition, middleware, health và Swagger | UseCases, Infrastructure |
 
-Điều chỉnh so với project tham khảo: `UseCases` không tham chiếu `Infrastructure`; đăng ký DI chia theo tầng; cấu hình DB không chứa credentials trong Git; không chạy migration hoặc tạo admin mặc định lúc API khởi động. Chưa thêm Redis, message broker, AutoMapper hay MediatR vì base chưa có nhu cầu tương ứng.
+Điều chỉnh so với project tham khảo: `UseCases` không tham chiếu `Infrastructure`; đăng ký DI chia theo tầng; cấu hình DB không chứa credentials trong Git; không chạy migration hoặc tạo admin mặc định lúc API khởi động. AutoMapper 16.2.0 được dùng cho DTO tài khoản và SQL projection; chưa thêm Redis, message broker hoặc MediatR.
 
 Khi thêm nhóm nghiệp vụ, tổ chức code theo nhóm trong mỗi tầng, ví dụ:
 
@@ -41,7 +41,7 @@ Repository chỉ stage thay đổi; `CommitAsync` gọi `SaveChangesAsync` để
 
 Đã có truy vấn riêng theo email account đã chuẩn hóa, mã phòng ban, node khu vực con trực tiếp và phiên active chưa hết hạn. Những truy vấn sâu hơn sẽ bổ sung theo use case. Truy vấn danh sách/đọc dùng `AsNoTracking`; tìm theo khóa và `FirstOrDefaultTrackedAsync` dùng tracking để sửa. Interface generic có thao tác xóa vật lý, nhưng use case account/phòng ban/khu vực/audit không được dùng để bỏ qua quy định bảo toàn lịch sử.
 
-Những luồng cần đọc–kiểm tra–ghi nguyên tử sẽ cần transaction/locking cụ thể; chỉ `CommitAsync` chưa đủ chống các cuộc đua nghiệp vụ. Test EF InMemory xác nhận repository, DI và commit/tracking; test PostgreSQL tùy chọn tạo DB riêng để xác nhận kiểu native và rollback khi audit bị vi phạm unique index. Không dùng DB ứng dụng để tạo/xóa bảng phục vụ test.
+Module tài khoản dùng `IAccountTransaction` với transaction PostgreSQL và advisory lock để bảo vệ đọc–kiểm tra–ghi, quy tắc quản trị cuối cùng và tiêu thụ mã reset một lần. Các writer account/session/reset bổ sung sau phải phối hợp cùng lock; chỉ `CommitAsync` không đủ chống cuộc đua nghiệp vụ. Test EF InMemory xác nhận repository, DI và commit/tracking; test PostgreSQL tùy chọn tạo DB riêng để xác nhận kiểu native và rollback khi audit bị vi phạm unique index. Không dùng DB ứng dụng để tạo/xóa bảng phục vụ test.
 
 Core chưa có `BaseEntity` chứa `CreatedAt`, `UpdatedAt`, `DeletedAt`: DBML yêu cầu suy ra thời điểm tạo từ lịch sử và không dùng xóa mềm thay cho trạng thái khóa. Khi thêm entity, chọn thuộc tính theo mô hình đã thống nhất.
 
@@ -52,7 +52,7 @@ Core chưa có `BaseEntity` chứa `CreatedAt`, `UpdatedAt`, `DeletedAt`: DBML y
 - `TimeProvider.System` được đăng ký qua DI để use case dùng thời gian UTC và có thể thay bằng clock kiểm soát trong test.
 - API sử dụng JSON camelCase, enum dạng chuỗi, HTTP status đúng loại lỗi và `ProblemDetails`.
 - `DomainException`/`UseCaseException` chỉ nhận code và message an toàn để trả client. Lỗi concurrency của EF trả 409; lỗi ngoài dự kiến trả 500 với nội dung chung.
-- Log console dạng JSON, UTC, có scope RequestId; không log toàn bộ request/response. Audit nghiệp vụ sẽ được ghi tường minh từ use case, không suy diễn từ HTTP log hay interceptor ghi mọi thuộc tính.
+- Log console dạng JSON, UTC, có scope RequestId; không log toàn bộ request/response. Audit tài khoản được ghi tường minh từ use case, không suy diễn từ HTTP log hay interceptor ghi mọi thuộc tính.
 - Mỗi HTTP request nhận UUID mới do server tạo. Idempotency khi triển khai nghiệp vụ cần hợp đồng riêng, kiểm tra phạm vi account/action/payload và kết quả đã lưu; không tin header client để bỏ qua thao tác hoặc quyền truy cập.
 - `/health/live` chỉ phản ánh process; `/health/ready` kiểm tra kết nối PostgreSQL và trả 503 khi không sẵn sàng. Dùng lệnh EF/migration task để kiểm tra và cập nhật phiên bản schema; readiness hiện không kiểm tra pending migration.
 - Không dùng EF InMemory/SQLite để xác nhận ràng buộc đặc thù PostgreSQL; bước triển khai model cần test tích hợp trên PostgreSQL thật.
@@ -111,9 +111,9 @@ Migration có Down để xóa trigger/function, bảng và enum; rollback/reappl
 ## Thứ tự triển khai đề xuất
 
 1. Schema, migration đầu và seed 3 role đã hoàn thành. Tiếp theo xây quy trình bootstrap Trưởng phòng đầu tiên.
-2. Hoàn thiện xác thực session, băm mật khẩu, phân quyền, kiểm soát nhập sai và ghi auth history để bảo vệ các endpoint nghiệp vụ.
-3. Triển khai phòng ban, tài khoản/người dùng, sau đó cây khu vực; mỗi use case đi kèm audit, validation và kiểm thử đồng thời phù hợp.
-4. Kiểm thử API và ràng buộc trên PostgreSQL, cập nhật Swagger và bổ sung cấu hình email cho quên mật khẩu.
+2. Đã có băm mật khẩu, kiểm tra phiên DB, phân quyền tài khoản và thu hồi phiên. Tiếp tục hoàn thiện đăng nhập/cấp phiên, kiểm soát nhập sai và kết thúc phiên tự hết hạn thuộc Nhóm 2.
+3. Tài khoản/người dùng đã có API, service, DTO, audit và kiểm thử PostgreSQL. Tiếp tục triển khai phòng ban và cây khu vực với audit, validation và kiểm thử đồng thời.
+4. Kiểm thử API và ràng buộc trên PostgreSQL, cập nhật Swagger và cấu hình SMTP cho quên mật khẩu; xem tài liệu module tài khoản.
 
 Các nghiệp vụ thiết bị, mượn trả, cấp phát, điều chuyển, sửa chữa và thanh lý được bổ sung sau khi có yêu cầu đã chỉnh sửa; tài liệu cũ chỉ cho thấy cần giữ khả năng mở rộng liên kết thiết bị/phòng ban/khu vực và lịch sử.
 
