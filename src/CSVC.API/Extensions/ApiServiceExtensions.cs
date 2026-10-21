@@ -43,12 +43,23 @@ public static class ApiServiceExtensions
         });
 
         services.AddEndpointsApiExplorer();
-        services.AddSwaggerGen(options => options.SwaggerDoc("v1", new OpenApiInfo
+        services.AddSwaggerGen(options =>
         {
-            Title = "CSVC API",
-            Version = "v1",
-            Description = "Backend for facilities and equipment management. Foundation endpoints only."
-        }));
+            options.SwaggerDoc("v1", new OpenApiInfo
+            {
+                Title = "CSVC API", Version = "v1",
+                Description = "Facilities management API: infrastructure and account/user management."
+            });
+            options.AddSecurityDefinition("Session", new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "Opaque session token",
+                Description = "An existing DB session token. Login/session issuance is implemented separately."
+            });
+            options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecuritySchemeReference("Session", document)] = []
+            });
+        });
 
         var origins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         if (origins.Any(origin => origin == "*"

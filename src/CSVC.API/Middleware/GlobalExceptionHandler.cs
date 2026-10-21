@@ -19,6 +19,8 @@ public sealed class GlobalExceptionHandler(
             UseCaseException application => (application.Kind switch
             {
                 FailureKind.Validation => 400,
+                FailureKind.Unauthorized => 401,
+                FailureKind.Unavailable => 503,
                 FailureKind.NotFound => 404,
                 FailureKind.Conflict => 409,
                 FailureKind.Forbidden => 403,

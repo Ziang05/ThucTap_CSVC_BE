@@ -1,3 +1,6 @@
+using CSVC.API.Authentication;
+using CSVC.UseCases.Abstractions.Security;
+using Microsoft.AspNetCore.Authentication;
 using CSVC.API.Extensions;
 using CSVC.API.Middleware;
 using CSVC.API.Services;
@@ -14,6 +17,10 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApi(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
+builder.Services.AddScoped<ICurrentAccount, HttpCurrentAccount>();
+builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
+    .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationHandler.SchemeName, _ => { });
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
@@ -47,6 +54,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseRouting();
 app.UseCors(ApiServiceExtensions.FrontendCorsPolicy);
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 app.MapApplicationHealthChecks();
 
