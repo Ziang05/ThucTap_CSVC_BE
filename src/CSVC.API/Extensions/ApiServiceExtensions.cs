@@ -48,12 +48,13 @@ public static class ApiServiceExtensions
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "CSVC API", Version = "v1",
-                Description = "Facilities management API: infrastructure and account/user management."
+                Description = "Facilities management API: account/user management and database-session authentication."
             });
+            options.DocumentFilter<AuthenticationSecurityDocumentFilter>();
             options.AddSecurityDefinition("Session", new OpenApiSecurityScheme
             {
                 Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "Opaque session token",
-                Description = "An existing DB session token. Login/session issuance is implemented separately."
+                Description = "Opaque session token returned by POST /api/v1/auth/login."
             });
             options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
             {

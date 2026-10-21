@@ -1,4 +1,6 @@
 using CSVC.API.Authentication;
+using CSVC.API.BackgroundServices;
+using CSVC.UseCases.Authentication;
 using CSVC.UseCases.Abstractions.Security;
 using Microsoft.AspNetCore.Authentication;
 using CSVC.API.Extensions;
@@ -18,6 +20,11 @@ builder.Services.AddApi(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
 builder.Services.AddScoped<ICurrentAccount, HttpCurrentAccount>();
+builder.Services.AddScoped<IAuthenticationClientContext, HttpAuthenticationClientContext>();
+builder.Services.AddOptions<CSVC.UseCases.Authentication.AuthenticationOptions>()
+    .BindConfiguration(CSVC.UseCases.Authentication.AuthenticationOptions.SectionName)
+    .ValidateDataAnnotations().ValidateOnStart();
+builder.Services.AddHostedService<SessionExpirationWorker>();
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationHandler.SchemeName, _ => { });
 builder.Services.AddAuthorization();

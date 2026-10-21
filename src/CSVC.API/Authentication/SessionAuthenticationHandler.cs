@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using CSVC.UseCases.Abstractions.Security;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
 namespace CSVC.API.Authentication;
@@ -15,12 +16,14 @@ public sealed class SessionAuthenticationHandler(
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        if (Context.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            return AuthenticateResult.NoResult();
         var header = Request.Headers.Authorization.ToString();
         if (string.IsNullOrEmpty(header)) return AuthenticateResult.NoResult();
         if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             return AuthenticateResult.Fail("A bearer session token is required.");
         var token = header[7..].Trim();
-        if (token.Length is < 32 or > 128 || token.Any(char.IsWhiteSpace))
+        if (!SessionToken.IsWellFormed(token))
             return AuthenticateResult.Fail("Invalid session.");
         var identity = await validator.ValidateAsync(token, Context.RequestAborted);
         if (identity is null) return AuthenticateResult.Fail("Invalid session.");
