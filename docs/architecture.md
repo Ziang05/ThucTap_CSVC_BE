@@ -4,7 +4,7 @@
 
 Đã đọc `Documents/Danh sách nghiệp vụ.xlsx` (danh sách tổng và 4 sheet đặc tả), `Documents/qltb_4nhom.dbml`, xem phần mô tả tổng quan trong 4 SRS cũ, và tham khảo cấu trúc `D:/Git_Project/Do_An_1/src`. Workbook và DBML là cơ sở cho 4 nhóm được ưu tiên. Tài liệu SRS, activity và sequence cũ chỉ cung cấp bối cảnh hệ thống thiết bị; không dùng để ghi đè 4 nhóm đã chỉnh sửa.
 
-Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Nhóm 2 đã có đăng nhập/cấp phiên, đăng xuất, throttle theo email và expiration worker; xem [authentication-api.md](authentication-api.md). Nhóm 3 có DTO/AutoMapper/service/controller phòng ban và audit giao dịch; xem [departments-api.md](departments-api.md). Chưa có tài khoản mặc định hoặc bootstrap. Khu vực, thiết bị và xử lý phiếu triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
+Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Nhóm 2 đã có đăng nhập/cấp phiên, đăng xuất, throttle theo email và expiration worker; xem [authentication-api.md](authentication-api.md). Nhóm 3 có DTO/AutoMapper/service/controller phòng ban và audit giao dịch; xem [departments-api.md](departments-api.md). Nhóm 4 có cây khu vực, chuyển nhánh, trạng thái hiệu lực và audit đường dẫn; xem [areas-api.md](areas-api.md). Chưa có tài khoản mặc định hoặc bootstrap. Thiết bị và xử lý phiếu triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
 
 ## Tổ chức solution
 
@@ -92,6 +92,8 @@ Khu vực là cây vật lý nhiều cấp với `parent_id` tùy chọn; nhãn 
 
 Chuyển cha phải ngăn tự trỏ/chu trình và bảo đảm các tổ tiên đích còn hoạt động. Trạng thái hiệu lực bằng trạng thái node kết hợp toàn bộ tổ tiên. Khóa một node không ghi đè trạng thái lưu của con. Di chuyển nhánh giữ định danh/liên kết và ghi một sự kiện cho node được di chuyển, với snapshot đường dẫn cũ/mới; không viết lại lịch sử cũ.
 
+UseCases/Areas và AreasController triển khai các luồng trên. PUT phân biệt parentId bị bỏ qua (giữ cha) với null tường minh (đưa lên gốc). Recursive CTE trong repository tính đường dẫn, độ sâu, số con và trạng thái hiệu lực; kết quả trả phẳng và phân trang để tải từng nhánh, không nhúng cây JSON sâu. Tìm kiếm mọi cấp trả cả chuỗi tổ tiên để định vị trong cây. AreaTransaction dùng READ COMMITTED, lấy lock tài khoản rồi advisory lock cây `(1129535043,1)` khớp trigger trước khi đọc–kiểm tra–ghi. Audit nguyên tử, chống các lần đổi cha đối nghịch hoặc khóa cha chạy đua với tạo con; SQL trực tiếp có trigger cũng phối hợp cùng lock. Lịch sử chỉ đọc bởi Trưởng phòng, có thể lọc nhánh hiện tại, không sửa snapshot quá khứ. Các số thiết bị trực tiếp/toàn nhánh và phiếu chưa có dữ liệu nên trả null. Tài liệu testcase input/output được giữ ngoài backend.
+
 ### Audit
 
 Giữ 4 bảng riêng: `account_history`, `auth_history`, `department_history`, `area_history`. Dữ liệu thay đổi và audit thành công cần cùng transaction. Lỗi/từ chối có luồng lưu riêng sau rollback; không ghi SUCCESS giả cho thao tác đọc hoặc thao tác không thay đổi gì.
@@ -114,7 +116,7 @@ Migration có Down để xóa trigger/function, bảng và enum; rollback/reappl
 
 1. Schema, migration đầu và seed 3 role đã hoàn thành. Tiếp theo xây quy trình bootstrap Trưởng phòng đầu tiên.
 2. Đã có băm mật khẩu, xác thực phiên DB, phân quyền tài khoản, đăng nhập/cấp phiên, đăng xuất, chặn sai 5 lần trong 10 phút trong 15 phút và đóng phiên hết hạn thuộc Nhóm 2.
-3. Tài khoản/người dùng và phòng ban đã có API, service, DTO, audit và kiểm thử PostgreSQL. Tiếp tục triển khai cây khu vực; tích hợp thống kê và kiểm tra gán mới cho thiết bị/phiếu khi các module này có dữ liệu.
+3. Tài khoản/người dùng, phòng ban và cây khu vực đã có API, service, DTO, audit và kiểm thử PostgreSQL. Tích hợp thống kê và kiểm tra gán mới cho thiết bị/phiếu khi các module này có dữ liệu.
 4. Kiểm thử API và ràng buộc trên PostgreSQL, cập nhật Swagger và cấu hình SMTP cho quên mật khẩu; xem tài liệu module tài khoản.
 
 Các nghiệp vụ thiết bị, mượn trả, cấp phát, điều chuyển, sửa chữa và thanh lý được bổ sung sau khi có yêu cầu đã chỉnh sửa; tài liệu cũ chỉ cho thấy cần giữ khả năng mở rộng liên kết thiết bị/phòng ban/khu vực và lịch sử.
