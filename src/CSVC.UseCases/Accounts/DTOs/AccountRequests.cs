@@ -53,13 +53,20 @@ public sealed class CompletePasswordResetRequest
 public enum AccountSortBy { FullName, CreatedAt }
 public enum SortDirection { Asc, Desc }
 
-public sealed class AccountListQuery
+public sealed class AccountListQuery : IValidatableObject
 {
     [StringLength(200)] public string? Search { get; init; }
     [Range(1, short.MaxValue)] public short? RoleId { get; init; }
     public bool? IsLocked { get; init; }
+    [MaxLength(100)] public Guid[] DepartmentIds { get; init; } = [];
     [EnumDataType(typeof(AccountSortBy))] public AccountSortBy SortBy { get; init; } = AccountSortBy.FullName;
     [EnumDataType(typeof(SortDirection))] public SortDirection SortDirection { get; init; } = SortDirection.Asc;
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1, 100)] public int PageSize { get; init; } = 20;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (DepartmentIds is null || DepartmentIds.Contains(Guid.Empty))
+            yield return new ValidationResult("Department IDs must be non-empty UUIDs.", [nameof(DepartmentIds)]);
+    }
 }

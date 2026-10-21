@@ -68,6 +68,15 @@ Danh sách:
 GET /api/v1/accounts?search=nguyễn&roleId=2&isLocked=false&sortBy=CreatedAt&sortDirection=Desc&page=1&pageSize=20
 ```
 
+Lọc theo một hoặc nhiều phòng ban bằng query lặp `departmentIds`:
+
+```http
+GET /api/v1/accounts?departmentIds=11111111-1111-1111-1111-111111111111
+GET /api/v1/accounts?departmentIds=11111111-1111-1111-1111-111111111111&departmentIds=22222222-2222-2222-2222-222222222222&roleId=3&isLocked=false
+```
+
+Thay UUID ví dụ bằng ID phòng ban thực tế. Nhiều ID dùng điều kiện thuộc một trong các phòng ban (OR), kết hợp AND với search/roleId/isLocked. Không gửi departmentIds thì giữ danh sách không lọc phòng ban. Tối đa 100 giá trị mỗi request; UUID sai, giá trị trống, Guid.Empty hoặc hơn 100 giá trị trả 400 VALIDATION_FAILED. ID trùng không nhân đôi tài khoản; ID hợp lệ nhưng không tồn tại trả danh sách rỗng hoặc phần kết quả của các ID còn lại. Vẫn tra cứu tài khoản thuộc phòng ban Locked để bảo toàn lịch sử. Bộ lọc chạy trong PostgreSQL trước Count/sort/Skip/Take, totalCount là số tài khoản sau lọc. Quyền lấy danh sách vẫn chỉ dành cho Trưởng phòng QTTB.
+
 - Tìm một phần họ tên, không phân biệt hoa/thường; không tự bỏ dấu tiếng Việt.
 - `sortBy`: `FullName` (mặc định) hoặc `CreatedAt`; `sortDirection`: `Asc` (mặc định) hoặc `Desc`. Luôn thêm khóa Id để ổn định phân trang.
 - `page`: 1–1.000.000; `pageSize`: 1–100, mặc định 20. Tổng kết quả áp dụng cùng bộ lọc; không có kết quả trả mảng rỗng.

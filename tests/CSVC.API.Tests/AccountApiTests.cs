@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CSVC.Core.Accounts;
 using CSVC.Core.Common;
+using CSVC.Core.Departments;
 using CSVC.Infrastructure.Persistence;
 using CSVC.UseCases.Abstractions.Security;
 using CSVC.UseCases.Accounts.DTOs;
@@ -194,6 +195,128 @@ public sealed class AccountApiTests
             var context = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
             Assert.Equal(1, await context.Accounts.CountAsync(a => a.RoleId == 1 && !a.IsLock));
         }
+    }
+
+    [PostgreSqlFact]
+    public async Task Department_filters_support_single_multiple_and_combined_queries_before_pagination()
+    {
+        await using var database = await AccountTestDatabase.CreateAsync();
+        await using var factory = new AccountApiTestHost(database.ConnectionString);
+        var seed = await factory.SeedAsync();
+        using var manager = Client(factory, seed.ManagerToken);
+        var b = new Department { Code = "PB_FILTER_B", Name = "Department B" };
+        var c = new Department { Code = "PB_FILTER_C", Name = "Department C", Status = EntityStatus.Locked };
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
+            var passwordHash = (await context.Accounts.SingleAsync(a => a.Id == seed.Manager)).PasswordHash;
+            context.AddRange(b, c);
+            foreach (var (code, name, department, locked) in new[]
+                { ("ZED", "Zed User", b.Id, false), ("AMY", "Amy User", b.Id, true), ("BEN", "Ben User", c.Id, false) })
+            {
+                var profile = new UserProfile { FullName = name, DepartmentId = department };
+                context.AddRange(profile, new Account
+                {
+                    AccountCode = "FILTER_" + code, Email = code.ToLowerInvariant() + "@example.com", RoleId = 3,
+                    UserProfileId = profile.Id, PasswordHash = passwordHash, IsLock = locked
+                });
+            }
+            await context.SaveChangesAsync();
+        }
+
+        async Task<PagedResult<AccountListItemDto>> List(string query = "")
+            => (await manager.GetFromJsonAsync<PagedResult<AccountListItemDto>>("/api/v1/accounts" + query))!;
+
+        var all = await List();
+        Assert.Equal(5, all.TotalCount);
+        var single = await List($"?departmentIds={seed.Department}");
+        Assert.Equal(2, single.TotalCount);
+        Assert.All(single.Items, account => Assert.Equal(seed.Department, account.DepartmentId));
+        var oneB = await List($"?departmentIds={b.Id}");
+        Assert.Equal(2, oneB.TotalCount);
+        Assert.Contains(oneB.Items, account => account.IsLocked);
+        var both = await List($"?departmentIds={seed.Department}&departmentIds={b.Id}");
+        Assert.Equal(4, both.TotalCount);
+        Assert.Equal(4, both.Items.Select(a => a.Id).Distinct().Count());
+        Assert.DoesNotContain(both.Items, account => account.DepartmentId == c.Id);
+        var duplicate = await List($"?departmentIds={b.Id}&departmentIds={b.Id}");
+        Assert.Equal(2, duplicate.TotalCount);
+        Assert.Equal(2, duplicate.Items.Count);
+        var unknown = Guid.NewGuid();
+        var empty = await List($"?departmentIds={unknown}");
+        Assert.Equal(0, empty.TotalCount);
+        Assert.Empty(empty.Items);
+        Assert.Equal(2, (await List($"?departmentIds={unknown}&departmentIds={b.Id}")).TotalCount);
+        var lockedDepartment = await List($"?departmentIds={c.Id}");
+        Assert.Equal("Ben User", Assert.Single(lockedDepartment.Items).FullName);
+        var combined = await List($"?departmentIds={seed.Department}&departmentIds={b.Id}&search=user&roleId=3&isLocked=false");
+        Assert.Equal(1, combined.TotalCount);
+        Assert.Equal("Zed User", Assert.Single(combined.Items).FullName);
+        var page = await List($"?departmentIds={seed.Department}&departmentIds={b.Id}&sortBy=FullName&sortDirection=Asc&page=2&pageSize=2");
+        Assert.Equal(4, page.TotalCount);
+        Assert.Equal(2, page.Page);
+        Assert.Equal(2, page.PageSize);
+        Assert.Equal(new[] { "Test Staff", "Zed User" }, page.Items.Select(a => a.FullName));
+        var descending = await List($"?departmentIds={seed.Department}&departmentIds={b.Id}&sortBy=FullName&sortDirection=Desc&pageSize=2");
+        Assert.Equal(new[] { "Zed User", "Test Staff" }, descending.Items.Select(a => a.FullName));
+        var createdSort = await List($"?departmentIds={seed.Department}&sortBy=CreatedAt&sortDirection=Desc");
+        Assert.Equal(2, createdSort.TotalCount);
+        Assert.All(createdSort.Items, a => Assert.Equal(seed.Department, a.DepartmentId));
+        await using var readScope = factory.Services.CreateAsyncScope();
+        var db = readScope.ServiceProvider.GetRequiredService<CsvcDbContext>();
+        Assert.Equal(5, await db.Accounts.CountAsync());
+        Assert.Equal(1, await db.AccountHistories.CountAsync());
+        Assert.Equal(0, await db.DepartmentHistories.CountAsync());
+    }
+
+    [PostgreSqlFact]
+    public async Task Department_filter_validation_and_authorization_reject_invalid_or_unprivileged_requests()
+    {
+        await using var database = await AccountTestDatabase.CreateAsync();
+        await using var factory = new AccountApiTestHost(database.ConnectionString);
+        var seed = await factory.SeedAsync();
+        using var manager = Client(factory, seed.ManagerToken);
+        using var staff = Client(factory, seed.StaffToken);
+        using var anonymous = factory.CreateClient();
+        var path = $"/api/v1/accounts?departmentIds={seed.Department}";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync(path)).StatusCode);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
+            (await context.Accounts.SingleAsync(a => a.Id == seed.Staff)).RoleId = 3;
+            await context.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.GetAsync(path)).StatusCode);
+        foreach (var query in new[]
+        {
+            "departmentIds=not-a-uuid", "departmentIds=", $"departmentIds={Guid.Empty}",
+            $"departmentIds={seed.Department}&departmentIds=invalid", $"departmentIds={seed.Department}&departmentIds={Guid.Empty}",
+            string.Join('&', Enumerable.Repeat($"departmentIds={seed.Department}", 101))
+        })
+        {
+            using var response = await manager.GetAsync("/api/v1/accounts?" + query);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("VALIDATION_FAILED", problem.GetProperty("code").GetString());
+        }
+        using var boundary = await manager.GetAsync("/api/v1/accounts?" + string.Join('&', Enumerable.Repeat($"departmentIds={seed.Department}", 100)));
+        Assert.Equal(HttpStatusCode.OK, boundary.StatusCode);
+        Assert.Equal(2, (await boundary.Content.ReadFromJsonAsync<PagedResult<AccountListItemDto>>())!.TotalCount);
+    }
+
+    [Fact]
+    public async Task Swagger_exposes_department_filter_as_an_array_of_uuids()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        var document = await client.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
+        var parameter = Assert.Single(document.GetProperty("paths").GetProperty("/api/v1/accounts").GetProperty("get")
+            .GetProperty("parameters").EnumerateArray(), item => item.GetProperty("name").GetString()!.Equals("departmentIds", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("query", parameter.GetProperty("in").GetString());
+        var schema = parameter.GetProperty("schema");
+        Assert.Equal("array", schema.GetProperty("type").GetString());
+        Assert.Equal("uuid", schema.GetProperty("items").GetProperty("format").GetString());
     }
 
     private static HttpClient Client(AccountApiTestHost factory, string token)
