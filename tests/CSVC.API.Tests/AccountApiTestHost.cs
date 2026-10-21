@@ -102,9 +102,16 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         public bool FailNextAccountCreation { get; set; }
         public bool FailNextSessionCreation { get; set; }
         public bool FailNextLoginFailure { get; set; }
+        public string? FailNextDepartmentAction { get; set; }
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
+            if (FailNextDepartmentAction is { } action && eventData.Context!.ChangeTracker.Entries<DepartmentHistory>()
+                    .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == action))
+            {
+                FailNextDepartmentAction = null;
+                throw new InvalidOperationException("Simulated department audit storage failure.");
+            }
             if (FailNextAccountCreation && eventData.Context!.ChangeTracker.Entries<AccountHistory>()
                     .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == "ACCOUNT_CREATED"))
             {
