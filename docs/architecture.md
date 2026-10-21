@@ -4,7 +4,7 @@
 
 Đã đọc `Documents/Danh sách nghiệp vụ.xlsx` (danh sách tổng và 4 sheet đặc tả), `Documents/qltb_4nhom.dbml`, xem phần mô tả tổng quan trong 4 SRS cũ, và tham khảo cấu trúc `D:/Git_Project/Do_An_1/src`. Workbook và DBML là cơ sở cho 4 nhóm được ưu tiên. Tài liệu SRS, activity và sequence cũ chỉ cung cấp bối cảnh hệ thống thiết bị; không dùng để ghi đè 4 nhóm đã chỉnh sửa.
 
-Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Chưa có tài khoản mặc định, bootstrap hoặc endpoint đăng nhập/cấp phiên. Quy tắc phòng ban/khu vực, xử lý phiếu và phần còn lại của Nhóm 2 triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
+Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Nhóm 2 đã có đăng nhập/cấp phiên, đăng xuất, throttle theo email và expiration worker; xem [authentication-api.md](authentication-api.md). Chưa có tài khoản mặc định hoặc bootstrap. Quy tắc phòng ban/khu vực và xử lý phiếu triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
 
 ## Tổ chức solution
 
@@ -74,7 +74,7 @@ Migration seed 3 role cố định: ID 1 `QTTB_MANAGER` (Trưởng phòng QTTB),
 
 Một account có một role, một profile và một phòng ban trực thuộc bắt buộc. Email phải duy nhất sau chuẩn hóa, kể cả tài khoản khóa. Password khởi tạo bằng email đã chuẩn hóa theo tài liệu hiện tại và chỉ lưu hash. Đặt lại trực tiếp bởi Trưởng phòng và quên mật khẩu bằng token một lần là hai luồng riêng. Việc đổi/đặt lại mật khẩu và khóa account phải thu hồi phiên.
 
-Mô hình hiện tại dùng session token được băm trong DB. Mỗi account chỉ có tối đa một phiên hiệu lực; đăng nhập mới thu hồi phiên cũ. Khi triển khai, ưu tiên handler xác thực session theo mô hình này, kiểm tra session còn hạn/còn hoạt động và `accounts.is_lock` trong mỗi request cần bảo vệ. Base chưa mặc định thay cơ chế này bằng JWT/refresh token hoặc ASP.NET Identity.
+Mô hình hiện tại dùng session token được băm trong DB. Mỗi account chỉ có tối đa một phiên hiệu lực; đăng nhập mới thu hồi phiên cũ. Handler xác thực session kiểm tra session còn hạn/còn hoạt động và `accounts.is_lock` trong mỗi request cần bảo vệ; Nhóm 2 bổ sung đăng nhập, đăng xuất, throttle và đóng phiên hết hạn. Base chưa mặc định thay cơ chế này bằng JWT/refresh token hoặc ASP.NET Identity.
 
 5 lần đăng nhập sai liên tiếp trong 10 phút dẫn tới tạm chặn 15 phút; trạng thái này độc lập với `is_lock`. Cần xử lý đồng thời khi tăng counter, đăng nhập mới, thu hồi session và hoàn tất reset token. Không được tiết lộ email có tồn tại qua lỗi đăng nhập.
 
@@ -111,7 +111,7 @@ Migration có Down để xóa trigger/function, bảng và enum; rollback/reappl
 ## Thứ tự triển khai đề xuất
 
 1. Schema, migration đầu và seed 3 role đã hoàn thành. Tiếp theo xây quy trình bootstrap Trưởng phòng đầu tiên.
-2. Đã có băm mật khẩu, kiểm tra phiên DB, phân quyền tài khoản và thu hồi phiên. Tiếp tục hoàn thiện đăng nhập/cấp phiên, kiểm soát nhập sai và kết thúc phiên tự hết hạn thuộc Nhóm 2.
+2. Đã có băm mật khẩu, xác thực phiên DB, phân quyền tài khoản, đăng nhập/cấp phiên, đăng xuất, chặn sai 5 lần trong 10 phút trong 15 phút và đóng phiên hết hạn thuộc Nhóm 2.
 3. Tài khoản/người dùng đã có API, service, DTO, audit và kiểm thử PostgreSQL. Tiếp tục triển khai phòng ban và cây khu vực với audit, validation và kiểm thử đồng thời.
 4. Kiểm thử API và ràng buộc trên PostgreSQL, cập nhật Swagger và cấu hình SMTP cho quên mật khẩu; xem tài liệu module tài khoản.
 

@@ -84,9 +84,9 @@ Khóa tài khoản hoặc thay mật khẩu đóng phiên active và ghi SESSION
 
 ## Xác thực phiên và phần tích hợp còn lại
 
-Handler `DatabaseSession` băm SHA-256 token opaque (UTF-8, chuỗi hex chữ hoa), tra auth_sessions và kiểm tra active, hạn dùng, khóa tài khoản, vai trò hiện tại trong DB. Không nhận account id/role do client tự khai. Endpoint đăng nhập/cấp phiên, bộ đếm sai và tác vụ kết thúc phiên hết hạn thuộc Nhóm 2, chưa được triển khai ở đây. Bootstrap quản trị đầu tiên cũng là luồng riêng; không seed mật khẩu quản trị hoặc endpoint bypass.
+Handler `DatabaseSession` băm SHA-256 token opaque (UTF-8, chuỗi hex chữ hoa), tra auth_sessions và kiểm tra active, hạn dùng, khóa tài khoản, vai trò hiện tại trong DB. Không nhận account id/role do client tự khai. Nhóm 2 đã có endpoint đăng nhập/cấp phiên, đăng xuất, bộ đếm sai và xử lý phiên hết hạn; xem [authentication-api.md](authentication-api.md). Bootstrap quản trị đầu tiên cũng là luồng riêng; không seed mật khẩu quản trị hoặc endpoint bypass.
 
-Khi triển khai đăng nhập hoặc tác vụ kết thúc phiên sau này, các thao tác ghi account/session/reset phải phối hợp cùng `AccountTransaction.AdvisoryLockKey` để bảo toàn các điều kiện nhiều hàng. Handler hiện từ chối phiên hết hạn; tác vụ ghi SESSION_ENDED cho phiên tự hết hạn cần hoàn thiện trong Nhóm 2.
+Các thao tác ghi account/session/reset phải phối hợp cùng `AccountTransaction.AdvisoryLockKey` để bảo toàn các điều kiện nhiều hàng. Nhóm 1 và Nhóm 2 dùng chung SessionLifecycle để kết thúc phiên một lần. Handler từ chối và đóng phiên hết hạn; background worker dọn các phiên không còn request.
 
 ## Email quên mật khẩu
 
