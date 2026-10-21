@@ -10,6 +10,7 @@ using CSVC.UseCases.Abstractions;
 using CSVC.UseCases.Abstractions.Persistence;
 using CSVC.UseCases.Abstractions.Security;
 using CSVC.UseCases.Accounts.DTOs;
+using CSVC.UseCases.Authentication;
 using CSVC.UseCases.Common;
 using CSVC.UseCases.Exceptions;
 using Microsoft.Extensions.Logging;
@@ -18,7 +19,7 @@ namespace CSVC.UseCases.Accounts;
 
 public sealed class AccountService(
     IUnitOfWork unitOfWork, IAccountTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, IAccountPasswordHasher passwords, IPasswordResetSender resetSender,
+    IRequestContext requestContext, IAccountPasswordHasher passwords, IPasswordResetSender resetSender, ISessionLifecycle sessions,
     IMapper mapper, TimeProvider clock, ILogger<AccountService> logger) : IAccountService
 {
     public async Task<PagedResult<AccountListItemDto>> ListAsync(AccountListQuery query, CancellationToken cancellationToken = default)
@@ -197,21 +198,10 @@ public sealed class AccountService(
 
     private async Task EndSessionsAsync(Guid accountId, CancellationToken ct, bool anonymous = false)
     {
-        var sessions = await unitOfWork.AuthSessions.FindAsync(item => item.AccountId == accountId && item.IsActive, ct);
+        var active = await unitOfWork.AuthSessions.FindAsync(item => item.AccountId == accountId && item.IsActive, ct);
         var now = clock.GetUtcNow();
-        foreach (var session in sessions)
-        {
-            session.IsActive = false;
-            unitOfWork.AuthSessions.Update(session);
-            // Defensive for legacy data; normal writes use the same transaction lock and unique index.
-            if (await unitOfWork.AuthHistories.ExistsAsync(item => item.SessionId == session.Id && item.ActionCode == "SESSION_ENDED", ct)) continue;
-            await unitOfWork.AuthHistories.AddAsync(new AuthHistory
-            {
-                RequestId = requestContext.RequestId, ActorAccountId = anonymous ? null : current.AccountId,
-                AccountId = accountId, SessionId = session.Id, ActionCode = "SESSION_ENDED", Outcome = AuditOutcome.Success,
-                OccurredAt = session.ExpiresAt < now ? session.ExpiresAt : now
-            }, ct);
-        }
+        foreach (var session in active)
+            await sessions.EndAsync(session, requestContext.RequestId, anonymous ? null : current.AccountId, now, ct);
     }
 
     private async Task<bool> CloseResetRequestsAsync(Guid accountId, CancellationToken ct)

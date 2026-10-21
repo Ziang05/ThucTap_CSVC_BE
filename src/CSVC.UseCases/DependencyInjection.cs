@@ -1,4 +1,5 @@
 using CSVC.UseCases.Accounts;
+using CSVC.UseCases.Authentication;
 using CSVC.UseCases.Accounts.Mapping;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -12,6 +13,9 @@ public static class DependencyInjection
         services.TryAddSingleton(TimeProvider.System);
         services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
         services.AddScoped<IAccountService, AccountService>();
+        services.AddScoped<IAccountAuthenticationService, AccountAuthenticationService>();
+        services.AddScoped<ISessionLifecycle, SessionLifecycle>();
+        services.AddScoped<ISessionExpirationService, SessionExpirationService>();
         return services;
     }
 }
