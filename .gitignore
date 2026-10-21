@@ -1,6 +1,9 @@
 # Local documents
 /Documents/
 
+# Graphify generated graphs, reports, and caches
+/graphify-out/
+
 # .NET build and test output
 **/bin/
 **/obj/
