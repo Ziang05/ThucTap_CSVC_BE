@@ -2,23 +2,14 @@ using CSVC.API.Filters;
 using CSVC.UseCases.Common;
 using CSVC.UseCases.Departments;
 using CSVC.UseCases.Departments.DTOs;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CSVC.API.Controllers;
 
-[ApiController]
-[Authorize]
 [Route("api/v1/departments")]
 [TypeFilter(typeof(DepartmentValidationAuditFilter), Order = -3000)]
-[Produces("application/json")]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
-public sealed class DepartmentsController(IDepartmentService departments) : ControllerBase
+public sealed class DepartmentsController(IDepartmentService departments) : AuthenticatedApiControllerBase
 {
     [HttpGet]
     [ProducesResponseType<PagedResult<DepartmentListItemDto>>(StatusCodes.Status200OK)]

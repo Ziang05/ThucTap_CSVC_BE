@@ -36,6 +36,24 @@ public sealed class ApiFoundationTests
     }
 
     [Theory]
+    [InlineData("/api/v1/accounts", false)]
+    [InlineData("/api/v1/departments", true)]
+    [InlineData("/api/v1/areas", true)]
+    public async Task Protected_catalogues_keep_authorization_and_common_swagger_errors(string path, bool documentsUnavailable)
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync(path);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var document = await client.GetFromJsonAsync<JsonElement>("/swagger/v1/swagger.json");
+        var responses = document.GetProperty("paths").GetProperty(path).GetProperty("get").GetProperty("responses");
+        Assert.True(responses.TryGetProperty("200", out _));
+        foreach (var status in new[] { "400", "401", "403", "404", "409" })
+            Assert.True(responses.TryGetProperty(status, out _), $"{path} is missing documented HTTP {status}.");
+        Assert.Equal(documentsUnavailable, responses.TryGetProperty("503", out _));
+    }
+
+    [Theory]
     [InlineData("/swagger/index.html")]
     [InlineData("/swagger/v1/swagger.json")]
     public async Task Swagger_is_unavailable_in_production(string path)

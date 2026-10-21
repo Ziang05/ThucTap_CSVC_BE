@@ -2,23 +2,14 @@ using CSVC.API.Filters;
 using CSVC.UseCases.Areas;
 using CSVC.UseCases.Areas.DTOs;
 using CSVC.UseCases.Common;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CSVC.API.Controllers;
 
-[ApiController]
-[Authorize]
 [Route("api/v1/areas")]
 [TypeFilter(typeof(AreaValidationAuditFilter), Order = -3000)]
-[Produces("application/json")]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
-public sealed class AreasController(IAreaService areas) : ControllerBase
+public sealed class AreasController(IAreaService areas) : AuthenticatedApiControllerBase
 {
     [HttpGet]
     [ProducesResponseType<PagedResult<AreaListItemDto>>(StatusCodes.Status200OK)]

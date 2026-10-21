@@ -6,16 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CSVC.API.Controllers;
 
-[ApiController]
-[Authorize]
 [Route("api/v1/accounts")]
-[Produces("application/json")]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-[ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-public sealed class AccountsController(IAccountService accounts) : ControllerBase
+public sealed class AccountsController(IAccountService accounts) : AuthenticatedApiControllerBase
 {
     [HttpGet]
     [ProducesResponseType<PagedResult<AccountListItemDto>>(StatusCodes.Status200OK)]
