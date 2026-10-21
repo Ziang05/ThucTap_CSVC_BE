@@ -132,8 +132,12 @@ public sealed class RepositoryTests
             new AuthHistoryRepository(context),
             new AuthLoginThrottleRepository(context),
             new PasswordResetRequestRepository(context),
-            new AreaRepository(context),
-            new AreaHistoryRepository(context));
+            new AreaRepository(context, AreaMapper()),
+            new AreaHistoryRepository(context, AreaMapper()));
+
+    private static AutoMapper.IMapper AreaMapper()
+        => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Areas.Mapping.AreaMappingProfile>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper();
 
     private static AutoMapper.IMapper DepartmentMapper()
         => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Departments.Mapping.DepartmentMappingProfile>(),
