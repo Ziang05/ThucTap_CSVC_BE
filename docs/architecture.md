@@ -4,7 +4,7 @@
 
 Đã đọc `Documents/Danh sách nghiệp vụ.xlsx` (danh sách tổng và 4 sheet đặc tả), `Documents/qltb_4nhom.dbml`, xem phần mô tả tổng quan trong 4 SRS cũ, và tham khảo cấu trúc `D:/Git_Project/Do_An_1/src`. Workbook và DBML là cơ sở cho 4 nhóm được ưu tiên. Tài liệu SRS, activity và sequence cũ chỉ cung cấp bối cảnh hệ thống thiết bị; không dùng để ghi đè 4 nhóm đã chỉnh sửa.
 
-Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Nhóm 2 đã có đăng nhập/cấp phiên, đăng xuất, throttle theo email và expiration worker; xem [authentication-api.md](authentication-api.md). Chưa có tài khoản mặc định hoặc bootstrap. Quy tắc phòng ban/khu vực và xử lý phiếu triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
+Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Nhóm 2 đã có đăng nhập/cấp phiên, đăng xuất, throttle theo email và expiration worker; xem [authentication-api.md](authentication-api.md). Nhóm 3 có DTO/AutoMapper/service/controller phòng ban và audit giao dịch; xem [departments-api.md](departments-api.md). Chưa có tài khoản mặc định hoặc bootstrap. Khu vực, thiết bị và xử lý phiếu triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
 
 ## Tổ chức solution
 
@@ -84,6 +84,8 @@ Mô hình hiện tại dùng session token được băm trong DB. Mỗi account
 
 Phòng ban là đơn vị tổ chức. Tên duy nhất toàn hệ thống sau chuẩn hóa khoảng trắng và hoa/thường, kể cả phòng ban khóa. Khóa phòng ban ngăn gán tài khoản/nghiệp vụ mới nhưng giữ account, thiết bị và phiếu cũ; không tự khóa nhân viên. Cả ba role được đọc danh mục cơ bản; thông tin nhân sự và audit cần quyền riêng.
 
+Nhóm 3 triển khai tại UseCases/Departments và DepartmentsController; repository lọc/sắp xếp/phân trang/ProjectTo tại DB. DepartmentTransaction lấy cùng advisory lock với AccountTransaction, kiểm tra lại phiên và quyền trong giao dịch ghi. Tạo/sửa/khóa/mở khóa và audit thành công được commit nguyên tử; lỗi/từ chối lưu riêng sau rollback. Không có chức năng xóa phòng ban; request DELETE chỉ được ghi DELETE_DENIED và trả 403. Lịch sử chỉ đọc bởi Trưởng phòng. Số liên kết thiết bị/phiếu hiện chưa có dữ liệu để thống kê, API cảnh báo trả null thay vì 0. Tài liệu input/output testcase được lưu riêng bên ngoài project.
+
 ### Khu vực
 
 Khu vực là cây vật lý nhiều cấp với `parent_id` tùy chọn; nhãn Tòa/Tầng/Phòng không ép cứng số cấp. Phòng ban và khu vực độc lập. Mã node không đổi khi chuyển nhánh; tên duy nhất trong cùng cha sau chuẩn hóa, bao gồm các node gốc.
@@ -112,7 +114,7 @@ Migration có Down để xóa trigger/function, bảng và enum; rollback/reappl
 
 1. Schema, migration đầu và seed 3 role đã hoàn thành. Tiếp theo xây quy trình bootstrap Trưởng phòng đầu tiên.
 2. Đã có băm mật khẩu, xác thực phiên DB, phân quyền tài khoản, đăng nhập/cấp phiên, đăng xuất, chặn sai 5 lần trong 10 phút trong 15 phút và đóng phiên hết hạn thuộc Nhóm 2.
-3. Tài khoản/người dùng đã có API, service, DTO, audit và kiểm thử PostgreSQL. Tiếp tục triển khai phòng ban và cây khu vực với audit, validation và kiểm thử đồng thời.
+3. Tài khoản/người dùng và phòng ban đã có API, service, DTO, audit và kiểm thử PostgreSQL. Tiếp tục triển khai cây khu vực; tích hợp thống kê và kiểm tra gán mới cho thiết bị/phiếu khi các module này có dữ liệu.
 4. Kiểm thử API và ràng buộc trên PostgreSQL, cập nhật Swagger và cấu hình SMTP cho quên mật khẩu; xem tài liệu module tài khoản.
 
 Các nghiệp vụ thiết bị, mượn trả, cấp phát, điều chuyển, sửa chữa và thanh lý được bổ sung sau khi có yêu cầu đã chỉnh sửa; tài liệu cũ chỉ cho thấy cần giữ khả năng mở rộng liên kết thiết bị/phòng ban/khu vực và lịch sử.
