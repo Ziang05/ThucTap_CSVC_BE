@@ -1,0 +1,13 @@
+@baseUrl = http://localhost:8080
+
+GET {{baseUrl}}/api/v1/system/info
+Accept: application/json
+
+### Process liveness (does not query PostgreSQL)
+GET {{baseUrl}}/health/live
+
+### Database readiness (503 when PostgreSQL is unavailable)
+GET {{baseUrl}}/health/ready
+
+### OpenAPI document (Development only)
+GET {{baseUrl}}/swagger/v1/swagger.json

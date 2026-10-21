@@ -1,0 +1,55 @@
+using CSVC.API.Extensions;
+using CSVC.API.Middleware;
+using CSVC.API.Services;
+using CSVC.Infrastructure;
+using CSVC.Infrastructure.Persistence;
+using CSVC.UseCases;
+using CSVC.UseCases.Abstractions;
+using Microsoft.EntityFrameworkCore;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddUseCases();
+builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddApi(builder.Configuration);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
+
+var app = builder.Build();
+
+// Explicit deployment task: never migrate the database implicitly on API startup.
+if (args.Contains("--migrate", StringComparer.Ordinal))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var database = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
+    if (!database.Database.GetMigrations().Any())
+    {
+        app.Logger.LogInformation("No migrations yet. Add the first migration when implementing the domain model.");
+    }
+    else
+    {
+        await database.Database.MigrateAsync();
+        app.Logger.LogInformation("Database migrations completed.");
+    }
+
+    return;
+}
+
+app.UseMiddleware<RequestContextMiddleware>();
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "CSVC API v1"));
+}
+
+app.UseRouting();
+app.UseCors(ApiServiceExtensions.FrontendCorsPolicy);
+app.MapControllers();
+app.MapApplicationHealthChecks();
+
+await app.RunAsync();
+
+public partial class Program;
