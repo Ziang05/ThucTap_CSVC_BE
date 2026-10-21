@@ -121,8 +121,8 @@ public sealed class RepositoryTests
     private static UnitOfWork CreateUnitOfWork(CsvcDbContext context)
         => new(context,
             new RoleRepository(context),
-            new DepartmentRepository(context),
-            new DepartmentHistoryRepository(context),
+            new DepartmentRepository(context, DepartmentMapper()),
+            new DepartmentHistoryRepository(context, DepartmentMapper()),
             new UserProfileRepository(context),
             new AccountRepository(context, new AutoMapper.MapperConfiguration(configuration =>
                 configuration.AddProfile<UseCases.Accounts.Mapping.AccountMappingProfile>(),
@@ -134,6 +134,10 @@ public sealed class RepositoryTests
             new PasswordResetRequestRepository(context),
             new AreaRepository(context),
             new AreaHistoryRepository(context));
+
+    private static AutoMapper.IMapper DepartmentMapper()
+        => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Departments.Mapping.DepartmentMappingProfile>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper();
 
     private static DbContextOptions<CsvcDbContext> CreateOptions()
         => new DbContextOptionsBuilder<CsvcDbContext>()
