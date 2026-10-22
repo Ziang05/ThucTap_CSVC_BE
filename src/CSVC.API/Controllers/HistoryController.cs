@@ -37,4 +37,14 @@ public sealed class HistoryController(IHistoryService history) : AuthenticatedAp
     [ProducesResponseType<DepartmentHistoryDetailDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<DepartmentHistoryDetailDto>> Department(Guid id, CancellationToken ct)
         => Ok(await history.GetDepartmentAsync(id, ct));
+
+    [HttpGet("areas")]
+    [ProducesResponseType<PagedResult<AreaHistoryListItemDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<AreaHistoryListItemDto>>> Areas([FromQuery] AreaHistoryQuery query, CancellationToken ct)
+        => Ok(await history.ListAreasAsync(query, ct));
+
+    [HttpGet("areas/{id:guid}")]
+    [ProducesResponseType<AreaHistoryDetailDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AreaHistoryDetailDto>> Area(Guid id, CancellationToken ct)
+        => Ok(await history.GetAreaAsync(id, ct));
 }

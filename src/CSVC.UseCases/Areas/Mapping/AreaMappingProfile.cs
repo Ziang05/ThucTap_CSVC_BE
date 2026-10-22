@@ -17,7 +17,6 @@ public sealed class AreaMappingProfile : Profile
             .ForMember(d => d.EffectiveStatus, o => o.MapFrom(s => s.IsEffectivelyLocked ? EntityStatus.Locked : EntityStatus.Active));
         CreateMap<AreaReadModel, AreaDetailDto>().IncludeBase<AreaReadModel, AreaListItemDto>()
             .ForMember(d => d.Children, o => o.Ignore()).ForMember(d => d.Management, o => o.Ignore());
-        CreateMap<AreaHistoryReadModel, AreaHistoryDto>();
     }
 
     private void MapWrite<T>() where T : AreaWriteRequest

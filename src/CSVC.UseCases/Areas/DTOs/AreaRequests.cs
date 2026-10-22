@@ -42,10 +42,3 @@ public sealed class AreaListQuery
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1, 100)] public int PageSize { get; init; } = 20;
 }
-
-public sealed class AreaHistoryQuery
-{
-    public bool IncludeDescendants { get; init; }
-    [Range(1, 1_000_000)] public int Page { get; init; } = 1;
-    [Range(1, 100)] public int PageSize { get; init; } = 20;
-}

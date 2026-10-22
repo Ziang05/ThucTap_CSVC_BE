@@ -2,6 +2,8 @@ using CSVC.API.Filters;
 using CSVC.UseCases.Areas;
 using CSVC.UseCases.Areas.DTOs;
 using CSVC.UseCases.Common;
+using CSVC.UseCases.History;
+using CSVC.UseCases.History.DTOs;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CSVC.API.Controllers;
@@ -9,7 +11,7 @@ namespace CSVC.API.Controllers;
 [Route("api/v1/areas")]
 [TypeFilter(typeof(AreaValidationAuditFilter), Order = -3000)]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
-public sealed class AreasController(IAreaService areas) : AuthenticatedApiControllerBase
+public sealed class AreasController(IAreaService areas, IHistoryService history) : AuthenticatedApiControllerBase
 {
     [HttpGet]
     [ProducesResponseType<PagedResult<AreaListItemDto>>(StatusCodes.Status200OK)]
@@ -64,9 +66,15 @@ public sealed class AreasController(IAreaService areas) : AuthenticatedApiContro
         => Ok(await areas.GetLockImpactAsync(id, cancellationToken));
 
     [HttpGet("{id:guid}/history")]
-    [ProducesResponseType<PagedResult<AreaHistoryDto>>(StatusCodes.Status200OK)]
-    public async Task<ActionResult<PagedResult<AreaHistoryDto>>> GetHistory(Guid id, [FromQuery] AreaHistoryQuery query,
-        CancellationToken cancellationToken) => Ok(await areas.GetHistoryAsync(id, query, cancellationToken));
+    [ProducesResponseType<PagedResult<AreaHistoryListItemDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<AreaHistoryListItemDto>>> GetHistory(Guid id, [FromQuery] AreaHistoryQuery query,
+        CancellationToken cancellationToken) => Ok(await history.ListAreasAsync(query, cancellationToken, id));
+
+    [HttpGet("{id:guid}/history/{historyId:guid}")]
+    [ProducesResponseType<AreaHistoryDetailDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AreaHistoryDetailDto>> GetHistoryItem(Guid id, Guid historyId,
+        [FromQuery] bool includeDescendants, CancellationToken cancellationToken)
+        => Ok(await history.GetAreaAsync(historyId, cancellationToken, id, includeDescendants));
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DenyDelete(Guid id, CancellationToken cancellationToken)

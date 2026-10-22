@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using AutoMapper;
 using CSVC.Core.Accounts;
+using CSVC.Core.Areas;
 using CSVC.Core.Authentication;
 using CSVC.Core.Common;
 using CSVC.Core.Departments;
@@ -32,7 +33,7 @@ public sealed class HistoryApiTests
     public async Task Lists_are_small_and_details_include_complete_audit_context_without_credentials()
     {
         await using var env = await Harness.CreateAsync();
-        foreach (var domain in new[] { "accounts", "auth", "departments" })
+        foreach (var domain in new[] { "accounts", "auth", "departments", "areas" })
         {
             var list = await GetAsync(env.Manager, $"/api/v1/history/{domain}");
             Assert.True(list.GetProperty("totalCount").GetInt32() > 0);
@@ -74,7 +75,18 @@ public sealed class HistoryApiTests
         Assert.Equal("Phòng Quản trị thiết bị", department.GetProperty("departmentName").GetString());
         AssertJsonEqual(env.DepartmentEvents[1].BeforeData!, department.GetProperty("beforeData"));
         AssertJsonEqual(env.DepartmentEvents[1].AfterData!, department.GetProperty("afterData"));
-        foreach (var response in new[] { account, auth, department })
+        var area = await GetAsync(env.Manager, $"/api/v1/history/areas/{env.AreaEvents[1].Id}");
+        Assert.Equal(env.AreaLeafId, area.GetProperty("areaId").GetGuid());
+        Assert.Equal("KV_LEAF", area.GetProperty("areaCode").GetString());
+        Assert.Equal("Phòng thí nghiệm", area.GetProperty("areaName").GetString());
+        Assert.Equal(env.AreaEvents[1].RequestId, area.GetProperty("requestId").GetGuid());
+        AssertJsonEqual(env.AreaEvents[1].BeforeData!, area.GetProperty("beforeData"));
+        AssertJsonEqual(env.AreaEvents[1].AfterData!, area.GetProperty("afterData"));
+        AssertJsonEqual(env.AreaEvents[1].ChangedFields!, area.GetProperty("changedFields"));
+        var unknownArea = await GetAsync(env.Manager, $"/api/v1/history/areas/{env.AreaEvents[2].Id}");
+        foreach (var key in new[] { "areaId", "areaCode", "areaName", "actorAccountId", "actorFullName" })
+            Assert.Equal(JsonValueKind.Null, unknownArea.GetProperty(key).ValueKind);
+        foreach (var response in new[] { account, auth, department, area })
         {
             Assert.DoesNotContain("passwordHash", response.GetRawText(), StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("accessToken", response.GetRawText(), StringComparison.OrdinalIgnoreCase);
@@ -123,7 +135,7 @@ public sealed class HistoryApiTests
     public async Task All_lists_filter_count_and_sort_including_time_offsets_and_literal_search()
     {
         await using var env = await Harness.CreateAsync();
-        foreach (var domain in new[] { "accounts", "auth", "departments" })
+        foreach (var domain in new[] { "accounts", "auth", "departments", "areas" })
         {
             await AssertCountAsync(env.Manager, domain, "outcome=Failed", domain == "auth" ? 2 : 1);
             await AssertCountAsync(env.Manager, domain, $"actorAccountId={env.ManagerId}&from={Uri.EscapeDataString(env.Time.ToString("O"))}", domain == "auth" ? 0 : 2);
@@ -170,13 +182,24 @@ public sealed class HistoryApiTests
         await AssertCountAsync(env.Manager, "auth", $"requestId={env.AuthEvents[0].RequestId}", 2);
         await AssertCountAsync(env.Manager, "departments", $"departmentId={env.DepartmentId}", 2);
         await AssertCountAsync(env.Manager, "departments", "actionCode=department_updated", 1);
+        await AssertCountAsync(env.Manager, "areas", $"areaId={env.AreaId}", 1);
+        await AssertCountAsync(env.Manager, "areas", "actionCode=area_updated", 1);
+        await AssertCountAsync(env.Manager, "areas", "reasonCode=validation_failed", 1);
+        await AssertCountAsync(env.Manager, "areas", $"requestId={env.AreaEvents[1].RequestId}", 1);
+        await AssertCountAsync(env.Manager, "areas", $"areaId={env.AreaId}&includeDescendants=true&actorAccountId={env.ManagerId}&outcome=Success", 2);
+        await AssertCountAsync(env.Manager, "areas", $"areaId={Guid.NewGuid()}", 0);
+        await AssertCountAsync(env.Manager, "areas", $"areaId={Guid.NewGuid()}&includeDescendants=true", 0);
+        await AssertCountAsync(env.Manager, "areas", "search=KV_LEAF", 1);
+        await AssertCountAsync(env.Manager, "areas", $"search={Uri.EscapeDataString("PHÒNG THÍ NGHIỆM".Normalize(NormalizationForm.FormD))}", 1);
+        await AssertCountAsync(env.Manager, "areas", "search=snapshot_only_marker", 0);
+        await AssertCountAsync(env.Manager, "areas", "search=snapshot_changed_marker", 0);
     }
 
     [PostgreSqlFact]
     public async Task Pagination_is_stable_and_department_scopes_cannot_be_overridden()
     {
         await using var env = await Harness.CreateAsync();
-        foreach (var domain in new[] { "accounts", "auth", "departments" })
+        foreach (var domain in new[] { "accounts", "auth", "departments", "areas" })
         {
             var all = await GetAsync(env.Manager, $"/api/v1/history/{domain}");
             var expected = all.GetProperty("items").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()).ToArray();
@@ -200,11 +223,53 @@ public sealed class HistoryApiTests
     }
 
     [PostgreSqlFact]
+    public async Task Area_scopes_preserve_subtree_boundaries_and_follow_current_tree_after_reparenting()
+    {
+        await using var env = await Harness.CreateAsync();
+        var scoped = $"/api/v1/areas/{env.AreaId}/history";
+        Assert.Equal(1, (await GetAsync(env.Manager, scoped)).GetProperty("totalCount").GetInt32());
+        var branch = await GetAsync(env.Manager, scoped + "?includeDescendants=true");
+        Assert.Equal(2, branch.GetProperty("totalCount").GetInt32());
+        Assert.All(branch.GetProperty("items").EnumerateArray(), item =>
+        {
+            Assert.False(item.TryGetProperty("afterData", out _));
+            Assert.Equal("Trưởng phòng Nguyễn Đình", item.GetProperty("actorFullName").GetString());
+        });
+        Assert.Equal(2, (await GetAsync(env.Manager, $"/api/v1/history/areas?areaId={env.AreaId}&includeDescendants=true")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await GetAsync(env.Manager, $"/api/v1/areas/{env.AreaChildId}/history")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, (await GetAsync(env.Manager, $"/api/v1/areas/{env.AreaChildId}/history?includeDescendants=true")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await GetAsync(env.Manager, $"{scoped}?areaId={env.OtherAreaId}")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await GetAsync(env.Manager, $"{scoped}?areaId={env.OtherAreaId}&includeDescendants=true")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, (await GetAsync(env.Manager, $"{scoped}?areaId={env.AreaChildId}&includeDescendants=true")).GetProperty("totalCount").GetInt32());
+        var ownDetail = await GetAsync(env.Manager, $"{scoped}/{env.AreaEvents[0].Id}");
+        Assert.Equal(env.AreaEvents[0].RequestId, ownDetail.GetProperty("requestId").GetGuid());
+        var descendantDetail = $"{scoped}/{env.AreaEvents[1].Id}";
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Manager.GetAsync(descendantDetail)).StatusCode);
+        AssertJsonEqual(env.AreaEvents[1].AfterData!, (await GetAsync(env.Manager, descendantDetail + "?includeDescendants=true")).GetProperty("afterData"));
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Manager.GetAsync($"/api/v1/areas/{env.OtherAreaId}/history/{env.AreaEvents[1].Id}?includeDescendants=true")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await env.Manager.GetAsync($"{scoped}?areaId={Guid.Empty}")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await env.Manager.GetAsync(descendantDetail + "?includeDescendants=invalid")).StatusCode);
+        var missing = Guid.NewGuid();
+        foreach (var path in new[] { $"/api/v1/areas/{missing}/history", $"/api/v1/areas/{missing}/history/{env.AreaEvents[0].Id}" })
+            Assert.Equal(HttpStatusCode.NotFound, (await env.Manager.GetAsync(path)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await env.Manager.PutAsJsonAsync($"/api/v1/areas/{env.AreaChildId}",
+            new { name = "Tầng 1", parentId = env.OtherAreaId })).StatusCode);
+        Assert.Equal(1, (await GetAsync(env.Manager, scoped + "?includeDescendants=true")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Manager.GetAsync(descendantDetail + "?includeDescendants=true")).StatusCode);
+        Assert.Equal(2, (await GetAsync(env.Manager, $"/api/v1/areas/{env.OtherAreaId}/history?includeDescendants=true")).GetProperty("totalCount").GetInt32());
+        var unchanged = await GetAsync(env.Manager, $"/api/v1/history/areas/{env.AreaEvents[1].Id}");
+        AssertJsonEqual(env.AreaEvents[1].AfterData!, unchanged.GetProperty("afterData"));
+    }
+
+    [PostgreSqlFact]
     public async Task Only_managers_read_history_and_endpoints_are_read_only()
     {
         await using var env = await Harness.CreateAsync();
         using var anonymous = env.Factory.CreateClient();
         var paths = new[] { "/api/v1/history/accounts", "/api/v1/history/auth", "/api/v1/history/departments",
+            "/api/v1/history/areas", $"/api/v1/history/areas/{env.AreaEvents[0].Id}",
+            $"/api/v1/areas/{env.AreaId}/history", $"/api/v1/areas/{env.AreaId}/history/{env.AreaEvents[0].Id}",
             $"/api/v1/history/accounts/{env.AccountEvents[0].Id}", $"/api/v1/history/auth/{env.AuthEvents[0].Id}",
             $"/api/v1/history/departments/{env.DepartmentEvents[0].Id}", $"/api/v1/departments/{env.DepartmentId}/history/{env.DepartmentEvents[0].Id}" };
         foreach (var path in paths) Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
@@ -224,28 +289,31 @@ public sealed class HistoryApiTests
             Assert.Equal(HttpStatusCode.MethodNotAllowed, (await env.Manager.PutAsJsonAsync(path, new { })).StatusCode);
             Assert.Equal(HttpStatusCode.MethodNotAllowed, (await env.Manager.DeleteAsync(path)).StatusCode);
         }
-        foreach (var domain in new[] { "accounts", "auth", "departments" })
+        foreach (var domain in new[] { "accounts", "auth", "departments", "areas" })
             Assert.Equal(HttpStatusCode.NotFound, (await env.Manager.GetAsync($"/api/v1/history/{domain}/{Guid.NewGuid()}")).StatusCode);
         await using var readScope = env.Factory.Services.CreateAsyncScope();
         var context = readScope.ServiceProvider.GetRequiredService<CsvcDbContext>();
         Assert.Equal(4, await context.AccountHistories.CountAsync());
         Assert.Equal(5, await context.AuthHistories.CountAsync());
         Assert.Equal(3, await context.DepartmentHistories.CountAsync());
+        Assert.Equal(3, await context.AreaHistories.CountAsync());
     }
 
     [PostgreSqlFact]
     public async Task Invalid_queries_are_rejected_and_swagger_distinguishes_list_and_detail_schemas()
     {
         await using var env = await Harness.CreateAsync();
-        foreach (var domain in new[] { "accounts", "auth", "departments" })
+        foreach (var domain in new[] { "accounts", "auth", "departments", "areas" })
         foreach (var query in new[] { "page=0", "page=1000001", "pageSize=101", "sortBy=999", "sortDirection=999", "outcome=999",
             "from=not-a-date", "from=2026-10-22T00:00:00Z&to=2026-10-21T00:00:00Z", $"actorAccountId={Guid.Empty}",
             $"requestId={Guid.Empty}", "actionCode=" + new string('X', 65), "search=" + new string('X', 201) })
             Assert.Equal(HttpStatusCode.BadRequest, (await env.Manager.GetAsync($"/api/v1/history/{domain}?{query}")).StatusCode);
-        foreach (var (domain, filter) in new[] { ("accounts", "targetAccountId"), ("auth", "accountId"), ("auth", "sessionId"), ("departments", "departmentId") })
+        foreach (var (domain, filter) in new[] { ("accounts", "targetAccountId"), ("auth", "accountId"), ("auth", "sessionId"), ("departments", "departmentId"), ("areas", "areaId") })
             Assert.Equal(HttpStatusCode.BadRequest, (await env.Manager.GetAsync($"/api/v1/history/{domain}?{filter}={Guid.Empty}")).StatusCode);
+        foreach (var query in new[] { "includeDescendants=true", "areaId=invalid", "includeDescendants=invalid", "reasonCode=" + new string('X', 81) })
+            Assert.Equal(HttpStatusCode.BadRequest, (await env.Manager.GetAsync($"/api/v1/history/areas?{query}")).StatusCode);
         var swagger = await GetAsync(env.Manager, "/swagger/v1/swagger.json");
-        foreach (var domain in new[] { "accounts", "auth", "departments" })
+        foreach (var domain in new[] { "accounts", "auth", "departments", "areas" })
         {
             Assert.True(swagger.GetProperty("paths").TryGetProperty($"/api/v1/history/{domain}", out _));
             Assert.True(swagger.GetProperty("paths").TryGetProperty($"/api/v1/history/{domain}/{{id}}", out _));
@@ -260,7 +328,7 @@ public sealed class HistoryApiTests
         await using var factory = env.Factory.WithWebHostBuilder(b => b.ConfigureServices(s =>
             s.AddDbContext<CsvcDbContext>(o => o.AddInterceptors(capture))));
         using var manager = Client(factory.CreateClient(), env.ManagerToken);
-        foreach (var (domain, table) in new[] { ("accounts", "account_history"), ("auth", "auth_history"), ("departments", "department_history") })
+        foreach (var (domain, table) in new[] { ("accounts", "account_history"), ("auth", "auth_history"), ("departments", "department_history"), ("areas", "area_history") })
         {
             capture.Commands.Clear();
             await GetAsync(manager, $"/api/v1/history/{domain}?pageSize=1");
@@ -314,12 +382,17 @@ public sealed class HistoryApiTests
         public Guid StaffId { get; private set; }
         public Guid DepartmentId { get; private set; }
         public Guid OtherDepartmentId { get; private set; }
+        public Guid AreaId { get; private set; }
+        public Guid AreaChildId { get; private set; }
+        public Guid AreaLeafId { get; private set; }
+        public Guid OtherAreaId { get; private set; }
         public Guid SessionId { get; private set; }
         public string ManagerToken { get; private set; } = "";
         public DateTimeOffset Time { get; private set; }
         public AccountHistory[] AccountEvents { get; private set; } = [];
         public AuthHistory[] AuthEvents { get; private set; } = [];
         public DepartmentHistory[] DepartmentEvents { get; private set; } = [];
+        public AreaHistory[] AreaEvents { get; private set; } = [];
 
         public static async Task<Harness> CreateAsync()
         {
@@ -347,6 +420,12 @@ public sealed class HistoryApiTests
             var session = new AuthSession { AccountId = StaffId, SessionTokenHash = new string('F', 64), IsActive = false, ExpiresAt = Time.AddHours(-1) };
             SessionId = session.Id;
             db.AddRange(other, session);
+            var root = new Area { Code = "KV_ROOT", Name = "Tòa nhà A" };
+            var child = new Area { Code = "KV_CHILD", Name = "Tầng 1", ParentId = root.Id };
+            var leaf = new Area { Code = "KV_LEAF", Name = "Phòng thí nghiệm", ParentId = child.Id };
+            var otherRoot = new Area { Code = "KV_OTHER", Name = "Tòa nhà B" };
+            AreaId = root.Id; AreaChildId = child.Id; AreaLeafId = leaf.Id; OtherAreaId = otherRoot.Id;
+            db.AddRange(root, child, leaf, otherRoot);
             AccountEvents =
             [
                 new() { RequestId = Guid.NewGuid(), ActorAccountId = ManagerId, TargetAccountId = StaffId,
@@ -382,7 +461,19 @@ public sealed class HistoryApiTests
                 new() { RequestId = Guid.NewGuid(), ActionCode = "FAILED", Outcome = AuditOutcome.Failed,
                     ReasonCode = "VALIDATION_FAILED", OccurredAt = Time.AddMinutes(2) }
             ];
+            AreaEvents =
+            [
+                new() { RequestId = Guid.NewGuid(), ActorAccountId = ManagerId, AreaId = AreaId,
+                    ActionCode = "AREA_CREATED", Outcome = AuditOutcome.Success, OccurredAt = Time, AfterData = "{\"name\":\"Tòa nhà A\"}" },
+                new() { RequestId = Guid.NewGuid(), ActorAccountId = ManagerId, AreaId = AreaLeafId,
+                    ActionCode = "AREA_UPDATED", Outcome = AuditOutcome.Success, OccurredAt = Time.AddMinutes(1),
+                    ChangedFields = "[\"name\",\"snapshot_changed_marker\"]", BeforeData = "{\"name\":\"Phòng cũ\"}",
+                    AfterData = "{\"name\":\"Phòng thí nghiệm\",\"note\":\"snapshot_only_marker\"}" },
+                new() { RequestId = Guid.NewGuid(), ActionCode = "FAILED", Outcome = AuditOutcome.Failed,
+                    ReasonCode = "VALIDATION_FAILED", OccurredAt = Time.AddMinutes(2) }
+            ];
             db.AccountHistories.AddRange(AccountEvents); db.AuthHistories.AddRange(AuthEvents); db.DepartmentHistories.AddRange(DepartmentEvents);
+            db.AreaHistories.AddRange(AreaEvents);
             await db.SaveChangesAsync();
         }
 

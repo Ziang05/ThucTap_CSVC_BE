@@ -59,3 +59,18 @@ public sealed class DepartmentHistoryDetailDto : DepartmentHistoryListItemDto
     public string? BeforeData { get; init; }
     public string? AfterData { get; init; }
 }
+
+public class AreaHistoryListItemDto : HistoryListItemDto
+{
+    public Guid? AreaId { get; init; }
+    public string? AreaCode { get; init; }
+    public string? AreaName { get; init; }
+}
+
+public sealed class AreaHistoryDetailDto : AreaHistoryListItemDto
+{
+    public Guid RequestId { get; init; }
+    public string? ChangedFields { get; init; }
+    public string? BeforeData { get; init; }
+    public string? AfterData { get; init; }
+}

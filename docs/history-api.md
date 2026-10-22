@@ -1,4 +1,4 @@
-# API đọc lịch sử: tài khoản, xác thực và phòng ban
+# API đọc lịch sử: tài khoản, xác thực, phòng ban và khu vực
 
 Tất cả endpoint yêu cầu phiên Bearer hợp lệ và vai trò **QTTB_MANAGER**. Hai role nhân viên không được đọc, kể cả lịch sử của chính mình. Chỉ có GET; không cung cấp API tạo/sửa/xóa lịch sử. Không cần migration mới.
 
@@ -12,10 +12,14 @@ Tất cả endpoint yêu cầu phiên Bearer hợp lệ và vai trò **QTTB_MANA
 | `/api/v1/history/auth/{id}` | Chi tiết một AuthHistory |
 | `/api/v1/history/departments` | Danh sách thao tác trên mọi phòng ban |
 | `/api/v1/history/departments/{id}` | Chi tiết một DepartmentHistory |
+| `/api/v1/history/areas` | Danh sách thao tác trên mọi khu vực |
+| `/api/v1/history/areas/{id}` | Chi tiết một AreaHistory |
 
-`id` trên các route chi tiết là **ID của item lịch sử**, không phải ID tài khoản/phòng ban/phiên.
+`id` trên các route chi tiết là **ID của item lịch sử**, không phải ID tài khoản/phòng ban/khu vực/phiên.
 
 Giữ route danh sách phòng ban hiện có: `GET /api/v1/departments/{id}/history`, cùng hợp đồng list mới và thêm `GET /api/v1/departments/{id}/history/{historyId}`. Scope department trên URL được kiểm tra tồn tại và luôn áp dụng; query departmentId khác scope chỉ cho kết quả rỗng. Chi tiết historyId thuộc phòng ban khác trả 404.
+
+Khu vực cũng có `GET /api/v1/areas/{id}/history` trả danh sách gọn theo hợp đồng chung, và `GET /api/v1/areas/{id}/history/{historyId}` trả chi tiết. Xem quy tắc phạm vi cây bên dưới; route `{id}` khu vực phải tồn tại.
 
 ## Danh sách gọn
 
@@ -39,6 +43,7 @@ Trường riêng từng danh sách:
 | accounts | targetAccountId, targetAccountCode, targetFullName |
 | auth | accountId, accountCode, fullName, emailSubmitted (giúp nhận biết lần đăng nhập thất bại không có accountId) |
 | departments | departmentId, departmentCode, departmentName |
+| areas | areaId, areaCode, areaName |
 
 Danh sách không có requestId, snapshot, changedFields, sessionId, IP, user-agent hoặc blockedUntil. Repository lọc/sort/phân trang và `ProjectTo<ListItemDto>` tại PostgreSQL; các cột chi tiết không được tải khi lấy danh sách.
 
@@ -55,6 +60,7 @@ Chi tiết bao gồm toàn bộ trường của item danh sách và các trườ
 | accounts | requestId, changedFields, beforeData, afterData |
 | auth | requestId, sessionId, blockedUntil, ipAddress, userAgent |
 | departments | requestId, beforeData, afterData |
+| areas | requestId, changedFields, beforeData, afterData |
 
 Snapshot và changedFields là chuỗi JSON đọc từ JSONB, có thể null; frontend parse JSON để hiển thị. PostgreSQL có thể chuẩn hóa khoảng trắng/thứ tự key của JSONB; nội dung JSON giữ nguyên. IP trả dạng chuỗi IPv4/IPv6 hoặc null. sessionId là UUID của phiên, không phải access token. Không truy vấn hoặc trả password hash, session token/hash hay mã reset.
 
@@ -81,13 +87,26 @@ Sort luôn thêm Id tăng dần để ổn định khi trùng giá trị. Outcom
 | accounts | targetAccountId |
 | auth | accountId, sessionId, emailSubmitted (so khớp chính xác sau trim, không phân biệt hoa thường; tối đa 320 ký tự) |
 | departments | departmentId |
+| areas | areaId, includeDescendants (mặc định false) |
 
 UUID không rỗng; UUID hợp lệ không có dữ liệu khi dùng làm bộ lọc trả danh sách rỗng. Các bộ lọc được kết hợp bằng AND. actionCode/reasonCode hợp lệ nhưng chưa có trong dữ liệu trả danh sách rỗng.
+
+### Phạm vi khu vực và cây con
+
+- `/history/areas` không có `areaId` trả sự kiện của mọi khu vực, kể cả sự kiện không xác định khu vực/người thực hiện.
+- `areaId=<UUID>` lọc đúng khu vực; thêm `includeDescendants=true` lấy cả các node con/cháu. Trên route toàn cục, bật includeDescendants mà thiếu areaId trả 400. areaId hợp lệ nhưng không tồn tại trả danh sách rỗng, kể cả khi tìm cả nhánh.
+- `/areas/{id}/history` mặc định chỉ lấy đúng khu vực trên URL; `includeDescendants=true` mở rộng sang cây con. Nếu gửi thêm areaId, backend lấy giao của phạm vi URL và bộ lọc areaId; khi bật includeDescendants, cả hai phạm vi được hiểu là cây con. Query không thể làm lộ sự kiện nằm ngoài nhánh URL.
+- Chi tiết `/areas/{id}/history/{historyId}` mặc định yêu cầu sự kiện thuộc đúng `{id}`. Muốn mở sự kiện của con/cháu từ danh sách nhánh, gửi `?includeDescendants=true` hoặc dùng `/history/areas/{historyId}`. Sự kiện ngoài phạm vi trả 404.
+- Phạm vi nhánh dựa trên **cây hiện tại**, không phải cây tại thời điểm thao tác. Chuyển một node sang nhánh khác sẽ thay đổi tập lịch sử của các nhánh; snapshot trước/sau vẫn bất biến.
+
+`search` khu vực tìm trong mã thao tác/lý do, mã/tên người thực hiện và mã/tên khu vực hiện tại. Không tìm trong snapshot hoặc changedFields. Bộ lọc thời gian, kết quả, người thực hiện, request, sort và phân trang dùng chung như các nhóm khác. Mặc định `OccurredAt/Desc`, thêm ID tăng dần khi bằng nhau; danh sách không tải các cột snapshot/requestId/changedFields từ DB.
 
 ```http
 GET /api/v1/history/accounts?targetAccountId=<account-id>&outcome=Success&sortBy=OccurredAt&sortDirection=Desc&page=1&pageSize=20
 GET /api/v1/history/auth?actionCode=SESSION_ENDED&reasonCode=LOGOUT&from=2026-10-21T00:00:00Z&to=2026-10-22T00:00:00Z
 GET /api/v1/history/departments?departmentId=<department-id>&search=QTTB
+GET /api/v1/history/areas?areaId=<area-id>&includeDescendants=true&outcome=Success&sortBy=OccurredAt&sortDirection=Desc
+GET /api/v1/areas/<area-id>/history/<history-item-id>?includeDescendants=true
 GET /api/v1/history/accounts/<history-item-id>
 ```
 
@@ -95,6 +114,6 @@ Các lần đăng xuất mới của phiên còn hạn lưu `SESSION_ENDED` vớ
 
 ## Lỗi và tích hợp frontend
 
-400 cho query sai định dạng, enum/giới hạn không hợp lệ hoặc from > to. 401 khi thiếu/phiên không hợp lệ. 403 `HISTORY_ACCESS_FORBIDDEN` cho người không có quyền. 404 `HISTORY_NOT_FOUND` cho historyId không tồn tại/không đúng scope; scope department không tồn tại trả `DEPARTMENT_NOT_FOUND`. POST/PUT/DELETE vào route lịch sử trả 405.
+400 cho query sai định dạng, enum/giới hạn không hợp lệ, from > to hoặc includeDescendants=true thiếu areaId trên route toàn cục. 401 khi thiếu/phiên không hợp lệ. 403 `HISTORY_ACCESS_FORBIDDEN` cho người không có quyền. 404 `HISTORY_NOT_FOUND` cho historyId không tồn tại/không đúng scope; scope department không tồn tại trả `DEPARTMENT_NOT_FOUND`, scope khu vực không tồn tại trả `AREA_NOT_FOUND`. POST/PUT/DELETE vào route lịch sử trả 405.
 
-Khi mở bảng, frontend gọi endpoint danh sách. Khi người dùng chọn một item, gọi endpoint chi tiết bằng item.id. Đường dẫn `/departments/{id}/history` vẫn tồn tại, nhưng **không còn trả snapshot trong từng item**; panel lịch sử phòng ban cần gọi endpoint chi tiết mới để tải snapshot. Không thay đổi API lịch sử khu vực trong đợt này.
+Khi mở bảng, frontend gọi endpoint danh sách. Khi người dùng chọn một item, gọi endpoint chi tiết bằng item.id. Các đường dẫn `/departments/{id}/history` và `/areas/{id}/history` vẫn tồn tại, nhưng **không còn trả snapshot/requestId/changedFields trong từng item**; panel lịch sử cần gọi endpoint chi tiết mới để tải dữ liệu đầy đủ. Mã/tên người thực hiện và đối tượng đã có sẵn trong danh sách. Không thêm migration hay ghi lại dữ liệu lịch sử cũ.

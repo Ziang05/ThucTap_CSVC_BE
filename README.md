@@ -4,7 +4,7 @@ Backend cho hệ thống quản lý cơ sở vật chất và thiết bị, ưu 
 
 Sử dụng **.NET 10, ASP.NET Core Web API, EF Core, PostgreSQL 17, Swagger và Docker**. Đã có nền tảng DB/repository/migration và API cho bốn nhóm: tài khoản/người dùng, xác thực bằng phiên DB, phòng ban và cây khu vực (tạo/sửa/chuyển nhánh/khóa, danh mục, audit giao dịch). Chi tiết: [tài khoản và email](docs/accounts-api.md), [xác thực](docs/authentication-api.md), [phòng ban](docs/departments-api.md), [khu vực](docs/areas-api.md). Bootstrap quản trị và nghiệp vụ thiết bị/phiếu triển khai riêng.
 
-API đọc lịch sử tài khoản, xác thực và phòng ban đã tách danh sách gọn/chi tiết, có lọc/sắp xếp/phân trang tại DB: [History API](docs/history-api.md).
+API đọc lịch sử tài khoản, xác thực, phòng ban và khu vực đã tách danh sách gọn/chi tiết, có lọc/sắp xếp/phân trang tại DB: [History API](docs/history-api.md).
 
 ## Chạy bằng Docker
 

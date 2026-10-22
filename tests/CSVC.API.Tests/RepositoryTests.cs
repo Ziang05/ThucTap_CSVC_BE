@@ -133,7 +133,7 @@ public sealed class RepositoryTests
             new AuthLoginThrottleRepository(context),
             new PasswordResetRequestRepository(context),
             new AreaRepository(context, AreaMapper()),
-            new AreaHistoryRepository(context, AreaMapper()));
+            new AreaHistoryRepository(context, HistoryMapper()));
 
     private static AutoMapper.IMapper AreaMapper()
         => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Areas.Mapping.AreaMappingProfile>(),

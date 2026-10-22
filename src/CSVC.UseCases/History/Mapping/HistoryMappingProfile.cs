@@ -1,4 +1,5 @@
 using AutoMapper;
+using CSVC.UseCases.Areas.Models;
 using CSVC.UseCases.History.DTOs;
 using CSVC.UseCases.History.Models;
 
@@ -15,5 +16,7 @@ public sealed class HistoryMappingProfile : Profile
             .ForMember(d => d.IpAddress, o => o.MapFrom(s => s.IpAddress == null ? null : s.IpAddress.ToString()));
         CreateMap<DepartmentHistoryReadModel, DepartmentHistoryListItemDto>();
         CreateMap<DepartmentHistoryReadModel, DepartmentHistoryDetailDto>();
+        CreateMap<AreaHistoryReadModel, AreaHistoryListItemDto>();
+        CreateMap<AreaHistoryReadModel, AreaHistoryDetailDto>();
     }
 }

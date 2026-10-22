@@ -11,4 +11,6 @@ public interface IHistoryService
     Task<AuthHistoryDetailDto> GetAuthenticationAsync(Guid id, CancellationToken ct);
     Task<PagedResult<DepartmentHistoryListItemDto>> ListDepartmentsAsync(DepartmentHistoryQuery query, CancellationToken ct, Guid? departmentScope = null);
     Task<DepartmentHistoryDetailDto> GetDepartmentAsync(Guid id, CancellationToken ct, Guid? departmentScope = null);
+    Task<PagedResult<AreaHistoryListItemDto>> ListAreasAsync(AreaHistoryQuery query, CancellationToken ct, Guid? areaScope = null);
+    Task<AreaHistoryDetailDto> GetAreaAsync(Guid id, CancellationToken ct, Guid? areaScope = null, bool includeDescendants = false);
 }

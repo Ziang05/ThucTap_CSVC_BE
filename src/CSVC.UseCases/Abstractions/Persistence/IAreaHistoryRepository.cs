@@ -1,10 +1,11 @@
 using CSVC.Core.Areas;
-using CSVC.UseCases.Areas.DTOs;
+using CSVC.UseCases.History.DTOs;
 using CSVC.UseCases.Common;
 
 namespace CSVC.UseCases.Abstractions.Persistence;
 
 public interface IAreaHistoryRepository : IRepository<AreaHistory>
 {
-    Task<PagedResult<AreaHistoryDto>> ListAsync(Guid id, AreaHistoryQuery query, CancellationToken cancellationToken);
+    Task<PagedResult<AreaHistoryListItemDto>> ListAsync(AreaHistoryQuery query, CancellationToken ct, Guid? areaScope = null);
+    Task<AreaHistoryDetailDto?> GetDetailAsync(Guid id, CancellationToken ct, Guid? areaScope = null, bool includeDescendants = false);
 }

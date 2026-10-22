@@ -120,14 +120,6 @@ public sealed class AreaService(
         };
     }
 
-    public async Task<PagedResult<AreaHistoryDto>> GetHistoryAsync(Guid id, AreaHistoryQuery query, CancellationToken cancellationToken)
-    {
-        await RequireActorAsync(true, cancellationToken);
-        Validate(query);
-        await RequireAreaAsync(id, cancellationToken);
-        return await unitOfWork.AreaHistories.ListAsync(id, query, cancellationToken);
-    }
-
     public async Task DenyDeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         await SaveFailureAsync(id, "DELETE_DENIED", AuditOutcome.Denied, "AREA_DELETE_FORBIDDEN", cancellationToken);

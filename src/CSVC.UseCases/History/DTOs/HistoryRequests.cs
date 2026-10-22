@@ -57,3 +57,11 @@ public sealed class DepartmentHistoryQuery : HistoryQuery
     protected override IEnumerable<(Guid? Value, string Name)> Ids()
         => base.Ids().Append((DepartmentId, nameof(DepartmentId)));
 }
+
+public sealed class AreaHistoryQuery : HistoryQuery
+{
+    public Guid? AreaId { get; init; }
+    public bool IncludeDescendants { get; init; }
+    protected override IEnumerable<(Guid? Value, string Name)> Ids()
+        => base.Ids().Append((AreaId, nameof(AreaId)));
+}

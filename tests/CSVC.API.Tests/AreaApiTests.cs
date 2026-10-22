@@ -473,7 +473,9 @@ public sealed class AreaApiTests
         Assert.Equal(env.ManagerId, created.GetProperty("actorAccountId").GetGuid());
         Assert.Equal("TK_MANAGER", created.GetProperty("actorAccountCode").GetString());
         Assert.Equal("Test Manager", created.GetProperty("actorFullName").GetString());
-        var snapshot = created.GetProperty("afterData").GetString();
+        Assert.False(created.TryGetProperty("afterData", out _));
+        var detailPath = $"{Root}/{area.Id}/history/{created.GetProperty("id").GetGuid()}";
+        var snapshot = (await env.Manager.GetFromJsonAsync<JsonElement>(detailPath)).GetProperty("afterData").GetString();
         var systemEvent = new AreaHistory
         {
             RequestId = Guid.NewGuid(), AreaId = area.Id, ActionCode = "FAILED",
@@ -500,7 +502,8 @@ public sealed class AreaApiTests
         var renamed = Assert.Single(secondPage.GetProperty("items").EnumerateArray());
         Assert.Equal(created.GetProperty("id").GetGuid(), renamed.GetProperty("id").GetGuid());
         Assert.Equal("Nguyễn Đình Bảo", renamed.GetProperty("actorFullName").GetString());
-        Assert.Equal(snapshot, renamed.GetProperty("afterData").GetString());
+        Assert.False(renamed.TryGetProperty("afterData", out _));
+        Assert.Equal(snapshot, (await env.Manager.GetFromJsonAsync<JsonElement>(detailPath)).GetProperty("afterData").GetString());
         Assert.Equal(2, await env.CountHistoryAsync());
     }
 

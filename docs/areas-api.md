@@ -16,7 +16,10 @@ Tất cả endpoint yêu cầu `Authorization: Bearer <accessToken>` từ nhóm 
 | PUT `/api/v1/areas/{id}/lock` | Trưởng phòng | 204, khóa trạng thái riêng |
 | DELETE `/api/v1/areas/{id}/lock` | Trưởng phòng | 204, mở khóa trạng thái riêng |
 | GET `/api/v1/areas/{id}/lock-impact` | Trưởng phòng | 200, số con/hậu duệ và cảnh báo |
-| GET `/api/v1/areas/{id}/history` | Trưởng phòng | 200, lịch sử chỉ đọc |
+| GET `/api/v1/history/areas` | Trưởng phòng | 200, danh sách lịch sử gọn toàn bộ khu vực, lọc/sort/phân trang |
+| GET `/api/v1/history/areas/{id}` | Trưởng phòng | 200, chi tiết theo ID sự kiện lịch sử |
+| GET `/api/v1/areas/{id}/history` | Trưởng phòng | 200, danh sách gọn, tùy chọn mở rộng cây con |
+| GET `/api/v1/areas/{id}/history/{historyId}` | Trưởng phòng | 200, chi tiết trong phạm vi khu vực; thêm includeDescendants=true nếu mở sự kiện con/cháu |
 | DELETE `/api/v1/areas/{id}` | Luôn từ chối | 403 AREA_DELETE_FORBIDDEN + DELETE_DENIED |
 
 Route DELETE chỉ ghi nhận yêu cầu xóa bị cấm theo UC-KV-06, không xóa dữ liệu. Không có API ghi/sửa/xóa lịch sử. Mã khu vực giữ nguyên khi chuyển nhánh.
@@ -120,7 +123,11 @@ Từ chối/lỗi nghiệp vụ ghi DENIED/FAILED riêng sau rollback, không c�
 
 Lỗi lưu audit thành công trả 503 sau rollback; cố ghi FAILED ở transaction riêng. Nếu audit FAILED cũng không ghi được thì trả 503 và log vận hành an toàn, không tuyên bố đã có bản ghi audit.
 
-History mặc định lọc đúng areaId. `includeDescendants=true` lấy sự kiện của các node thuộc **nhánh hiện tại**; node đã chuyển ra khỏi nhánh không còn được chọn. Đây không phải bộ lọc nhánh lịch sử tại một thời điểm. Bản thân snapshot đường dẫn cũ luôn bất biến. Sắp xếp occurredAt giảm dần, ID phụ; page/pageSize như danh mục. BeforeData/afterData/changedFields trả dưới dạng chuỗi JSON từ JSONB; dữ liệu thất bại có thể null. Chỉ Trưởng phòng đọc lịch sử, không có API sửa/xóa.
+History có API toàn cục tại `/api/v1/history/areas`, chi tiết tại `/api/v1/history/areas/{id}` (id là ID sự kiện lịch sử). Route `/api/v1/areas/{id}/history` mặc định lọc đúng khu vực trên URL. `includeDescendants=true` lấy sự kiện của các node thuộc **nhánh hiện tại**; node đã chuyển ra khỏi nhánh không còn được chọn. Đây không phải bộ lọc nhánh lịch sử tại một thời điểm. Bản thân snapshot đường dẫn cũ luôn bất biến. Mặc định sắp xếp occurredAt giảm dần, ID tăng dần phụ; có thể chọn OccurredAt/ActionCode/Outcome/ActorAccountCode theo Asc/Desc. Page/pageSize như danh mục. Chỉ Trưởng phòng đọc lịch sử, không có API sửa/xóa.
+
+Danh sách trả item gọn, có actorAccountId/actorAccountCode/actorFullName và areaId/areaCode/areaName. **List không còn trả requestId/beforeData/afterData/changedFields**. Gọi `/api/v1/areas/{id}/history/{historyId}` hoặc route chi tiết toàn cục để tải các trường này. Khi mở sự kiện con/cháu bằng route scoped, thêm `?includeDescendants=true`; nếu sự kiện nằm ngoài phạm vi hiện tại thì trả 404. Snapshot và changedFields vẫn là chuỗi JSON từ JSONB, có thể null.
+
+Hỗ trợ from/to, search, actionCode, outcome, reasonCode, actorAccountId, requestId, areaId và includeDescendants. Search tìm mã/tên khu vực, mã/tên người thực hiện, mã thao tác/lý do; không tìm snapshot. Trên route toàn cục, includeDescendants=true yêu cầu areaId. Bộ lọc areaId bổ sung không thay thế phạm vi khu vực trên URL. Xem hợp đồng đầy đủ: [History API](history-api.md).
 
 Mỗi item lịch sử trả sẵn `actorAccountId`, `actorAccountCode`, `actorFullName`, thống nhất với lịch sử tài khoản/xác thực/phòng ban. Frontend dùng trực tiếp `actorFullName` để hiển thị người thực hiện, không cần gọi thêm API tài khoản. Mã và họ tên lấy từ tài khoản/profile hiện tại; đổi tên người dùng không sửa snapshot trước/sau đã lưu. Sự kiện không xác định người thực hiện vẫn được trả về với các trường actor bằng null. Truy vấn nối trái dữ liệu người thực hiện trong PostgreSQL, không truy vấn riêng từng item; không thêm cột hay migration.
 

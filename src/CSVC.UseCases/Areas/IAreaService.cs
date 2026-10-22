@@ -12,7 +12,6 @@ public interface IAreaService
     Task UpdateAsync(Guid id, UpdateAreaRequest request, CancellationToken cancellationToken);
     Task SetLockedAsync(Guid id, bool locked, CancellationToken cancellationToken);
     Task<AreaLockImpactDto> GetLockImpactAsync(Guid id, CancellationToken cancellationToken);
-    Task<PagedResult<AreaHistoryDto>> GetHistoryAsync(Guid id, AreaHistoryQuery query, CancellationToken cancellationToken);
     Task DenyDeleteAsync(Guid id, CancellationToken cancellationToken);
     Task RecordInvalidRequestAsync(Guid? id, CancellationToken cancellationToken);
 }
