@@ -42,17 +42,3 @@ public sealed class DepartmentLockImpactDto
     public bool LinkCountsComplete => DeviceCount.HasValue && RequestCount.HasValue;
     public string Warning => "Locking prevents new assignments; existing accounts and links are preserved.";
 }
-
-public sealed class DepartmentHistoryDto
-{
-    public Guid Id { get; init; }
-    public Guid RequestId { get; init; }
-    public Guid? ActorAccountId { get; init; }
-    public Guid? DepartmentId { get; init; }
-    public string ActionCode { get; init; } = "";
-    public AuditOutcome Outcome { get; init; }
-    public string? ReasonCode { get; init; }
-    public DateTimeOffset OccurredAt { get; init; }
-    public string? BeforeData { get; init; }
-    public string? AfterData { get; init; }
-}

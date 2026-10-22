@@ -95,14 +95,6 @@ public sealed class DepartmentService(
         return new() { DepartmentId = id, Status = department.Status, AccountCount = management.AccountCount };
     }
 
-    public async Task<PagedResult<DepartmentHistoryDto>> GetHistoryAsync(Guid id, DepartmentHistoryQuery query, CancellationToken cancellationToken)
-    {
-        await RequireActorAsync(true, cancellationToken);
-        Validate(query);
-        if (!await unitOfWork.Departments.ExistsAsync(d => d.Id == id, cancellationToken)) throw Missing();
-        return await unitOfWork.DepartmentHistories.ListAsync(id, query, cancellationToken);
-    }
-
     public async Task DenyDeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         await SaveFailureAsync(id, "DELETE_DENIED", AuditOutcome.Denied, "DEPARTMENT_DELETE_FORBIDDEN", cancellationToken);

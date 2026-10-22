@@ -15,6 +15,7 @@ public static class DependencyInjection
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<Departments.IDepartmentService, Departments.DepartmentService>();
         services.AddScoped<Areas.IAreaService, Areas.AreaService>();
+        services.AddScoped<History.IHistoryService, History.HistoryService>();
         services.AddScoped<IAccountAuthenticationService, AccountAuthenticationService>();
         services.AddScoped<ISessionLifecycle, SessionLifecycle>();
         services.AddScoped<ISessionExpirationService, SessionExpirationService>();

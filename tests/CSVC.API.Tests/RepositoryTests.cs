@@ -122,14 +122,14 @@ public sealed class RepositoryTests
         => new(context,
             new RoleRepository(context),
             new DepartmentRepository(context, DepartmentMapper()),
-            new DepartmentHistoryRepository(context, DepartmentMapper()),
+            new DepartmentHistoryRepository(context, HistoryMapper()),
             new UserProfileRepository(context),
             new AccountRepository(context, new AutoMapper.MapperConfiguration(configuration =>
                 configuration.AddProfile<UseCases.Accounts.Mapping.AccountMappingProfile>(),
                 Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper()),
-            new AccountHistoryRepository(context),
+            new AccountHistoryRepository(context, HistoryMapper()),
             new AuthSessionRepository(context),
-            new AuthHistoryRepository(context),
+            new AuthHistoryRepository(context, HistoryMapper()),
             new AuthLoginThrottleRepository(context),
             new PasswordResetRequestRepository(context),
             new AreaRepository(context, AreaMapper()),
@@ -141,6 +141,10 @@ public sealed class RepositoryTests
 
     private static AutoMapper.IMapper DepartmentMapper()
         => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Departments.Mapping.DepartmentMappingProfile>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper();
+
+    private static AutoMapper.IMapper HistoryMapper()
+        => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.History.Mapping.HistoryMappingProfile>(),
             Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper();
 
     private static DbContextOptions<CsvcDbContext> CreateOptions()

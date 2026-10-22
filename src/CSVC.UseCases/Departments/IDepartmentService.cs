@@ -11,7 +11,6 @@ public interface IDepartmentService
     Task UpdateAsync(Guid id, UpdateDepartmentRequest request, CancellationToken cancellationToken);
     Task SetLockedAsync(Guid id, bool locked, CancellationToken cancellationToken);
     Task<DepartmentLockImpactDto> GetLockImpactAsync(Guid id, CancellationToken cancellationToken);
-    Task<PagedResult<DepartmentHistoryDto>> GetHistoryAsync(Guid id, DepartmentHistoryQuery query, CancellationToken cancellationToken);
     Task DenyDeleteAsync(Guid id, CancellationToken cancellationToken);
     Task RecordInvalidRequestAsync(Guid? id, CancellationToken cancellationToken);
 }
