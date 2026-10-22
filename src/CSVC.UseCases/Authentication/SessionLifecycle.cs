@@ -6,7 +6,7 @@ namespace CSVC.UseCases.Authentication;
 
 public sealed class SessionLifecycle(IUnitOfWork unitOfWork) : ISessionLifecycle
 {
-    public async Task EndAsync(AuthSession session, Guid requestId, Guid? actorId, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task EndAsync(AuthSession session, Guid requestId, Guid? actorId, DateTimeOffset now, CancellationToken cancellationToken, string? reasonCode = null)
     {
         if (!session.IsActive) return;
         session.IsActive = false;
@@ -18,6 +18,7 @@ public sealed class SessionLifecycle(IUnitOfWork unitOfWork) : ISessionLifecycle
             RequestId = requestId, ActorAccountId = session.ExpiresAt <= now ? null : actorId,
             AccountId = session.AccountId, SessionId = session.Id,
             ActionCode = "SESSION_ENDED", Outcome = AuditOutcome.Success,
+            ReasonCode = session.ExpiresAt <= now ? null : reasonCode,
             OccurredAt = session.ExpiresAt <= now ? session.ExpiresAt : now
         }, cancellationToken);
     }

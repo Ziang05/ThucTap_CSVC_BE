@@ -13,7 +13,6 @@ public sealed class DepartmentMappingProfile : Profile
         MapWrite<UpdateDepartmentRequest>();
         CreateMap<Department, DepartmentListItemDto>();
         CreateMap<Department, DepartmentDetailDto>().ForMember(d => d.Management, o => o.Ignore());
-        CreateMap<DepartmentHistory, DepartmentHistoryDto>();
     }
 
     private void MapWrite<T>() where T : DepartmentWriteRequest

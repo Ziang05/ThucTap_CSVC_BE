@@ -25,6 +25,9 @@ public sealed class DepartmentTransaction(CsvcDbContext context) : IDepartmentTr
             await transaction.RollbackAsync(CancellationToken.None);
             context.ChangeTracker.Clear();
             if (exception is DbUpdateException { InnerException: PostgresException
+                { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "uq_departments_normalized_code" or "IX_departments_code" } })
+                throw new UseCaseException(FailureKind.Conflict, "DEPARTMENT_CODE_CONFLICT", "A department with this code already exists.");
+            if (exception is DbUpdateException { InnerException: PostgresException
                 { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "uq_departments_normalized_name" } })
                 throw new UseCaseException(FailureKind.Conflict, "DEPARTMENT_NAME_CONFLICT", "A department with this name already exists.");
             throw;

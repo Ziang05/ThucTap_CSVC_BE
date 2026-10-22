@@ -12,8 +12,17 @@ namespace CSVC.Infrastructure.Persistence.Repositories;
 public sealed class DepartmentRepository(CsvcDbContext context, IMapper mapper)
     : GenericRepository<Department>(context), IDepartmentRepository
 {
+    public Task<bool> CodeExistsAsync(string code, Guid? exceptId, CancellationToken cancellationToken)
+    {
+        var key = code.Trim().ToLowerInvariant();
+        return _dbSet.AnyAsync(d => d.Id != exceptId && EF.Property<string>(d, "NormalizedCode") == key, cancellationToken);
+    }
+
     public Task<Department?> GetByCodeAsync(string code, CancellationToken cancellationToken = default)
-        => FirstOrDefaultAsync(department => department.Code == code, cancellationToken);
+    {
+        var key = code.Trim().ToLowerInvariant();
+        return FirstOrDefaultAsync(department => EF.Property<string>(department, "NormalizedCode") == key, cancellationToken);
+    }
 
     public Task<bool> NameExistsAsync(string name, Guid? exceptId, CancellationToken cancellationToken)
     {

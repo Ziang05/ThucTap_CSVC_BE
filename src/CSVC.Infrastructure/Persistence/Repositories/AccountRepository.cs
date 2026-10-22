@@ -13,6 +13,12 @@ namespace CSVC.Infrastructure.Persistence.Repositories;
 public sealed class AccountRepository(CsvcDbContext context, IMapper mapper)
     : GenericRepository<Account>(context), IAccountRepository
 {
+    public Task<bool> CodeExistsAsync(string code, Guid? exceptId, CancellationToken cancellationToken)
+    {
+        var key = code.Trim().ToLowerInvariant();
+        return _dbSet.AnyAsync(a => a.Id != exceptId && EF.Property<string>(a, "NormalizedCode") == key, cancellationToken);
+    }
+
     public Task<Account?> GetByNormalizedEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = TextNormalization.Email(email);

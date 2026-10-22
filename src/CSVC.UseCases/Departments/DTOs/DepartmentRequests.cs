@@ -7,6 +7,9 @@ namespace CSVC.UseCases.Departments.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class DepartmentWriteRequest
 {
+    private string? _code;
+    [StringLength(BusinessCode.MaxLength), RegularExpression(BusinessCode.Pattern)]
+    public string? Code { get => _code; init => _code = BusinessCode.Normalize(value); }
     private string _name = "";
     [Required, StringLength(200)]
     public string Name { get => _name; init => _name = TextNormalization.Name(value ?? ""); }
@@ -28,12 +31,6 @@ public sealed class DepartmentListQuery
     [EnumDataType(typeof(EntityStatus))] public EntityStatus? Status { get; init; }
     [EnumDataType(typeof(DepartmentSortBy))] public DepartmentSortBy SortBy { get; init; }
     [EnumDataType(typeof(DepartmentSortDirection))] public DepartmentSortDirection SortDirection { get; init; }
-    [Range(1, 1_000_000)] public int Page { get; init; } = 1;
-    [Range(1, 100)] public int PageSize { get; init; } = 20;
-}
-
-public sealed class DepartmentHistoryQuery
-{
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1, 100)] public int PageSize { get; init; } = 20;
 }

@@ -18,6 +18,9 @@ public sealed class DepartmentConfiguration : IEntityTypeConfiguration<Departmen
         builder.Property(entity => entity.Id).HasColumnName("id").HasColumnType("uuid").IsRequired().ValueGeneratedNever();
         builder.Property(entity => entity.Code).HasColumnName("code").HasColumnType("varchar(32)").HasMaxLength(32).IsRequired();
         builder.HasIndex(entity => entity.Code).IsUnique();
+        builder.Property<string>("NormalizedCode").HasColumnName("normalized_code").HasColumnType("text")
+            .HasComputedColumnSql("lower(btrim(code))", stored: true).IsRequired();
+        builder.HasIndex("NormalizedCode").IsUnique().HasDatabaseName("uq_departments_normalized_code");
         builder.Property(entity => entity.Name).HasColumnName("name").HasColumnType("varchar(200)").HasMaxLength(200).IsRequired();
         builder.Property<string>("NormalizedName").HasColumnName("normalized_name").HasColumnType("text")
             .HasComputedColumnSql("lower(btrim(regexp_replace(normalize(name, NFC), '[[:space:]]+', ' ', 'g')))", stored: true).IsRequired();

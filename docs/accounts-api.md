@@ -20,8 +20,8 @@ Tiền tố: `/api/v1/accounts`. Các endpoint bảo vệ dùng `Authorization: 
 | GET | `/{id}` | Trưởng phòng hoặc chính chủ | 200, `AccountDetailDto` |
 | GET | `/me` | Chính chủ | 200, `AccountDetailDto` |
 | POST | `/` | Trưởng phòng | 201, `CreatedAccountDto`, header Location |
-| PUT | `/{id}/profile` | Trưởng phòng hoặc chính chủ | 204 |
-| PUT | `/me/profile` | Chính chủ | 204 |
+| PUT | `/{id}/profile` | Trưởng phòng hoặc chính chủ; accountCode/departmentId chỉ Trưởng phòng | 204 |
+| PUT | `/me/profile` | Chính chủ; accountCode/departmentId chỉ Trưởng phòng | 204 |
 | PUT | `/me/password` | Chính chủ, cần mật khẩu cũ | 204; phiên hiện tại bị thu hồi |
 | PUT | `/{id}/password` | Trưởng phòng, không cần mật khẩu cũ | 204; không tạo password-reset request |
 | PUT | `/{id}/lock` | Trưởng phòng | 204 |
@@ -45,20 +45,27 @@ Tạo tài khoản:
 }
 ```
 
-Mã tài khoản do hệ thống sinh. Vai trò phải là một trong ba role hiện có; phòng ban phải tồn tại và hoạt động. Mật khẩu khởi tạo bằng email chuẩn hóa theo yêu cầu nghiệp vụ, chỉ lưu bằng PasswordHasher của ASP.NET Core Identity (không sử dụng hệ thống quản lý user/role Identity).
+`accountCode` là trường tùy chọn khi tạo. Không gửi, null hoặc chuỗi trắng thì server cấp mã `TK000001`, `TK000002`… bằng PostgreSQL sequence; mã nhập tay được trim và viết hoa. Mã dài tối đa 32 ký tự, bắt đầu bằng chữ A–Z hoặc số; phần còn lại cho phép chữ, số, `.`, `_`, `/`, `-`. Ví dụ `NV.QTTB/2026-01`. Mã không trùng với tài khoản khác, không phân biệt hoa/thường và khoảng trắng đầu/cuối, kể cả tài khoản đã khóa.
 
-Cập nhật hồ sơ:
+Sequence tăng độc lập cho tài khoản và phòng ban, không reset theo năm; tối thiểu 6 chữ số, tự tăng độ dài khi vượt 999999. Nếu mã nhập tay chiếm số tự sinh, server bỏ qua số đó. Số đã cấp không thu hồi sau rollback nên có thể có khoảng trống; mã không phải số thứ tự liên tục để đếm bản ghi. Mã legacy hiện có không bị đổi tự động.
+
+Vai trò phải là một trong ba role hiện có; phòng ban phải tồn tại và hoạt động. Mật khẩu khởi tạo bằng email chuẩn hóa theo yêu cầu nghiệp vụ, chỉ lưu bằng PasswordHasher của ASP.NET Core Identity (không sử dụng hệ thống quản lý user/role Identity).
+
+Cập nhật mã và hồ sơ trong cùng request `PUT /api/v1/accounts/{id}/profile` hoặc `PUT /api/v1/accounts/me/profile`:
 
 ```json
 {
   "fullName": "Nguyễn Văn An",
+  "accountCode": "NV.QTTB/2026-01",
   "birthDate": "2000-01-15",
   "phone": "0901234567",
   "departmentId": "11111111-1111-1111-1111-111111111111"
 }
 ```
 
-`fullName` bắt buộc; `birthDate` và `phone` có thể xóa bằng null. `departmentId` null/không gửi giữ nguyên; chỉ Trưởng phòng được gửi giá trị này. Email, role, code, trạng thái khóa không được chấp nhận trong DTO cập nhật. Trường JSON không có trong request được từ chối bằng 400. Ngày sinh tương lai bị từ chối.
+`fullName` bắt buộc; `birthDate` và `phone` có thể xóa bằng null. `departmentId` null/không gửi giữ nguyên; chỉ Trưởng phòng được gửi giá trị này. `accountCode` bỏ qua/null/chuỗi trắng giữ nguyên mã, không sinh lại mã khi cập nhật. Chỉ Trưởng phòng QTTB được gửi mã không rỗng; role nhân viên vẫn được sửa hồ sơ chính mình khi không đổi mã. Quy tắc quyền này áp dụng cho cả hai đường dẫn profile. Trùng mã trả 409 `ACCOUNT_CODE_CONFLICT`; thiếu quyền đổi mã trả 403 `ACCOUNT_CODE_CHANGE_FORBIDDEN`; tài khoản khóa trả 409 `ACCOUNT_LOCKED`; mã không hợp lệ trả 400.
+
+Mã và các trường hồ sơ được kiểm tra rồi commit cùng một giao dịch với audit. Bất kỳ lỗi trùng mã/quyền/lưu audit đều không cho lưu một phần dữ liệu. Cập nhật thành công trả 204; gửi lại toàn bộ dữ liệu hiện tại không tạo thêm SUCCESS audit. Snapshot before/after chứa account_code cùng các trường hồ sơ; changedFields liệt kê những trường thực sự thay đổi. Action là `PROFILE_UPDATED`, hoặc `DEPARTMENT_CHANGED` khi đổi cả phòng ban. Email, role, trạng thái khóa vẫn không được chấp nhận trong DTO cập nhật. Trường JSON không có trong request bị từ chối bằng 400. Ngày sinh tương lai bị từ chối. Đổi mã giữ nguyên ID và phiên đăng nhập; hồ sơ/phòng ban chỉ đổi khi được yêu cầu trong cùng body.
 
 Tự đổi mật khẩu dùng `currentPassword`, `newPassword`. Trưởng phòng đặt lại trực tiếp chỉ dùng `newPassword`. Hoàn tất quên mật khẩu dùng `token`, `newPassword`. Chính sách hiện tại: mật khẩu mới dài 12–128 ký tự; mật khẩu khởi tạo theo quy định email là trường hợp riêng. DTO mật khẩu dùng class để tránh tự sinh `ToString()` chứa bí mật.
 
@@ -85,11 +92,15 @@ Thay UUID ví dụ bằng ID phòng ban thực tế. Nhiều ID dùng điều ki
 
 ## Giao dịch và audit
 
+API đọc lịch sử thao tác tài khoản: `GET /api/v1/history/accounts` (danh sách gọn, có lọc/sort/phân trang), `GET /api/v1/history/accounts/{id}` (chi tiết bằng history ID, có snapshot và changedFields). Chỉ Trưởng phòng QTTB được đọc. Xem [History API](history-api.md).
+
 `AccountTransaction` mở transaction PostgreSQL READ COMMITTED, lấy advisory lock chung cho các thao tác tài khoản và chỉ commit khi dữ liệu cùng audit được lưu thành công. Kiểm tra quyền/phiên của người thao tác được lặp lại sau khi lấy lock để từ chối request đã xác thực nhưng bị thu hồi trong khi chờ. Phòng ban đích được khóa hàng FOR SHARE trong lúc kiểm tra và ghi, tránh bị khóa/xóa giữa chừng.
 
 Khóa tài khoản hoặc thay mật khẩu đóng phiên active và ghi SESSION_ENDED duy nhất; các yêu cầu khóa/mở khóa lặp lại không tạo SUCCESS giả. Khóa bản thân và khóa quản trị hoạt động cuối cùng bị từ chối. Lỗi use case được ghi DENIED/FAILED trong transaction mới sau rollback. Yêu cầu HTTP sai cú pháp/model bị lớp API từ chối trước khi chạy use case.
 
 `request_id` vẫn là ID do server sinh để truy vết một lần gọi HTTP; unique audit index chống ghi trùng trong lần gọi đó. Đây chưa phải cơ chế idempotency bền vững cho nhiều HTTP request khác nhau dùng cùng Idempotency-Key.
+
+Migration `20261022011625_EditableBusinessCodes` bổ sung hai sequence và cột generated `normalized_code` cùng unique index cho accounts/departments. Cần chạy migration trước khi dùng binary mới; dữ liệu cũ có mã trùng sau trim/đổi hoa thường phải được xử lý trước, migration không tự đổi mã để che xung đột. Lịch sử đổi mã hiện dùng audit có timestamp, chưa có lịch áp dụng mã trong tương lai.
 
 ## Xác thực phiên và phần tích hợp còn lại
 

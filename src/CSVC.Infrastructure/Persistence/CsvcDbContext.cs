@@ -53,10 +53,12 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
             switch (entry.Entity)
             {
                 case Account account:
+                    entry.Property("NormalizedCode").CurrentValue = account.AccountCode.Trim().ToLowerInvariant();
                     account.Email = TextNormalization.Email(account.Email);
                     entry.Property("NormalizedEmail").CurrentValue = account.Email;
                     break;
                 case Department department:
+                    entry.Property("NormalizedCode").CurrentValue = department.Code.Trim().ToLowerInvariant();
                     department.Name = TextNormalization.Name(department.Name);
                     entry.Property("NormalizedName").CurrentValue = department.Name.ToLowerInvariant();
                     break;
@@ -74,6 +76,8 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.HasSequence<long>("account_code_seq");
+        modelBuilder.HasSequence<long>("department_code_seq");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CsvcDbContext).Assembly);
     }
 }

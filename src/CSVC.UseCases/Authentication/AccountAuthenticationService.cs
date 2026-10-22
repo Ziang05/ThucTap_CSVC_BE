@@ -107,7 +107,7 @@ public sealed class AccountAuthenticationService(
         {
             var session = await unitOfWork.AuthSessions.FirstOrDefaultAsync(item => item.SessionTokenHash == hash, ct);
             if (session is not null)
-                await lifecycle.EndAsync(session, requestContext.RequestId, session.AccountId, clock.GetUtcNow(), ct);
+                await lifecycle.EndAsync(session, requestContext.RequestId, session.AccountId, clock.GetUtcNow(), ct, "LOGOUT");
             return true;
         }, cancellationToken);
     }

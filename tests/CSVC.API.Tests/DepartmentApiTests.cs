@@ -51,7 +51,7 @@ public sealed class DepartmentApiTests
         Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
         var created = await ReadAsync<DepartmentDetailDto>(createdResponse);
         Assert.EndsWith(created.Id.ToString(), createdResponse.Headers.Location!.ToString());
-        Assert.Equal(32, created.Code.Length);
+        Assert.Equal("PB000001", created.Code);
         Assert.StartsWith("PB", created.Code);
         Assert.Equal("Phòng Nhân sự", created.Name);
         Assert.Equal("NS", created.ShortName);
@@ -146,11 +146,11 @@ public sealed class DepartmentApiTests
         var created = await CreateAsync(manager, "Phòng Kế toán");
         foreach (var body in new object[] { new { name = "   " }, new { name = new string('X', 201) },
             new { name = "Valid", shortName = new string('X', 51) }, new { name = "Valid", description = new string('X', 4001) },
-            new { name = "Valid", code = "FORGED" }, new { name = "Valid", status = "Locked" } })
+            new { name = "Valid", accountCode = "FORGED" }, new { name = "Valid", status = "Locked" } })
             Assert.Equal(HttpStatusCode.BadRequest, (await manager.PostAsJsonAsync(Root, body)).StatusCode);
         foreach (var query in new[] { "page=0", "pageSize=101", "sortBy=999", "sortDirection=999", "status=999" })
             Assert.Equal(HttpStatusCode.BadRequest, (await manager.GetAsync($"{Root}?{query}")).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PutAsJsonAsync($"{Root}/{created.Id}", new { name = "X", code = "Y" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PutAsJsonAsync($"{Root}/{created.Id}", new { name = "X", id = Guid.NewGuid() })).StatusCode);
         foreach (var role in new short[] { 2, 3 })
         {
             await using (var scope = factory.Services.CreateAsyncScope())

@@ -6,6 +6,7 @@ namespace CSVC.UseCases.Abstractions.Persistence;
 
 public interface IDepartmentRepository : IRepository<Department>
 {
+    Task<bool> CodeExistsAsync(string code, Guid? exceptId, CancellationToken cancellationToken);
     Task<Department?> GetByCodeAsync(string code, CancellationToken cancellationToken = default);
     Task<bool> NameExistsAsync(string name, Guid? exceptId, CancellationToken cancellationToken);
     Task<PagedResult<DepartmentListItemDto>> ListAsync(DepartmentListQuery query, CancellationToken cancellationToken);

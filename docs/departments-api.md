@@ -1,6 +1,6 @@
 # API quản lý phòng ban — Nhóm 3
 
-Nguồn nghiệp vụ: [Nhóm 3, UC-PB-01…06](https://docs.google.com/spreadsheets/d/1xQg5ao1fWNIA5qC8qisSoVaUeUuRZ9UFa3_nse2ZHyA/edit#gid=877057480). Sheet có nhãn “chính sách đề xuất cần xác nhận”; bản triển khai này áp dụng các quy tắc hiện được ghi trong sheet để tiếp nối hai nhóm trước. Không tạo tài khoản mặc định hoặc thay đổi schema/migration.
+Nguồn nghiệp vụ: [Nhóm 3, UC-PB-01…06](https://docs.google.com/spreadsheets/d/1xQg5ao1fWNIA5qC8qisSoVaUeUuRZ9UFa3_nse2ZHyA/edit#gid=877057480). Quy tắc mã được cập nhật theo yêu cầu: Trưởng phòng được nhập/sửa mã; bỏ trống khi tạo thì cấp mã ngắn tự động.
 
 ## Endpoint và quyền
 
@@ -27,21 +27,24 @@ POST và PUT nhận cùng các trường nội dung:
 ```json
 {
   "name": "Phòng Kế toán",
+  "code": "PB.KT/2026",
   "shortName": "KT",
   "description": "Quản lý tài chính"
 }
 ```
 
-Tên bắt buộc, tối đa 200 ký tự sau NFC/gộp khoảng trắng/trim; so sánh trùng không phân biệt hoa thường. Tên viết tắt tùy chọn tối đa 50 ký tự. Mô tả tùy chọn có giới hạn API 4000 ký tự để giới hạn payload (sheet không quy định độ dài; DB là text). Chuỗi trống ở trường tùy chọn được lưu null; các trường tùy chọn bị bỏ qua trong PUT cũng được xóa về null. PUT là thay toàn bộ thông tin cho phép sửa.
+Tên bắt buộc, tối đa 200 ký tự sau NFC/gộp khoảng trắng/trim; so sánh trùng không phân biệt hoa thường. Tên viết tắt tùy chọn tối đa 50 ký tự. Mô tả tùy chọn có giới hạn API 4000 ký tự để giới hạn payload (sheet không quy định độ dài; DB là text). ShortName/description trống hoặc bỏ qua trong PUT được xóa về null. Riêng code bỏ qua, null hoặc chuỗi trắng trong PUT giữ nguyên mã hiện có.
 
-Mã phòng ban dài 32 ký tự, tiền tố PB + 30 ký tự hex ngẫu nhiên, do server sinh; trạng thái tạo mới luôn Active. DTO từ chối các trường ngoài hợp đồng như id/code/status/createdBy. AutoMapper chỉ sửa name/shortName/description; không thay id/code/status. Không cho sửa phòng ban Locked; cần mở khóa trước. Tên bị phòng ban Locked giữ chỗ như tên của phòng ban Active.
+Code tùy chọn khi tạo: bỏ qua, null hoặc chuỗi trắng thì dùng PostgreSQL sequence cấp `PB000001`, `PB000002`…; tối thiểu 6 chữ số, không reset theo năm. Mã nhập tay được trim/viết hoa, tối đa 32 ký tự, bắt đầu bằng A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Mã không trùng với phòng ban khác dù khác hoa/thường hay khoảng trắng đầu/cuối, kể cả phòng ban khóa. Bộ cấp mã bỏ qua mã đã bị nhập tay chiếm; số có thể có khoảng trống sau rollback.
+
+PUT cho phép đổi code cùng nội dung phòng ban; ID và các liên kết nhân sự giữ nguyên. Audit `DEPARTMENT_UPDATED` lưu code cũ/mới trong snapshot, người sửa và thời gian; cập nhật không thay đổi dữ liệu không ghi thêm SUCCESS. Mã legacy không bị tự đổi sau migration. Trạng thái tạo mới luôn Active. DTO vẫn từ chối các trường ngoài hợp đồng như id/status/createdBy; AutoMapper chỉ map nội dung, service kiểm tra và gán mã. Không cho sửa phòng ban Locked; cần mở khóa trước. Tên và mã của phòng ban Locked vẫn giữ chỗ.
 
 Tạo trả DTO chi tiết. Danh mục trả id/code/name/shortName/status, không kèm nhân sự/audit. Chi tiết cơ bản có thêm description. Chỉ Trưởng phòng có trường management:
 
 ```json
 {
   "id": "<department-id>",
-  "code": "PB<30-hex-characters>",
+  "code": "PB000001",
   "name": "Phòng Kế toán",
   "shortName": "KT",
   "description": "Quản lý tài chính",
@@ -98,6 +101,7 @@ Nếu không lưu được audit thành công, rollback dữ liệu và trả 50
 
 | HTTP | Code | Ý nghĩa |
 | --- | --- | --- |
+| 409 | DEPARTMENT_CODE_CONFLICT | Mã đã được phòng ban khác sử dụng |
 | 400 | VALIDATION_FAILED | Thiếu/sai trường, dài quá giới hạn, query không hợp lệ |
 | 401 | AUTHENTICATION_REQUIRED hoặc phản hồi challenge | Thiếu/phiên không hợp lệ |
 | 403 | DEPARTMENT_ACCESS_FORBIDDEN | Không đủ quyền thao tác |
@@ -107,7 +111,7 @@ Nếu không lưu được audit thành công, rollback dữ liệu và trả 50
 | 409 | DEPARTMENT_LOCKED | Sửa thông tin phòng ban khóa |
 | 503 | DEPARTMENT_UNAVAILABLE | Không lưu được dữ liệu/audit |
 
-History nhận page/pageSize như danh mục, sắp xếp occurredAt giảm dần, ID làm khóa phụ. Mỗi item có id/requestId/actorAccountId/departmentId/actionCode/outcome/reasonCode/occurredAt/beforeData/afterData. BeforeData/afterData là chuỗi JSON snapshot đọc từ JSONB, có thể null. Chỉ Trưởng phòng đọc và chỉ nhận sự kiện của departmentId đang chọn.
+History được tách danh sách gọn và chi tiết: `GET /api/v1/departments/{id}/history` trả id/occurredAt/actionCode/outcome/reasonCode, thông tin người thao tác và mã/tên phòng ban; không trả snapshot/requestId. Gọi `GET /api/v1/departments/{id}/history/{historyId}` khi mở chi tiết để lấy requestId/beforeData/afterData. Có thêm danh sách toàn bộ phòng ban tại `/api/v1/history/departments`. Chỉ Trưởng phòng đọc. Bộ lọc, sort và quy tắc scope: [History API](history-api.md). Frontend đang đọc snapshot từ list cần chuyển sang gọi detail.
 
 ## Kiểm thử
 

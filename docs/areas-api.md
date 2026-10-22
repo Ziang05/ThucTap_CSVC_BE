@@ -122,6 +122,8 @@ Lỗi lưu audit thành công trả 503 sau rollback; cố ghi FAILED ở transa
 
 History mặc định lọc đúng areaId. `includeDescendants=true` lấy sự kiện của các node thuộc **nhánh hiện tại**; node đã chuyển ra khỏi nhánh không còn được chọn. Đây không phải bộ lọc nhánh lịch sử tại một thời điểm. Bản thân snapshot đường dẫn cũ luôn bất biến. Sắp xếp occurredAt giảm dần, ID phụ; page/pageSize như danh mục. BeforeData/afterData/changedFields trả dưới dạng chuỗi JSON từ JSONB; dữ liệu thất bại có thể null. Chỉ Trưởng phòng đọc lịch sử, không có API sửa/xóa.
 
+Mỗi item lịch sử trả sẵn `actorAccountId`, `actorAccountCode`, `actorFullName`, thống nhất với lịch sử tài khoản/xác thực/phòng ban. Frontend dùng trực tiếp `actorFullName` để hiển thị người thực hiện, không cần gọi thêm API tài khoản. Mã và họ tên lấy từ tài khoản/profile hiện tại; đổi tên người dùng không sửa snapshot trước/sau đã lưu. Sự kiện không xác định người thực hiện vẫn được trả về với các trường actor bằng null. Truy vấn nối trái dữ liệu người thực hiện trong PostgreSQL, không truy vấn riêng từng item; không thêm cột hay migration.
+
 ## Mã lỗi và kiểm thử
 
 | HTTP | Code | Ý nghĩa |

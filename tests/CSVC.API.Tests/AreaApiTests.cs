@@ -463,6 +463,47 @@ public sealed class AreaApiTests
         Assert.Equal(4, await env.CountHistoryAsync());
     }
 
+    [PostgreSqlFact]
+    public async Task History_items_include_current_actor_name_and_keep_events_without_an_actor()
+    {
+        await using var env = await Harness.CreateAsync();
+        var area = await env.CreateAreaAsync("Phòng thí nghiệm");
+        var original = await env.Manager.GetFromJsonAsync<JsonElement>($"{Root}/{area.Id}/history");
+        var created = Assert.Single(original.GetProperty("items").EnumerateArray());
+        Assert.Equal(env.ManagerId, created.GetProperty("actorAccountId").GetGuid());
+        Assert.Equal("TK_MANAGER", created.GetProperty("actorAccountCode").GetString());
+        Assert.Equal("Test Manager", created.GetProperty("actorFullName").GetString());
+        var snapshot = created.GetProperty("afterData").GetString();
+        var systemEvent = new AreaHistory
+        {
+            RequestId = Guid.NewGuid(), AreaId = area.Id, ActionCode = "FAILED",
+            Outcome = AuditOutcome.Failed, ReasonCode = "VALIDATION_FAILED",
+            OccurredAt = env.Factory.Clock.GetUtcNow().AddMinutes(1)
+        };
+        await using (var scope = env.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
+            var manager = await db.Accounts.SingleAsync(a => a.Id == env.ManagerId);
+            (await db.UserProfiles.SingleAsync(p => p.Id == manager.UserProfileId)).FullName = "Nguyễn Đình Bảo";
+            db.AreaHistories.Add(systemEvent);
+            await db.SaveChangesAsync();
+        }
+        var firstPage = await env.Manager.GetFromJsonAsync<JsonElement>($"{Root}/{area.Id}/history?pageSize=1");
+        Assert.Equal(2, firstPage.GetProperty("totalCount").GetInt32());
+        var anonymous = Assert.Single(firstPage.GetProperty("items").EnumerateArray());
+        Assert.Equal(systemEvent.Id, anonymous.GetProperty("id").GetGuid());
+        Assert.Equal(JsonValueKind.Null, anonymous.GetProperty("actorAccountId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, anonymous.GetProperty("actorAccountCode").ValueKind);
+        Assert.Equal(JsonValueKind.Null, anonymous.GetProperty("actorFullName").ValueKind);
+        var secondPage = await env.Manager.GetFromJsonAsync<JsonElement>($"{Root}/{area.Id}/history?page=2&pageSize=1");
+        Assert.Equal(2, secondPage.GetProperty("totalCount").GetInt32());
+        var renamed = Assert.Single(secondPage.GetProperty("items").EnumerateArray());
+        Assert.Equal(created.GetProperty("id").GetGuid(), renamed.GetProperty("id").GetGuid());
+        Assert.Equal("Nguyễn Đình Bảo", renamed.GetProperty("actorFullName").GetString());
+        Assert.Equal(snapshot, renamed.GetProperty("afterData").GetString());
+        Assert.Equal(2, await env.CountHistoryAsync());
+    }
+
     private static async Task<T> ReadAsync<T>(HttpResponseMessage response) => (await response.Content.ReadFromJsonAsync<T>(Json))!;
     private static async Task CodeAsync(HttpResponseMessage response, HttpStatusCode status, string code)
     {

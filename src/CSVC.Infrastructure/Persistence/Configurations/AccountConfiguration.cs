@@ -18,6 +18,9 @@ public sealed class AccountConfiguration : IEntityTypeConfiguration<Account>
         builder.Property(entity => entity.Id).HasColumnName("id").HasColumnType("uuid").IsRequired().ValueGeneratedNever();
         builder.Property(entity => entity.AccountCode).HasColumnName("account_code").HasColumnType("varchar(32)").HasMaxLength(32).IsRequired();
         builder.HasIndex(entity => entity.AccountCode).IsUnique();
+        builder.Property<string>("NormalizedCode").HasColumnName("normalized_code").HasColumnType("text")
+            .HasComputedColumnSql("lower(btrim(account_code))", stored: true).IsRequired();
+        builder.HasIndex("NormalizedCode").IsUnique().HasDatabaseName("uq_accounts_normalized_code");
         builder.Property(entity => entity.UserProfileId).HasColumnName("user_profile_id").HasColumnType("uuid").IsRequired();
         builder.HasIndex(entity => entity.UserProfileId).IsUnique();
         builder.Property(entity => entity.RoleId).HasColumnName("role_id").HasColumnType("smallint").IsRequired();

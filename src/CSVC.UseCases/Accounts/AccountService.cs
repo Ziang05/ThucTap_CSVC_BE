@@ -20,7 +20,7 @@ namespace CSVC.UseCases.Accounts;
 public sealed class AccountService(
     IUnitOfWork unitOfWork, IAccountTransaction transaction, ICurrentAccount current,
     IRequestContext requestContext, IAccountPasswordHasher passwords, IPasswordResetSender resetSender, ISessionLifecycle sessions,
-    IMapper mapper, TimeProvider clock, ILogger<AccountService> logger) : IAccountService
+    IMapper mapper, TimeProvider clock, ILogger<AccountService> logger, IBusinessCodeGenerator codes) : IAccountService
 {
     public async Task<PagedResult<AccountListItemDto>> ListAsync(AccountListQuery query, CancellationToken cancellationToken = default)
     {
@@ -52,7 +52,8 @@ public sealed class AccountService(
                 throw Error(FailureKind.Conflict, "EMAIL_ALREADY_EXISTS", "Email is already in use.");
             var profile = mapper.Map<UserProfile>(request);
             var account = mapper.Map<Account>(request);
-            account.AccountCode = "TK" + account.Id.ToString("N")[..30];
+            account.AccountCode = request.AccountCode ?? await codes.NextAccountCodeAsync(ct);
+            await RequireUniqueCodeAsync(account.AccountCode, null, ct);
             account.UserProfileId = profile.Id;
             account.PasswordHash = passwords.Hash(account.Email);
             await unitOfWork.UserProfiles.AddAsync(profile, ct);
@@ -74,12 +75,17 @@ public sealed class AccountService(
                 throw Error(FailureKind.Validation, "INVALID_BIRTH_DATE", "Birth date cannot be in the future.");
             if (request.DepartmentId.HasValue && actor.RoleCode != RoleCodes.EquipmentManager)
                 throw Error(FailureKind.Forbidden, "DEPARTMENT_CHANGE_FORBIDDEN", "Only an equipment manager can change the department.");
+            if (request.AccountCode is not null && actor.RoleCode != RoleCodes.EquipmentManager)
+                throw Error(FailureKind.Forbidden, "ACCOUNT_CODE_CHANGE_FORBIDDEN", "Only an equipment manager can change the account code.");
             var account = await RequireEditableAsync(id, ct);
             var profile = await unitOfWork.UserProfiles.GetByIdAsync(account.UserProfileId, ct)
                           ?? throw Error(FailureKind.Conflict, "PROFILE_MISSING", "Account profile is unavailable.");
             if (request.DepartmentId is { } departmentId) await RequireDepartmentAsync(departmentId, ct);
-            var before = ProfileSnapshot(profile);
+            if (request.AccountCode is not null) await RequireUniqueCodeAsync(request.AccountCode, id, ct);
+            var before = ProfileSnapshot(account, profile);
             var fields = new List<string>();
+            var codeChanged = request.AccountCode is not null && request.AccountCode != account.AccountCode;
+            if (codeChanged) fields.Add("account_code");
             if (profile.FullName != TextNormalization.Name(request.FullName)) fields.Add("full_name");
             if (profile.BirthDate != request.BirthDate) fields.Add("birth_date");
             if (profile.Phone != request.Phone?.Trim()) fields.Add("phone");
@@ -87,9 +93,14 @@ public sealed class AccountService(
             if (departmentChanged) fields.Add("department_id");
             if (fields.Count == 0) return;
             mapper.Map(request, profile);
+            if (codeChanged)
+            {
+                account.AccountCode = request.AccountCode!;
+                unitOfWork.Accounts.Update(account);
+            }
             if (request.DepartmentId is { } newDepartmentId) profile.DepartmentId = newDepartmentId;
             await AuditAsync(departmentChanged ? "DEPARTMENT_CHANGED" : "PROFILE_UPDATED", id,
-                before, ProfileSnapshot(profile), fields, ct);
+                before, ProfileSnapshot(account, profile), fields, ct);
         }, cancellationToken);
 
     public Task UpdateCurrentProfileAsync(UpdateAccountProfileRequest request, CancellationToken cancellationToken = default)
@@ -219,6 +230,12 @@ public sealed class AccountService(
         return account;
     }
 
+    private async Task RequireUniqueCodeAsync(string code, Guid? exceptId, CancellationToken ct)
+    {
+        if (await unitOfWork.Accounts.CodeExistsAsync(code, exceptId, ct))
+            throw Error(FailureKind.Conflict, "ACCOUNT_CODE_CONFLICT", "An account with this code already exists.");
+    }
+
     private async Task RequireDepartmentAsync(Guid id, CancellationToken ct)
     {
         if (id == Guid.Empty) throw Error(FailureKind.Validation, "INVALID_DEPARTMENT", "Select an active department.");
@@ -289,9 +306,10 @@ public sealed class AccountService(
             throw Error(FailureKind.Validation, "VALIDATION_FAILED", "Request data is invalid.");
     }
 
-    private static object ProfileSnapshot(UserProfile profile) => new
+    private static object ProfileSnapshot(Account account, UserProfile profile) => new
     {
-        full_name = profile.FullName, birth_date = profile.BirthDate, phone = profile.Phone, department_id = profile.DepartmentId
+        account_code = account.AccountCode, full_name = profile.FullName, birth_date = profile.BirthDate,
+        phone = profile.Phone, department_id = profile.DepartmentId
     };
     private static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
     private static UseCaseException Error(FailureKind kind, string code, string message) => new(kind, code, message);

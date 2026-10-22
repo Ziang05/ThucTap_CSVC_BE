@@ -101,6 +101,7 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
     internal sealed class AuditFailureInterceptor : SaveChangesInterceptor
     {
         public bool FailNextAccountCreation { get; set; }
+        public string? FailNextAccountAction { get; set; }
         public bool FailNextSessionCreation { get; set; }
         public bool FailNextLoginFailure { get; set; }
         public string? FailNextDepartmentAction { get; set; }
@@ -108,6 +109,12 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
+            if (FailNextAccountAction is { } accountAction && eventData.Context!.ChangeTracker.Entries<AccountHistory>()
+                    .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == accountAction))
+            {
+                FailNextAccountAction = null;
+                throw new InvalidOperationException("Simulated account audit storage failure.");
+            }
             if (FailNextAreaAction is { } areaAction && eventData.Context!.ChangeTracker.Entries<AreaHistory>()
                     .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == areaAction))
             {
