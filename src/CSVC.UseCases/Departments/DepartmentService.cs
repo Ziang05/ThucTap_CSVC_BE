@@ -16,7 +16,8 @@ namespace CSVC.UseCases.Departments;
 
 public sealed class DepartmentService(
     IUnitOfWork unitOfWork, IDepartmentTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<DepartmentService> logger) : IDepartmentService
+    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<DepartmentService> logger,
+    IBusinessCodeGenerator codes) : IDepartmentService
 {
     public async Task<PagedResult<DepartmentListItemDto>> ListAsync(DepartmentListQuery query, CancellationToken cancellationToken)
     {
@@ -41,7 +42,8 @@ public sealed class DepartmentService(
             Validate(request);
             await RequireUniqueNameAsync(request.Name, null, ct);
             var department = mapper.Map<Department>(request);
-            department.Code = "PB" + Guid.NewGuid().ToString("N")[..30];
+            department.Code = request.Code ?? await codes.NextDepartmentCodeAsync(ct);
+            await RequireUniqueCodeAsync(department.Code, null, ct);
             department.Status = EntityStatus.Active;
             await unitOfWork.Departments.AddAsync(department, ct);
             await AuditAsync("DEPARTMENT_CREATED", department.Id, actor.AccountId, null, Snapshot(department), ct);
@@ -59,8 +61,10 @@ public sealed class DepartmentService(
             if (department.Status != EntityStatus.Active)
                 throw Error(FailureKind.Conflict, "DEPARTMENT_LOCKED", "Unlock this department before editing it.");
             await RequireUniqueNameAsync(request.Name, id, ct);
+            if (request.Code is not null) await RequireUniqueCodeAsync(request.Code, id, ct);
             var before = Snapshot(department);
             mapper.Map(request, department);
+            if (request.Code is not null) department.Code = request.Code;
             var after = Snapshot(department);
             if (before == after) return true;
             unitOfWork.Departments.Update(department);
@@ -128,6 +132,12 @@ public sealed class DepartmentService(
     {
         if (await unitOfWork.Departments.NameExistsAsync(name, id, ct))
             throw Error(FailureKind.Conflict, "DEPARTMENT_NAME_CONFLICT", "A department with this name already exists.");
+    }
+
+    private async Task RequireUniqueCodeAsync(string code, Guid? id, CancellationToken ct)
+    {
+        if (await unitOfWork.Departments.CodeExistsAsync(code, id, ct))
+            throw Error(FailureKind.Conflict, "DEPARTMENT_CODE_CONFLICT", "A department with this code already exists.");
     }
 
     private Task AuditAsync(string action, Guid id, Guid actor, string? before, string after, CancellationToken ct)

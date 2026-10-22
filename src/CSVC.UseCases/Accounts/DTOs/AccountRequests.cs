@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using CSVC.Core.Common;
 
 namespace CSVC.UseCases.Accounts.DTOs;
 
@@ -7,6 +8,9 @@ namespace CSVC.UseCases.Accounts.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CreateAccountRequest
 {
+    private string? _accountCode;
+    [StringLength(BusinessCode.MaxLength), RegularExpression(BusinessCode.Pattern)]
+    public string? AccountCode { get => _accountCode; init => _accountCode = BusinessCode.Normalize(value); }
     [Required, StringLength(200)] public string FullName { get; init; } = "";
     [Required, EmailAddress, StringLength(320)] public string Email { get; init; } = "";
     [StringLength(32)] public string? Phone { get; init; }
@@ -17,6 +21,10 @@ public sealed class CreateAccountRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class UpdateAccountProfileRequest
 {
+    private string? _accountCode;
+    // Omitted/null/blank keeps the current code; a supplied code is manager-only.
+    [StringLength(BusinessCode.MaxLength), RegularExpression(BusinessCode.Pattern)]
+    public string? AccountCode { get => _accountCode; init => _accountCode = BusinessCode.Normalize(value); }
     [Required, StringLength(200)] public string FullName { get; init; } = "";
     public DateOnly? BirthDate { get; init; }
     [StringLength(32)] public string? Phone { get; init; }

@@ -7,6 +7,9 @@ namespace CSVC.UseCases.Departments.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class DepartmentWriteRequest
 {
+    private string? _code;
+    [StringLength(BusinessCode.MaxLength), RegularExpression(BusinessCode.Pattern)]
+    public string? Code { get => _code; init => _code = BusinessCode.Normalize(value); }
     private string _name = "";
     [Required, StringLength(200)]
     public string Name { get => _name; init => _name = TextNormalization.Name(value ?? ""); }
