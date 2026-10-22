@@ -99,6 +99,10 @@ SESSION_ENDED của phiên hết hạn ghi đúng expires_at, không ghi thời 
 
 Không thay đổi schema/migration. Bootstrap Trưởng phòng đầu tiên vẫn là luồng riêng; không tạo tài khoản hoặc mật khẩu mặc định khi API khởi động.
 
+## Đọc lịch sử
+
+Lịch sử xác thực được đọc bằng `GET /api/v1/history/auth` và `GET /api/v1/history/auth/{id}`. Đây là API bảo vệ dành cho Trưởng phòng QTTB, không dùng chính sách AllowAnonymous của login/logout. Danh sách không tải IP/user-agent/sessionId/blockedUntil; chi tiết mới trả các trường này, không chứa token/hash. Xem [History API](history-api.md) để lọc đăng nhập, đăng xuất, hết hạn và chặn tạm.
+
 ## Kiểm thử
 
 Chạy `dotnet build CSVC.sln` và `dotnet test CSVC.sln`. Đặt CSVC_POSTGRES_TEST_CONNECTION trỏ đến PostgreSQL UTF-8 có quyền tạo database test để chạy integration tests; mỗi test dùng database riêng và tự dọn, không sửa DB ứng dụng.

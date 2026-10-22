@@ -111,7 +111,7 @@ Nếu không lưu được audit thành công, rollback dữ liệu và trả 50
 | 409 | DEPARTMENT_LOCKED | Sửa thông tin phòng ban khóa |
 | 503 | DEPARTMENT_UNAVAILABLE | Không lưu được dữ liệu/audit |
 
-History nhận page/pageSize như danh mục, sắp xếp occurredAt giảm dần, ID làm khóa phụ. Mỗi item có id/requestId/actorAccountId/departmentId/actionCode/outcome/reasonCode/occurredAt/beforeData/afterData. BeforeData/afterData là chuỗi JSON snapshot đọc từ JSONB, có thể null. Chỉ Trưởng phòng đọc và chỉ nhận sự kiện của departmentId đang chọn.
+History được tách danh sách gọn và chi tiết: `GET /api/v1/departments/{id}/history` trả id/occurredAt/actionCode/outcome/reasonCode, thông tin người thao tác và mã/tên phòng ban; không trả snapshot/requestId. Gọi `GET /api/v1/departments/{id}/history/{historyId}` khi mở chi tiết để lấy requestId/beforeData/afterData. Có thêm danh sách toàn bộ phòng ban tại `/api/v1/history/departments`. Chỉ Trưởng phòng đọc. Bộ lọc, sort và quy tắc scope: [History API](history-api.md). Frontend đang đọc snapshot từ list cần chuyển sang gọi detail.
 
 ## Kiểm thử
 

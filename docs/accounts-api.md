@@ -75,6 +75,15 @@ Danh sách:
 GET /api/v1/accounts?search=nguyễn&roleId=2&isLocked=false&sortBy=CreatedAt&sortDirection=Desc&page=1&pageSize=20
 ```
 
+Lọc theo một hoặc nhiều phòng ban bằng query lặp `departmentIds`:
+
+```http
+GET /api/v1/accounts?departmentIds=11111111-1111-1111-1111-111111111111
+GET /api/v1/accounts?departmentIds=11111111-1111-1111-1111-111111111111&departmentIds=22222222-2222-2222-2222-222222222222&roleId=3&isLocked=false
+```
+
+Thay UUID ví dụ bằng ID phòng ban thực tế. Nhiều ID dùng điều kiện thuộc một trong các phòng ban (OR), kết hợp AND với search/roleId/isLocked. Không gửi departmentIds thì giữ danh sách không lọc phòng ban. Tối đa 100 giá trị mỗi request; UUID sai, giá trị trống, Guid.Empty hoặc hơn 100 giá trị trả 400 VALIDATION_FAILED. ID trùng không nhân đôi tài khoản; ID hợp lệ nhưng không tồn tại trả danh sách rỗng hoặc phần kết quả của các ID còn lại. Vẫn tra cứu tài khoản thuộc phòng ban Locked để bảo toàn lịch sử. Bộ lọc chạy trong PostgreSQL trước Count/sort/Skip/Take, totalCount là số tài khoản sau lọc. Quyền lấy danh sách vẫn chỉ dành cho Trưởng phòng QTTB.
+
 - Tìm một phần họ tên, không phân biệt hoa/thường; không tự bỏ dấu tiếng Việt.
 - `sortBy`: `FullName` (mặc định) hoặc `CreatedAt`; `sortDirection`: `Asc` (mặc định) hoặc `Desc`. Luôn thêm khóa Id để ổn định phân trang.
 - `page`: 1–1.000.000; `pageSize`: 1–100, mặc định 20. Tổng kết quả áp dụng cùng bộ lọc; không có kết quả trả mảng rỗng.
@@ -82,6 +91,8 @@ GET /api/v1/accounts?search=nguyễn&roleId=2&isLocked=false&sortBy=CreatedAt&so
 - `HasValidSession` chỉ thể hiện phiên active chưa hết hạn, không phải trạng thái online thời gian thực. Tài khoản đã khóa vẫn tra cứu được bởi Trưởng phòng.
 
 ## Giao dịch và audit
+
+API đọc lịch sử thao tác tài khoản: `GET /api/v1/history/accounts` (danh sách gọn, có lọc/sort/phân trang), `GET /api/v1/history/accounts/{id}` (chi tiết bằng history ID, có snapshot và changedFields). Chỉ Trưởng phòng QTTB được đọc. Xem [History API](history-api.md).
 
 `AccountTransaction` mở transaction PostgreSQL READ COMMITTED, lấy advisory lock chung cho các thao tác tài khoản và chỉ commit khi dữ liệu cùng audit được lưu thành công. Kiểm tra quyền/phiên của người thao tác được lặp lại sau khi lấy lock để từ chối request đã xác thực nhưng bị thu hồi trong khi chờ. Phòng ban đích được khóa hàng FOR SHARE trong lúc kiểm tra và ghi, tránh bị khóa/xóa giữa chừng.
 
