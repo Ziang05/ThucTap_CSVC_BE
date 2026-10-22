@@ -35,6 +35,11 @@ public sealed class AccountRepository(CsvcDbContext context, IMapper mapper)
         }
         if (query.RoleId is { } roleId) source = source.Where(account => account.RoleId == roleId);
         if (query.IsLocked is { } locked) source = source.Where(account => account.IsLocked == locked);
+        if (query.DepartmentIds.Length > 0)
+        {
+            var departmentIds = query.DepartmentIds.Distinct().ToArray();
+            source = source.Where(account => departmentIds.Contains(account.DepartmentId));
+        }
         var count = await source.CountAsync(cancellationToken);
         var ordered = (query.SortBy, query.SortDirection) switch
         {
