@@ -55,6 +55,8 @@ public sealed class AreaHistoryDto
     public Guid Id { get; init; }
     public Guid RequestId { get; init; }
     public Guid? ActorAccountId { get; init; }
+    public string? ActorAccountCode { get; init; }
+    public string? ActorFullName { get; init; }
     public Guid? AreaId { get; init; }
     public string ActionCode { get; init; } = "";
     public AuditOutcome Outcome { get; init; }
