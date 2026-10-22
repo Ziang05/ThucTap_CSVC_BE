@@ -29,7 +29,11 @@ public sealed class AccountTransaction(CsvcDbContext context) : IAccountTransact
             if (exception is DbUpdateException { InnerException: PostgresException postgres })
             {
                 if (postgres.SqlState == PostgresErrorCodes.UniqueViolation)
+                {
+                    if (postgres.ConstraintName is "uq_accounts_normalized_code" or "IX_accounts_account_code")
+                        throw new UseCaseException(FailureKind.Conflict, "ACCOUNT_CODE_CONFLICT", "An account with this code already exists.");
                     throw new UseCaseException(FailureKind.Conflict, "ACCOUNT_CONFLICT", "Account data conflicts with an existing record.");
+                }
                 if (postgres.SqlState == PostgresErrorCodes.ForeignKeyViolation)
                     throw new UseCaseException(FailureKind.Conflict, "ACCOUNT_REFERENCE_CHANGED", "Related data changed. Reload and retry.");
             }

@@ -26,6 +26,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "entity_status", new[] { "ACTIVE", "LOCKED" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence("account_code_seq");
+
+            modelBuilder.HasSequence("department_code_seq");
+
             modelBuilder.Entity("CSVC.Core.Accounts.Account", b =>
                 {
                     b.Property<Guid>("Id")
@@ -49,6 +53,13 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("is_lock");
+
+                    b.Property<string>("NormalizedCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_code")
+                        .HasComputedColumnSql("lower(btrim(account_code))", true);
 
                     b.Property<string>("NormalizedEmail")
                         .IsRequired()
@@ -74,6 +85,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AccountCode")
                         .IsUnique();
+
+                    b.HasIndex("NormalizedCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_accounts_normalized_code");
 
                     b.HasIndex("NormalizedEmail")
                         .IsUnique()
@@ -585,6 +600,13 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(200)")
                         .HasColumnName("name");
 
+                    b.Property<string>("NormalizedCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_code")
+                        .HasComputedColumnSql("lower(btrim(code))", true);
+
                     b.Property<string>("NormalizedName")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
@@ -607,6 +629,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Code")
                         .IsUnique();
+
+                    b.HasIndex("NormalizedCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_departments_normalized_code");
 
                     b.HasIndex("NormalizedName")
                         .IsUnique()
