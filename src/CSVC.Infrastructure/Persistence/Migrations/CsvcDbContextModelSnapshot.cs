@@ -705,6 +705,434 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.ToTable("department_history", (string)null);
                 });
 
+            modelBuilder.Entity("CSVC.Core.DeviceCategories.CategoryHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_fields");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<AuditOutcome>("Outcome")
+                        .HasColumnType("audit_outcome")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("CategoryId", "OccurredAt")
+                        .HasDatabaseName("ix_category_history_target");
+
+                    b.HasIndex("RequestId", "ActionCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_category_history_request_action");
+
+                    b.ToTable("category_history", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceCategories.DeviceCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("display_code");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NormalizedDisplayCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_display_code")
+                        .HasComputedColumnSql("lower(btrim(display_code))", true);
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_name")
+                        .HasComputedColumnSql("lower(btrim(regexp_replace(normalize(name, NFC), '[[:space:]]+', ' ', 'g')))", true);
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<EntityStatus>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("entity_status")
+                        .HasDefaultValue(EntityStatus.Active)
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayCode")
+                        .IsUnique();
+
+                    b.HasIndex("NormalizedDisplayCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_categories_normalized_display_code");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_categories_normalized_name");
+
+                    b.ToTable("device_categories", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_categories_display_code", "btrim(display_code) <> ''");
+
+                            t.HasCheckConstraint("ck_device_categories_name", "normalized_name <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Manufacturers.Manufacturer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContactInfo")
+                        .HasColumnType("text")
+                        .HasColumnName("contact_info");
+
+                    b.Property<string>("Country")
+                        .HasMaxLength(120)
+                        .HasColumnType("varchar(120)")
+                        .HasColumnName("country");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("display_code");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NormalizedDisplayCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_display_code")
+                        .HasComputedColumnSql("lower(btrim(display_code))", true);
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_name")
+                        .HasComputedColumnSql("lower(btrim(regexp_replace(normalize(name, NFC), '[[:space:]]+', ' ', 'g')))", true);
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("ShortName")
+                        .HasMaxLength(120)
+                        .HasColumnType("varchar(120)")
+                        .HasColumnName("short_name");
+
+                    b.Property<EntityStatus>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("entity_status")
+                        .HasDefaultValue(EntityStatus.Active)
+                        .HasColumnName("status");
+
+                    b.Property<string>("Website")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)")
+                        .HasColumnName("website");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayCode")
+                        .IsUnique();
+
+                    b.HasIndex("NormalizedDisplayCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_manufacturers_normalized_display_code");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("uq_manufacturers_normalized_name");
+
+                    b.ToTable("manufacturers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_manufacturers_display_code", "btrim(display_code) <> ''");
+
+                            t.HasCheckConstraint("ck_manufacturers_name", "normalized_name <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Manufacturers.ManufacturerHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_fields");
+
+                    b.Property<Guid?>("ManufacturerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("manufacturer_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<AuditOutcome>("Outcome")
+                        .HasColumnType("audit_outcome")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("ManufacturerId", "OccurredAt")
+                        .HasDatabaseName("ix_manufacturer_history_target");
+
+                    b.HasIndex("RequestId", "ActionCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_manufacturer_history_request_action");
+
+                    b.ToTable("manufacturer_history", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Suppliers.Supplier", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("text")
+                        .HasColumnName("address");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("display_code");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("varchar(320)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NormalizedDisplayCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_display_code")
+                        .HasComputedColumnSql("lower(btrim(display_code))", true);
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_name")
+                        .HasComputedColumnSql("lower(btrim(regexp_replace(normalize(name, NFC), '[[:space:]]+', ' ', 'g')))", true);
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("phone");
+
+                    b.Property<EntityStatus>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("entity_status")
+                        .HasDefaultValue(EntityStatus.Active)
+                        .HasColumnName("status");
+
+                    b.Property<string>("TaxCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("tax_code");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayCode")
+                        .IsUnique();
+
+                    b.HasIndex("NormalizedDisplayCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_suppliers_normalized_display_code");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("uq_suppliers_normalized_name");
+
+                    b.ToTable("suppliers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_suppliers_display_code", "btrim(display_code) <> ''");
+
+                            t.HasCheckConstraint("ck_suppliers_name", "normalized_name <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Suppliers.SupplierHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_fields");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<AuditOutcome>("Outcome")
+                        .HasColumnType("audit_outcome")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("RequestId", "ActionCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_supplier_history_request_action");
+
+                    b.HasIndex("SupplierId", "OccurredAt")
+                        .HasDatabaseName("ix_supplier_history_target");
+
+                    b.ToTable("supplier_history", (string)null);
+                });
+
             modelBuilder.Entity("CSVC.Core.Accounts.Account", b =>
                 {
                     b.HasOne("CSVC.Core.Accounts.Role", null)
@@ -809,6 +1237,45 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasOne("CSVC.Core.Departments.Department", null)
                         .WithMany()
                         .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceCategories.CategoryHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Manufacturers.ManufacturerHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Manufacturers.Manufacturer", null)
+                        .WithMany()
+                        .HasForeignKey("ManufacturerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Suppliers.SupplierHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Suppliers.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
