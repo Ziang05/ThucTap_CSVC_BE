@@ -64,6 +64,8 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetRequestRepository, PasswordResetRequestRepository>();
         services.AddScoped<IAreaRepository, AreaRepository>();
         services.AddScoped<IAreaHistoryRepository, AreaHistoryRepository>();
+        services.AddScoped<IDeviceCategoryRepository, DeviceCategoryRepository>();
+        services.AddScoped<ICategoryHistoryRepository, CategoryHistoryRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddHealthChecks().AddCheck<DatabaseHealthCheck>(
             "postgresql", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));

@@ -15,7 +15,9 @@ public sealed class UnitOfWork(
     IAuthLoginThrottleRepository authLoginThrottles,
     IPasswordResetRequestRepository passwordResetRequests,
     IAreaRepository areas,
-    IAreaHistoryRepository areaHistories) : IUnitOfWork
+    IAreaHistoryRepository areaHistories,
+    IDeviceCategoryRepository deviceCategories,
+    ICategoryHistoryRepository categoryHistories) : IUnitOfWork
 {
     public IRoleRepository Roles { get; } = roles;
 
@@ -40,6 +42,10 @@ public sealed class UnitOfWork(
     public IAreaRepository Areas { get; } = areas;
 
     public IAreaHistoryRepository AreaHistories { get; } = areaHistories;
+
+    public IDeviceCategoryRepository DeviceCategories { get; } = deviceCategories;
+
+    public ICategoryHistoryRepository CategoryHistories { get; } = categoryHistories;
 
     public Task<int> CommitAsync(CancellationToken cancellationToken = default)
         => context.SaveChangesAsync(cancellationToken);

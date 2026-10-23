@@ -15,5 +15,8 @@ public interface IUnitOfWork
     IAreaRepository Areas { get; }
     IAreaHistoryRepository AreaHistories { get; }
 
+    IDeviceCategoryRepository DeviceCategories { get; }
+    ICategoryHistoryRepository CategoryHistories { get; }
+
     Task<int> CommitAsync(CancellationToken cancellationToken = default);
 }

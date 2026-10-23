@@ -3,6 +3,7 @@ using CSVC.Core.Areas;
 using CSVC.Core.Authentication;
 using CSVC.Core.Common;
 using CSVC.Core.Departments;
+using CSVC.Core.DeviceCategories;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSVC.Infrastructure.Persistence;
@@ -33,6 +34,10 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
     public DbSet<Area> Areas => Set<Area>();
 
     public DbSet<AreaHistory> AreaHistories => Set<AreaHistory>();
+
+    public DbSet<DeviceCategory> DeviceCategories => Set<DeviceCategory>();
+
+    public DbSet<CategoryHistory> CategoryHistories => Set<CategoryHistory>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -65,6 +70,12 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
                 case Area area:
                     area.Name = TextNormalization.Name(area.Name);
                     entry.Property("NormalizedName").CurrentValue = area.Name.ToLowerInvariant();
+                    break;
+                case DeviceCategory deviceCategory:
+                    deviceCategory.DisplayCode = deviceCategory.DisplayCode.Trim();
+                    entry.Property("NormalizedDisplayCode").CurrentValue = deviceCategory.DisplayCode.ToLowerInvariant();
+                    deviceCategory.Name = TextNormalization.Name(deviceCategory.Name);
+                    entry.Property("NormalizedName").CurrentValue = deviceCategory.Name.ToLowerInvariant();
                     break;
                 case AuthLoginThrottle throttle when entry.State == EntityState.Added:
                     throttle.EmailKey = TextNormalization.Email(throttle.EmailKey);
