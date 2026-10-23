@@ -105,6 +105,8 @@ public sealed class PostgreSqlRepositoryTests
             Assert.Contains("Equipment", (await unitOfWork.DepartmentHistories.GetAllAsync()).Single().AfterData!);
             Assert.Null(await unitOfWork.AuthSessions.GetActiveByAccountIdAsync(account.Id, now));
 
+            await CatalogPostgreSqlChecks.VerifyAsync(connectionString, unitOfWork, context, account.Id);
+
             var trackedDepartment = await unitOfWork.Departments.GetByIdAsync(department.Id);
             Assert.NotNull(trackedDepartment);
             trackedDepartment.Name = "Must roll back";
