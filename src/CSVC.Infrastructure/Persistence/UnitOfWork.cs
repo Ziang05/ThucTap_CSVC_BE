@@ -17,7 +17,9 @@ public sealed class UnitOfWork(
     IAreaRepository areas,
     IAreaHistoryRepository areaHistories,
     IDeviceCategoryRepository deviceCategories,
-    ICategoryHistoryRepository categoryHistories) : IUnitOfWork
+    ICategoryHistoryRepository categoryHistories,
+    ISupplierRepository suppliers,
+    ISupplierHistoryRepository supplierHistories) : IUnitOfWork
 {
     public IRoleRepository Roles { get; } = roles;
 
@@ -46,6 +48,10 @@ public sealed class UnitOfWork(
     public IDeviceCategoryRepository DeviceCategories { get; } = deviceCategories;
 
     public ICategoryHistoryRepository CategoryHistories { get; } = categoryHistories;
+
+    public ISupplierRepository Suppliers { get; } = suppliers;
+
+    public ISupplierHistoryRepository SupplierHistories { get; } = supplierHistories;
 
     public Task<int> CommitAsync(CancellationToken cancellationToken = default)
         => context.SaveChangesAsync(cancellationToken);

@@ -4,6 +4,7 @@ using CSVC.Core.Authentication;
 using CSVC.Core.Common;
 using CSVC.Core.Departments;
 using CSVC.Core.DeviceCategories;
+using CSVC.Core.Suppliers;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSVC.Infrastructure.Persistence;
@@ -38,6 +39,10 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
     public DbSet<DeviceCategory> DeviceCategories => Set<DeviceCategory>();
 
     public DbSet<CategoryHistory> CategoryHistories => Set<CategoryHistory>();
+
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+
+    public DbSet<SupplierHistory> SupplierHistories => Set<SupplierHistory>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -76,6 +81,12 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
                     entry.Property("NormalizedDisplayCode").CurrentValue = deviceCategory.DisplayCode.ToLowerInvariant();
                     deviceCategory.Name = TextNormalization.Name(deviceCategory.Name);
                     entry.Property("NormalizedName").CurrentValue = deviceCategory.Name.ToLowerInvariant();
+                    break;
+                case Supplier supplier:
+                    supplier.DisplayCode = supplier.DisplayCode.Trim();
+                    entry.Property("NormalizedDisplayCode").CurrentValue = supplier.DisplayCode.ToLowerInvariant();
+                    supplier.Name = TextNormalization.Name(supplier.Name);
+                    entry.Property("NormalizedName").CurrentValue = supplier.Name.ToLowerInvariant();
                     break;
                 case AuthLoginThrottle throttle when entry.State == EntityState.Added:
                     throttle.EmailKey = TextNormalization.Email(throttle.EmailKey);
