@@ -137,7 +137,9 @@ public sealed class RepositoryTests
             new DeviceCategoryRepository(context),
             new CategoryHistoryRepository(context),
             new SupplierRepository(context),
-            new SupplierHistoryRepository(context));
+            new SupplierHistoryRepository(context),
+            new ManufacturerRepository(context),
+            new ManufacturerHistoryRepository(context));
 
     private static AutoMapper.IMapper AreaMapper()
         => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Areas.Mapping.AreaMappingProfile>(),

@@ -19,6 +19,8 @@ public interface IUnitOfWork
     ICategoryHistoryRepository CategoryHistories { get; }
     ISupplierRepository Suppliers { get; }
     ISupplierHistoryRepository SupplierHistories { get; }
+    IManufacturerRepository Manufacturers { get; }
+    IManufacturerHistoryRepository ManufacturerHistories { get; }
 
     Task<int> CommitAsync(CancellationToken cancellationToken = default);
 }
