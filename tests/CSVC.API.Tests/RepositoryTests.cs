@@ -134,13 +134,17 @@ public sealed class RepositoryTests
             new PasswordResetRequestRepository(context),
             new AreaRepository(context, AreaMapper()),
             new AreaHistoryRepository(context, HistoryMapper()),
-            new DeviceCategoryRepository(context),
-            new CategoryHistoryRepository(context),
+            new DeviceCategoryRepository(context, CategoryMapper()),
+            new CategoryHistoryRepository(context, CategoryMapper()),
             new SupplierRepository(context),
             new SupplierHistoryRepository(context),
             new ManufacturerRepository(context),
             new ManufacturerHistoryRepository(context));
 
+
+    private static AutoMapper.IMapper CategoryMapper()
+        => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.DeviceCategories.Mapping.CategoryMappingProfile>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper();
 
     private static AutoMapper.IMapper AreaMapper()
         => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Areas.Mapping.AreaMappingProfile>(),

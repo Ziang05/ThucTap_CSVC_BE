@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
         services.AddScoped<IAccountTransaction, AccountTransaction>();
         services.AddScoped<IDepartmentTransaction, DepartmentTransaction>();
+        services.AddScoped<ICategoryTransaction, CategoryTransaction>();
         services.AddScoped<IAreaTransaction, AreaTransaction>();
         services.AddScoped<IBusinessCodeGenerator, BusinessCodeGenerator>();
         services.AddScoped<IAccountPasswordHasher, AccountPasswordHasher>();

@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<Departments.IDepartmentService, Departments.DepartmentService>();
+        services.AddScoped<DeviceCategories.ICategoryService, DeviceCategories.CategoryService>();
         services.AddScoped<Areas.IAreaService, Areas.AreaService>();
         services.AddScoped<History.IHistoryService, History.HistoryService>();
         services.AddScoped<IAccountAuthenticationService, AccountAuthenticationService>();
