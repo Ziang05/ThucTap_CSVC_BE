@@ -27,6 +27,10 @@ public sealed class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
         builder.HasIndex("NormalizedName").IsUnique().HasDatabaseName("uq_suppliers_normalized_name");
         builder.Property(entity => entity.Description).HasColumnName("description").HasColumnType("text");
         builder.Property(entity => entity.TaxCode).HasColumnName("tax_code").HasColumnType("varchar(50)").HasMaxLength(50);
+        builder.Property<string?>("NormalizedTaxCode").HasColumnName("normalized_tax_code").HasColumnType("text")
+            .HasComputedColumnSql("NULLIF(upper(btrim(tax_code)), '')", stored: true);
+        builder.HasIndex("NormalizedTaxCode").IsUnique().HasDatabaseName("uq_suppliers_normalized_tax_code")
+            .HasFilter("normalized_tax_code IS NOT NULL");
         builder.Property(entity => entity.Address).HasColumnName("address").HasColumnType("text");
         builder.Property(entity => entity.Phone).HasColumnName("phone").HasColumnType("varchar(32)").HasMaxLength(32);
         builder.Property(entity => entity.Email).HasColumnName("email").HasColumnType("varchar(320)").HasMaxLength(320);

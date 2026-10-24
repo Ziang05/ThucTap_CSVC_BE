@@ -1029,6 +1029,12 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnName("normalized_name")
                         .HasComputedColumnSql("lower(btrim(regexp_replace(normalize(name, NFC), '[[:space:]]+', ' ', 'g')))", true);
 
+                    b.Property<string>("NormalizedTaxCode")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_tax_code")
+                        .HasComputedColumnSql("NULLIF(upper(btrim(tax_code)), '')", true);
+
                     b.Property<string>("Notes")
                         .HasColumnType("text")
                         .HasColumnName("notes");
@@ -1061,6 +1067,11 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasIndex("NormalizedName")
                         .IsUnique()
                         .HasDatabaseName("uq_suppliers_normalized_name");
+
+                    b.HasIndex("NormalizedTaxCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_suppliers_normalized_tax_code")
+                        .HasFilter("normalized_tax_code IS NOT NULL");
 
                     b.ToTable("suppliers", null, t =>
                         {

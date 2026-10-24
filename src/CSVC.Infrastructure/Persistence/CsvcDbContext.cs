@@ -88,6 +88,8 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
                     entry.Property("NormalizedName").CurrentValue = deviceCategory.Name.ToLowerInvariant();
                     break;
                 case Supplier supplier:
+                    entry.Property("NormalizedTaxCode").CurrentValue = string.IsNullOrWhiteSpace(supplier.TaxCode)
+                        ? null : supplier.TaxCode.Trim().ToUpperInvariant();
                     supplier.DisplayCode = supplier.DisplayCode.Trim();
                     entry.Property("NormalizedDisplayCode").CurrentValue = supplier.DisplayCode.ToLowerInvariant();
                     supplier.Name = TextNormalization.Name(supplier.Name);
