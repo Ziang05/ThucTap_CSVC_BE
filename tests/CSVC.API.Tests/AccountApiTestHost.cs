@@ -7,6 +7,7 @@ using CSVC.Core.Common;
 using CSVC.Core.Departments;
 using CSVC.Core.Areas;
 using CSVC.Core.DeviceCategories;
+using CSVC.Core.Suppliers;
 using CSVC.Infrastructure.Persistence;
 using CSVC.UseCases.Abstractions.Security;
 using Microsoft.AspNetCore.Hosting;
@@ -108,9 +109,16 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         public string? FailNextDepartmentAction { get; set; }
         public string? FailNextAreaAction { get; set; }
         public string? FailNextCategoryAction { get; set; }
+        public string? FailNextSupplierAction { get; set; }
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
+            if (FailNextSupplierAction is { } supplierAction && eventData.Context!.ChangeTracker.Entries<SupplierHistory>()
+                    .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == supplierAction))
+            {
+                FailNextSupplierAction = null;
+                throw new InvalidOperationException("Simulated supplier audit storage failure.");
+            }
             if (FailNextCategoryAction is { } categoryAction && eventData.Context!.ChangeTracker.Entries<CategoryHistory>()
                     .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == categoryAction))
             {
