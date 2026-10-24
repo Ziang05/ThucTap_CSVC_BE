@@ -138,9 +138,13 @@ public sealed class RepositoryTests
             new CategoryHistoryRepository(context, CategoryMapper()),
             new SupplierRepository(context, SupplierMapper()),
             new SupplierHistoryRepository(context, SupplierMapper()),
-            new ManufacturerRepository(context),
-            new ManufacturerHistoryRepository(context));
+            new ManufacturerRepository(context, ManufacturerMapper()),
+            new ManufacturerHistoryRepository(context, ManufacturerMapper()));
 
+
+    private static AutoMapper.IMapper ManufacturerMapper()
+        => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Manufacturers.Mapping.ManufacturerMappingProfile>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateMapper();
 
     private static AutoMapper.IMapper SupplierMapper()
         => new AutoMapper.MapperConfiguration(c => c.AddProfile<UseCases.Suppliers.Mapping.SupplierMappingProfile>(),
