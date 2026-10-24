@@ -6,6 +6,7 @@ using CSVC.Core.Authentication;
 using CSVC.Core.Common;
 using CSVC.Core.Departments;
 using CSVC.Core.Areas;
+using CSVC.Core.DeviceCategories;
 using CSVC.Infrastructure.Persistence;
 using CSVC.UseCases.Abstractions.Security;
 using Microsoft.AspNetCore.Hosting;
@@ -106,9 +107,16 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         public bool FailNextLoginFailure { get; set; }
         public string? FailNextDepartmentAction { get; set; }
         public string? FailNextAreaAction { get; set; }
+        public string? FailNextCategoryAction { get; set; }
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
+            if (FailNextCategoryAction is { } categoryAction && eventData.Context!.ChangeTracker.Entries<CategoryHistory>()
+                    .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == categoryAction))
+            {
+                FailNextCategoryAction = null;
+                throw new InvalidOperationException("Simulated category audit storage failure.");
+            }
             if (FailNextAccountAction is { } accountAction && eventData.Context!.ChangeTracker.Entries<AccountHistory>()
                     .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == accountAction))
             {
