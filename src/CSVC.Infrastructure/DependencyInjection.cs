@@ -47,6 +47,7 @@ public static class DependencyInjection
         services.AddScoped<IAccountTransaction, AccountTransaction>();
         services.AddScoped<IDepartmentTransaction, DepartmentTransaction>();
         services.AddScoped<ICategoryTransaction, CategoryTransaction>();
+        services.AddScoped<ISupplierTransaction, SupplierTransaction>();
         services.AddScoped<IAreaTransaction, AreaTransaction>();
         services.AddScoped<IBusinessCodeGenerator, BusinessCodeGenerator>();
         services.AddScoped<IAccountPasswordHasher, AccountPasswordHasher>();
