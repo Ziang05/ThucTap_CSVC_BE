@@ -48,7 +48,7 @@ public static class ApiServiceExtensions
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Title = "CSVC API", Version = "v1",
-                Description = "Facilities management API: account/user management and database-session authentication."
+                Description = "Facilities and device management API: devices, receipts, loans, transfers, departments, areas, categories, suppliers, manufacturers, accounts, and session authentication."
             });
             options.DocumentFilter<AuthenticationSecurityDocumentFilter>();
             options.AddSecurityDefinition("Session", new OpenApiSecurityScheme

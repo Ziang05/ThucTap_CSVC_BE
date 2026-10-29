@@ -126,7 +126,11 @@ public sealed class ManufacturerService(
         {
             await RequireActorAsync(true, ct);
             var manufacturer = await FindAsync(displayCode, ct);
-            return new ManufacturerLockImpactDto { DisplayCode = manufacturer.DisplayCode, Status = manufacturer.Status };
+            return new ManufacturerLockImpactDto
+            {
+                DisplayCode = manufacturer.DisplayCode, Status = manufacturer.Status,
+                DeviceCount = await unitOfWork.Devices.CountByManufacturerAsync(manufacturer.Id, ct)
+            };
         });
 
     public async Task DenyDeleteAsync(string displayCode, CancellationToken ct)

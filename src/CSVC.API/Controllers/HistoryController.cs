@@ -1,13 +1,21 @@
 using CSVC.UseCases.Common;
 using CSVC.UseCases.History;
 using CSVC.UseCases.History.DTOs;
+using CSVC.UseCases.Devices;
+using CSVC.UseCases.Devices.DTOs;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CSVC.API.Controllers;
 
 [Route("api/v1/history")]
-public sealed class HistoryController(IHistoryService history) : AuthenticatedApiControllerBase
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+public sealed class HistoryController(IHistoryService history, IDeviceService devices) : AuthenticatedApiControllerBase
 {
+    [HttpGet("devices")]
+    [ProducesResponseType<PagedResult<DeviceHistoryDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<DeviceHistoryDto>>> Devices([FromQuery] DeviceHistoryQuery query, CancellationToken ct)
+        => Ok(await devices.GlobalHistoryAsync(query, ct));
+
     [HttpGet("accounts")]
     [ProducesResponseType<PagedResult<AccountHistoryListItemDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<AccountHistoryListItemDto>>> Accounts([FromQuery] AccountHistoryQuery query, CancellationToken ct)

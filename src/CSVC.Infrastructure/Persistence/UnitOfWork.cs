@@ -21,7 +21,20 @@ public sealed class UnitOfWork(
     ISupplierRepository suppliers,
     ISupplierHistoryRepository supplierHistories,
     IManufacturerRepository manufacturers,
-    IManufacturerHistoryRepository manufacturerHistories) : IUnitOfWork
+    IManufacturerHistoryRepository manufacturerHistories,
+    IDeviceRepository devices,
+    IDeviceIdentityRepository deviceIdentities,
+    IDeviceHistoryRepository deviceHistories,
+    IDeviceOperationHoldRepository deviceOperationHolds,
+    IDeviceReceiptRepository deviceReceipts,
+    IDeviceReceiptItemRepository deviceReceiptItems,
+    IDeviceReceiptHistoryRepository deviceReceiptHistories,
+    IDeviceLoanRepository deviceLoans,
+    IDeviceLoanItemRepository deviceLoanItems,
+    IDeviceLoanHistoryRepository deviceLoanHistories,
+    IDeviceTransferRepository deviceTransfers,
+    IDeviceTransferItemRepository deviceTransferItems,
+    IDeviceTransferHistoryRepository deviceTransferHistories) : IUnitOfWork
 {
     public IRoleRepository Roles { get; } = roles;
 
@@ -58,6 +71,20 @@ public sealed class UnitOfWork(
     public IManufacturerRepository Manufacturers { get; } = manufacturers;
 
     public IManufacturerHistoryRepository ManufacturerHistories { get; } = manufacturerHistories;
+
+    public IDeviceRepository Devices { get; } = devices;
+    public IDeviceIdentityRepository DeviceIdentities { get; } = deviceIdentities;
+    public IDeviceHistoryRepository DeviceHistories { get; } = deviceHistories;
+    public IDeviceOperationHoldRepository DeviceOperationHolds { get; } = deviceOperationHolds;
+    public IDeviceReceiptRepository DeviceReceipts { get; } = deviceReceipts;
+    public IDeviceReceiptItemRepository DeviceReceiptItems { get; } = deviceReceiptItems;
+    public IDeviceReceiptHistoryRepository DeviceReceiptHistories { get; } = deviceReceiptHistories;
+    public IDeviceLoanRepository DeviceLoans { get; } = deviceLoans;
+    public IDeviceLoanItemRepository DeviceLoanItems { get; } = deviceLoanItems;
+    public IDeviceLoanHistoryRepository DeviceLoanHistories { get; } = deviceLoanHistories;
+    public IDeviceTransferRepository DeviceTransfers { get; } = deviceTransfers;
+    public IDeviceTransferItemRepository DeviceTransferItems { get; } = deviceTransferItems;
+    public IDeviceTransferHistoryRepository DeviceTransferHistories { get; } = deviceTransferHistories;
 
     public Task<int> CommitAsync(CancellationToken cancellationToken = default)
         => context.SaveChangesAsync(cancellationToken);

@@ -33,8 +33,8 @@ public sealed class GlobalExceptionHandler(
 
         if (status >= 500)
         {
-            logger.LogError(exception, "Unhandled request failure. RequestId: {RequestId}",
-                httpContext.Items[RequestContextMiddleware.ItemKey]);
+            logger.LogError("Unhandled request failure. RequestId: {RequestId}, ErrorType: {ErrorType}",
+                httpContext.Items[RequestContextMiddleware.ItemKey], exception.GetType().Name);
         }
 
         httpContext.Response.StatusCode = status;

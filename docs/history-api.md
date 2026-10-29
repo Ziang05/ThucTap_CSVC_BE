@@ -2,6 +2,16 @@
 
 Tất cả endpoint yêu cầu phiên Bearer hợp lệ và vai trò **QTTB_MANAGER**. Hai role nhân viên không được đọc, kể cả lịch sử của chính mình. Chỉ có GET; không cung cấp API tạo/sửa/xóa lịch sử. Không cần migration mới.
 
+## Device timeline (Phase 6)
+
+These device timeline routes are a scoped exception to the QTTB-only rule for the other history resources documented below.
+
+- `GET /api/v1/history/devices` returns the global device timeline for QTTB roles only.
+- `GET /api/v1/devices/{deviceCode}/history` returns the same timeline after device department-scope authorization.
+- Query filters: `eventType` (`DEVICE|RECEIPT|LOAN|TRANSFER`), `deviceCode`, `departmentCode` (the device's current department), `actorAccountCode`, `fromDate`, `toDate`, `page`, and `pageSize`.
+- Events include `eventType`, `actionCode`, the related receipt/loan/transfer `businessCode` when available, device code/name, current department code, actor, outcome, and timestamp. Results are ordered by timestamp descending with stable tie-breakers.
+- Department Staff cannot use the global route and do not receive snapshots or changed-field details from the scoped route. QTTB can read the audit snapshots.
+
 ## Endpoint
 
 | GET | Dữ liệu |

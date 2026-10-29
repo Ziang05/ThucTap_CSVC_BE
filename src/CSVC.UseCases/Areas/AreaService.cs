@@ -116,7 +116,9 @@ public sealed class AreaService(
         return new()
         {
             AreaId = id, Status = area.Status, EffectiveStatus = area.EffectiveStatus, ChildCount = area.ChildCount,
-            DescendantCount = await unitOfWork.Areas.CountDescendantsAsync(id, cancellationToken)
+            DescendantCount = await unitOfWork.Areas.CountDescendantsAsync(id, cancellationToken),
+            DirectDeviceCount = await unitOfWork.Devices.CountByAreaAsync(id, false, cancellationToken),
+            SubtreeDeviceCount = await unitOfWork.Devices.CountByAreaAsync(id, true, cancellationToken)
         };
     }
 

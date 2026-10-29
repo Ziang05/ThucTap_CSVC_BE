@@ -43,9 +43,9 @@ public sealed class SupplierLockImpactDto
 {
     public string DisplayCode { get; init; } = "";
     public EntityStatus Status { get; init; }
-    public int? ReceiptCount => null;
-    public bool LinkCountsComplete => false;
-    public string Warning => "Locking prevents new supplier assignments; existing receipt and device links are preserved. Receipt counts are not available yet.";
+    public int? ReceiptCount { get; init; }
+    public bool LinkCountsComplete => ReceiptCount.HasValue;
+    public string Warning => "Locking prevents new supplier assignments; existing receipt links are preserved.";
 }
 
 public class SupplierHistoryListItemDto

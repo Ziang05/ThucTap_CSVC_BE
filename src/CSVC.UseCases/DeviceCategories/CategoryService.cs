@@ -119,7 +119,11 @@ public sealed class CategoryService(
         {
             await RequireActorAsync(true, ct);
             var category = await FindAsync(displayCode, ct);
-            return new CategoryLockImpactDto { DisplayCode = category.DisplayCode, Status = category.Status };
+            return new CategoryLockImpactDto
+            {
+                DisplayCode = category.DisplayCode, Status = category.Status,
+                DeviceCount = await unitOfWork.Devices.CountByCategoryAsync(category.Id, ct)
+            };
         });
 
     public async Task DenyDeleteAsync(string displayCode, CancellationToken ct)

@@ -11,6 +11,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using CSVC.Core.Devices;
+using CSVC.Core.DeviceReceipts;
+using CSVC.Core.DeviceLoans;
+using CSVC.Core.DeviceTransfers;
 
 namespace CSVC.Infrastructure;
 
@@ -41,7 +45,12 @@ public static class DependencyInjection
             connectionString,
             postgres => postgres.CommandTimeout(30)
                 .MapEnum<EntityStatus>("entity_status", nameTranslator: EnumNames)
-                .MapEnum<AuditOutcome>("audit_outcome", nameTranslator: EnumNames)));
+                .MapEnum<AuditOutcome>("audit_outcome", nameTranslator: EnumNames)
+                .MapEnum<DeviceCondition>("device_condition", nameTranslator: EnumNames)
+                .MapEnum<DeviceCodeSource>("device_code_source", nameTranslator: EnumNames)
+                .MapEnum<DeviceReceiptStatus>("device_receipt_status", nameTranslator: EnumNames)
+                .MapEnum<DeviceLoanStatus>("device_loan_status", nameTranslator: EnumNames)
+                .MapEnum<DeviceTransferStatus>("device_transfer_status", nameTranslator: EnumNames)));
         services.AddLogging();
         services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
         services.AddScoped<IAccountTransaction, AccountTransaction>();
@@ -50,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<ISupplierTransaction, SupplierTransaction>();
         services.AddScoped<IManufacturerTransaction, ManufacturerTransaction>();
         services.AddScoped<IAreaTransaction, AreaTransaction>();
+        services.AddScoped<IInventoryTransaction, InventoryTransaction>();
         services.AddScoped<IBusinessCodeGenerator, BusinessCodeGenerator>();
         services.AddScoped<IAccountPasswordHasher, AccountPasswordHasher>();
         services.AddScoped<IPasswordResetSender, SmtpPasswordResetSender>();
@@ -73,6 +83,19 @@ public static class DependencyInjection
         services.AddScoped<ISupplierHistoryRepository, SupplierHistoryRepository>();
         services.AddScoped<IManufacturerRepository, ManufacturerRepository>();
         services.AddScoped<IManufacturerHistoryRepository, ManufacturerHistoryRepository>();
+        services.AddScoped<IDeviceRepository, DeviceRepository>();
+        services.AddScoped<IDeviceIdentityRepository, DeviceIdentityRepository>();
+        services.AddScoped<IDeviceHistoryRepository, DeviceHistoryRepository>();
+        services.AddScoped<IDeviceOperationHoldRepository, DeviceOperationHoldRepository>();
+        services.AddScoped<IDeviceReceiptRepository, DeviceReceiptRepository>();
+        services.AddScoped<IDeviceReceiptItemRepository, DeviceReceiptItemRepository>();
+        services.AddScoped<IDeviceReceiptHistoryRepository, DeviceReceiptHistoryRepository>();
+        services.AddScoped<IDeviceLoanRepository, DeviceLoanRepository>();
+        services.AddScoped<IDeviceLoanItemRepository, DeviceLoanItemRepository>();
+        services.AddScoped<IDeviceLoanHistoryRepository, DeviceLoanHistoryRepository>();
+        services.AddScoped<IDeviceTransferRepository, DeviceTransferRepository>();
+        services.AddScoped<IDeviceTransferItemRepository, DeviceTransferItemRepository>();
+        services.AddScoped<IDeviceTransferHistoryRepository, DeviceTransferHistoryRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddHealthChecks().AddCheck<DatabaseHealthCheck>(
             "postgresql", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));

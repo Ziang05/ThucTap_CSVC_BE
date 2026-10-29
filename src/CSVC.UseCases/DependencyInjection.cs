@@ -18,6 +18,10 @@ public static class DependencyInjection
         services.AddScoped<Suppliers.ISupplierService, Suppliers.SupplierService>();
         services.AddScoped<Manufacturers.IManufacturerService, Manufacturers.ManufacturerService>();
         services.AddScoped<Areas.IAreaService, Areas.AreaService>();
+        services.AddScoped<Devices.IDeviceService, Devices.DeviceService>();
+        services.AddScoped<DeviceReceipts.IDeviceReceiptService, DeviceReceipts.DeviceReceiptService>();
+        services.AddScoped<DeviceLoans.IDeviceLoanService, DeviceLoans.DeviceLoanService>();
+        services.AddScoped<DeviceTransfers.IDeviceTransferService, DeviceTransfers.DeviceTransferService>();
         services.AddScoped<History.IHistoryService, History.HistoryService>();
         services.AddScoped<IAccountAuthenticationService, AccountAuthenticationService>();
         services.AddScoped<ISessionLifecycle, SessionLifecycle>();

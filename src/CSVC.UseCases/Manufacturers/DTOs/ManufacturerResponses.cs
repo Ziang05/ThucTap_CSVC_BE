@@ -43,9 +43,9 @@ public sealed class ManufacturerLockImpactDto
 {
     public string DisplayCode { get; init; } = "";
     public EntityStatus Status { get; init; }
-    public int? DeviceCount => null;
-    public bool LinkCountsComplete => false;
-    public string Warning => "Locking prevents new manufacturer assignments; existing device links are preserved. Device counts are not available yet.";
+    public int? DeviceCount { get; init; }
+    public bool LinkCountsComplete => DeviceCount.HasValue;
+    public string Warning => "Locking prevents new manufacturer assignments; existing device links are preserved.";
 }
 
 public class ManufacturerHistoryListItemDto

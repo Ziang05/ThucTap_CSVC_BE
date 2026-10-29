@@ -128,7 +128,11 @@ public sealed class SupplierService(
         {
             await RequireActorAsync(true, ct);
             var supplier = await FindAsync(displayCode, ct);
-            return new SupplierLockImpactDto { DisplayCode = supplier.DisplayCode, Status = supplier.Status };
+            return new SupplierLockImpactDto
+            {
+                DisplayCode = supplier.DisplayCode, Status = supplier.Status,
+                ReceiptCount = await unitOfWork.DeviceReceipts.CountForSupplierAsync(supplier.Id, ct)
+            };
         });
 
     public async Task DenyDeleteAsync(string displayCode, CancellationToken ct)

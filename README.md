@@ -6,6 +6,8 @@ Sử dụng **.NET 10, ASP.NET Core Web API, EF Core, PostgreSQL 17, Swagger và
 
 API đọc lịch sử tài khoản, xác thực, phòng ban và khu vực đã tách danh sách gọn/chi tiết, có lọc/sắp xếp/phân trang tại DB: [History API](docs/history-api.md).
 
+API nghiệp vụ thiết bị: [hồ sơ thiết bị](docs/devices-api.md), [nhập kho](docs/device-receipts-api.md), [mượn trả](docs/device-loans-api.md), [điều chuyển](docs/device-transfers-api.md). Quy trình migrate, backup và release: [Device workflows release guide](docs/device-workflows-release.md).
+
 ## Chạy bằng Docker
 
 Cần Docker Desktop đang chạy ở chế độ Linux containers. Thực hiện các lệnh tại thư mục gốc project:

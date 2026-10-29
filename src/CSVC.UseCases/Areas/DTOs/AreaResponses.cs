@@ -47,5 +47,5 @@ public sealed class AreaLockImpactDto
     public int? SubtreeDeviceCount { get; init; }
     public int? RequestCount { get; init; }
     public bool LinkCountsComplete => DirectDeviceCount.HasValue && SubtreeDeviceCount.HasValue && RequestCount.HasValue;
-    public string Warning => "Locking prevents new use in this branch; child states and existing links are preserved.";
+    public string Warning => "Locking prevents new use in this branch; child states and existing links are preserved. Request counts are unavailable.";
 }

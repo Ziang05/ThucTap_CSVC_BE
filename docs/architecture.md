@@ -102,6 +102,14 @@ Giữ 4 bảng riêng: `account_history`, `auth_history`, `department_history`, 
 
 Các bảng lịch sử bất biến đối với chức năng quản lý thường. Snapshot phải chọn lọc trường, không serialize toàn bộ entity. Chuyển phòng ban của account chỉ ghi trong account history; chuyển nhánh khu vực không sinh sự kiện giả cho từng hậu duệ.
 
+## Device inventory and workflows
+
+The inventory backend is organized by feature across the same four layers: `Core/Devices`, `Core/DeviceReceipts`, `Core/DeviceLoans`, and `Core/DeviceTransfers`; matching use cases, persistence contracts, EF configurations/repositories, and API controllers live in their corresponding projects. Shared device reservations and PostgreSQL transaction/row-lock behavior are implemented under `Core/Devices` and `Infrastructure/Persistence` so receipt, loan, and transfer workflows cannot claim the same device concurrently.
+
+`GET /api/v1/devices/{deviceCode}/history` returns a timeline across device metadata, receipt, loan, and transfer events. `GET /api/v1/history/devices` is the QTTB-only global timeline. Department staff access the timeline only after device department-scope authorization. Each timeline event references its public business code; database UUIDs remain internal. See [devices-api.md](devices-api.md), [device-receipts-api.md](device-receipts-api.md), [device-loans-api.md](device-loans-api.md), and [device-transfers-api.md](device-transfers-api.md).
+
+The inventory schema is delivered by the explicit EF migration in `Infrastructure/Persistence/Migrations`. API startup does not migrate the database. Run migrations as a separate release task with `dotnet CSVC.API.dll --migrate`; deployment and recovery steps are documented in [device-workflows-release.md](device-workflows-release.md).
+
 ## Schema và migration đã hoàn thiện
 
 1. `accounts.normalized_email` là generated stored column `lower(btrim(email))`, có unique index không lọc trạng thái khóa. Lookup sử dụng khóa chuẩn hóa. `TextNormalization` trong Core và DbContext chuẩn hóa giá trị khi ghi qua EF; cột generated bảo vệ cả ghi SQL trực tiếp.

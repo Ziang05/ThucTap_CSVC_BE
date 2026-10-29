@@ -6,6 +6,10 @@ using CSVC.Core.Departments;
 using CSVC.Core.DeviceCategories;
 using CSVC.Core.Suppliers;
 using CSVC.Core.Manufacturers;
+using CSVC.Core.Devices;
+using CSVC.Core.DeviceReceipts;
+using CSVC.Core.DeviceLoans;
+using CSVC.Core.DeviceTransfers;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSVC.Infrastructure.Persistence;
@@ -48,6 +52,20 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
     public DbSet<Manufacturer> Manufacturers => Set<Manufacturer>();
 
     public DbSet<ManufacturerHistory> ManufacturerHistories => Set<ManufacturerHistory>();
+
+    public DbSet<Device> Devices => Set<Device>();
+    public DbSet<DeviceIdentity> DeviceIdentities => Set<DeviceIdentity>();
+    public DbSet<DeviceHistory> DeviceHistories => Set<DeviceHistory>();
+    public DbSet<DeviceOperationHold> DeviceOperationHolds => Set<DeviceOperationHold>();
+    public DbSet<DeviceReceipt> DeviceReceipts => Set<DeviceReceipt>();
+    public DbSet<DeviceReceiptItem> DeviceReceiptItems => Set<DeviceReceiptItem>();
+    public DbSet<DeviceReceiptHistory> DeviceReceiptHistories => Set<DeviceReceiptHistory>();
+    public DbSet<DeviceLoan> DeviceLoans => Set<DeviceLoan>();
+    public DbSet<DeviceLoanItem> DeviceLoanItems => Set<DeviceLoanItem>();
+    public DbSet<DeviceLoanHistory> DeviceLoanHistories => Set<DeviceLoanHistory>();
+    public DbSet<DeviceTransfer> DeviceTransfers => Set<DeviceTransfer>();
+    public DbSet<DeviceTransferItem> DeviceTransferItems => Set<DeviceTransferItem>();
+    public DbSet<DeviceTransferHistory> DeviceTransferHistories => Set<DeviceTransferHistory>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -100,6 +118,43 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
                     entry.Property("NormalizedDisplayCode").CurrentValue = manufacturer.DisplayCode.ToLowerInvariant();
                     manufacturer.Name = TextNormalization.Name(manufacturer.Name);
                     entry.Property("NormalizedName").CurrentValue = manufacturer.Name.ToLowerInvariant();
+                    break;
+                case Device device:
+                    device.DeviceCode = device.DeviceCode.Trim().ToUpperInvariant();
+                    device.Barcode = device.Barcode.Trim().ToUpperInvariant();
+                    device.Name = TextNormalization.Name(device.Name);
+                    if (entry.State == EntityState.Modified)
+                        device.Version = (int)entry.Property(nameof(Device.Version)).OriginalValue! + 1;
+                    break;
+                case DeviceIdentity identity:
+                    identity.DeviceCode = identity.DeviceCode.Trim().ToUpperInvariant();
+                    identity.Barcode = identity.Barcode.Trim().ToUpperInvariant();
+                    break;
+                case DeviceReceipt receipt:
+                    receipt.ReceiptCode = receipt.ReceiptCode.Trim().ToUpperInvariant();
+                    receipt.DeliveryBatch = TextNormalization.Name(receipt.DeliveryBatch);
+                    receipt.CarrierName = string.IsNullOrWhiteSpace(receipt.CarrierName) ? null : TextNormalization.Name(receipt.CarrierName);
+                    receipt.RequestCode = string.IsNullOrWhiteSpace(receipt.RequestCode) ? null : receipt.RequestCode.Trim();
+                    receipt.PaidInvoiceCode = string.IsNullOrWhiteSpace(receipt.PaidInvoiceCode) ? null : receipt.PaidInvoiceCode.Trim();
+                    if (entry.State == EntityState.Modified)
+                        receipt.Version = (int)entry.Property(nameof(DeviceReceipt.Version)).OriginalValue! + 1;
+                    break;
+                case DeviceReceiptItem receiptItem:
+                    receiptItem.DeviceCode = receiptItem.DeviceCode.Trim().ToUpperInvariant();
+                    receiptItem.Barcode = receiptItem.Barcode.Trim().ToUpperInvariant();
+                    receiptItem.Name = TextNormalization.Name(receiptItem.Name);
+                    break;
+                case DeviceLoan loan:
+                    loan.LoanCode = loan.LoanCode.Trim().ToUpperInvariant();
+                    loan.Purpose = TextNormalization.Name(loan.Purpose);
+                    if (entry.State == EntityState.Modified)
+                        loan.Version = (int)entry.Property(nameof(DeviceLoan.Version)).OriginalValue! + 1;
+                    break;
+                case DeviceTransfer transfer:
+                    transfer.TransferCode = transfer.TransferCode.Trim().ToUpperInvariant();
+                    transfer.Reason = TextNormalization.Name(transfer.Reason);
+                    if (entry.State == EntityState.Modified)
+                        transfer.Version = (int)entry.Property(nameof(DeviceTransfer.Version)).OriginalValue! + 1;
                     break;
                 case AuthLoginThrottle throttle when entry.State == EntityState.Added:
                     throttle.EmailKey = TextNormalization.Email(throttle.EmailKey);
