@@ -79,9 +79,9 @@ public sealed class DeviceService(
                 if (profile?.DepartmentId != department.Id) throw Validation("Responsible account must belong to the selected department.");
             }
 
-            var code = string.IsNullOrWhiteSpace(request.DeviceCode) ? "TB" + Guid.NewGuid().ToString("N").ToUpperInvariant() : NormalizeCode(request.DeviceCode);
+            var code = string.IsNullOrWhiteSpace(request.DeviceCode) ? BusinessCode.NewRandom("TB") : NormalizeCode(request.DeviceCode);
             if (!DeviceCodePattern.IsMatch(code)) throw Validation("Device code format is invalid.");
-            var barcode = "BC" + Guid.NewGuid().ToString("N").ToUpperInvariant();
+            var barcode = BusinessCode.NewRandom("BC");
             var identity = new DeviceIdentity { DeviceCode = code, Barcode = barcode, ReservedAt = clock.GetUtcNow() };
             var device = new Device
             {

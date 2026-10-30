@@ -47,7 +47,7 @@ public sealed class DeviceTransferService(
             var (source, target, responsible, reason, devices) = await ValidateTransferRequestAsync(request, actor, [], token);
             var transfer = new DeviceTransfer
             {
-                TransferCode = "DC" + Guid.NewGuid().ToString("N").ToUpperInvariant(),
+                TransferCode = BusinessCode.NewRandom("DC"),
                 SourceDepartmentId = source.Id, TargetDepartmentId = target.Id,
                 TargetResponsibleAccountId = responsible.Id, Reason = reason, CreatorAccountId = actor.AccountId,
                 CreatedAt = clock.GetUtcNow(), Status = DeviceTransferStatus.PendingApproval, Notes = Clean(request.Notes),

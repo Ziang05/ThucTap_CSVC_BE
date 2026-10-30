@@ -44,7 +44,7 @@ public sealed class DeviceLoanService(
             var (purpose, dueAt, devices) = await ValidateLoanRequestAsync(request, actor, now, [], token);
             var loan = new DeviceLoan
             {
-                LoanCode = "MT" + Guid.NewGuid().ToString("N").ToUpperInvariant(),
+                LoanCode = BusinessCode.NewRandom("MT"),
                 BorrowerAccountId = actor.AccountId, BorrowerDepartmentId = actor.DepartmentId,
                 Purpose = purpose, DueAt = dueAt, CreatorAccountId = actor.AccountId, CreatedAt = now,
                 Status = DeviceLoanStatus.PendingApproval, Notes = Clean(request.Notes),
