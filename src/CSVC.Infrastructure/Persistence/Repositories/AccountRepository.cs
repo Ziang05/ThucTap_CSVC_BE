@@ -64,6 +64,14 @@ public sealed class AccountRepository(CsvcDbContext context, IMapper mapper)
             where !account.IsLock && role.Code == RoleCodes.EquipmentManager
             select account.Id).CountAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<AssignableAccountDto>> ListAssignableAsync(Guid departmentId, CancellationToken cancellationToken = default)
+        => await (from account in _context.Accounts.AsNoTracking()
+                  join profile in _context.UserProfiles.AsNoTracking() on account.UserProfileId equals profile.Id
+                  where profile.DepartmentId == departmentId && !account.IsLock
+                  orderby profile.FullName, account.AccountCode
+                  select new AssignableAccountDto(account.AccountCode, profile.FullName))
+            .ToListAsync(cancellationToken);
+
     private IQueryable<AccountReadModel> ReadAccounts(DateTimeOffset now)
         => from account in _context.Accounts.AsNoTracking()
            join profile in _context.UserProfiles on account.UserProfileId equals profile.Id

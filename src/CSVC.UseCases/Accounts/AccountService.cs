@@ -29,6 +29,13 @@ public sealed class AccountService(
         return await unitOfWork.Accounts.ListAsync(query, clock.GetUtcNow(), cancellationToken);
     }
 
+    public async Task<IReadOnlyList<AssignableAccountDto>> ListAssignableAsync(Guid departmentId, CancellationToken cancellationToken = default)
+    {
+        await RequireActorAsync(null, false, cancellationToken);
+        if (departmentId == Guid.Empty) throw Error(FailureKind.Validation, "INVALID_DEPARTMENT", "Select a department.");
+        return await unitOfWork.Accounts.ListAssignableAsync(departmentId, cancellationToken);
+    }
+
     public async Task<AccountDetailDto> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await RequireActorAsync(id, false, cancellationToken);

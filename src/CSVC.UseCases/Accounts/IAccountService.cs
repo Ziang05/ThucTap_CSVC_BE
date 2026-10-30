@@ -6,6 +6,7 @@ namespace CSVC.UseCases.Accounts;
 public interface IAccountService
 {
     Task<PagedResult<AccountListItemDto>> ListAsync(AccountListQuery query, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AssignableAccountDto>> ListAssignableAsync(Guid departmentId, CancellationToken cancellationToken = default);
     Task<AccountDetailDto> GetAsync(Guid id, CancellationToken cancellationToken = default);
     Task<AccountDetailDto> GetCurrentAsync(CancellationToken cancellationToken = default);
     Task<CreatedAccountDto> CreateAsync(CreateAccountRequest request, CancellationToken cancellationToken = default);

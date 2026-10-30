@@ -14,6 +14,11 @@ public sealed class AccountsController(IAccountService accounts) : Authenticated
     public async Task<ActionResult<PagedResult<AccountListItemDto>>> List([FromQuery] AccountListQuery query, CancellationToken cancellationToken)
         => Ok(await accounts.ListAsync(query, cancellationToken));
 
+    [HttpGet("assignees")]
+    [ProducesResponseType<IReadOnlyList<AssignableAccountDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<AssignableAccountDto>>> ListAssignable([FromQuery] Guid departmentId, CancellationToken cancellationToken)
+        => Ok(await accounts.ListAssignableAsync(departmentId, cancellationToken));
+
     [HttpGet("{id:guid}")]
     [ProducesResponseType<AccountDetailDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<AccountDetailDto>> Get(Guid id, CancellationToken cancellationToken)

@@ -36,4 +36,5 @@ public sealed class AccountDetailDto
 }
 
 public sealed record CreatedAccountDto(Guid Id, string AccountCode);
+public sealed record AssignableAccountDto(string AccountCode, string FullName);
 public sealed record PasswordResetAcceptedDto(string Message = "If the account is eligible, password reset instructions will be sent.");
