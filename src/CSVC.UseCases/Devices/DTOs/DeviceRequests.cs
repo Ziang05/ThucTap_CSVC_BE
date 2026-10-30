@@ -46,6 +46,7 @@ public enum DeviceSortDirection { Asc, Desc }
 
 public sealed class DeviceListQuery
 {
+    [StringLength(32)] public string? ParentDeviceCode { get; set; }
     [StringLength(200)] public string? Search { get; init; }
     [StringLength(32)] public string? CategoryCode { get; init; }
     [EnumDataType(typeof(DeviceStatusFilter))] public DeviceStatusFilter? Status { get; init; }

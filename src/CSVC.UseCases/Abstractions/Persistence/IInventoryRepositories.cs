@@ -22,6 +22,9 @@ public interface IDeviceRepository : IRepository<Device>
     Task<int> CountByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default);
     Task<int> CountByManufacturerAsync(Guid manufacturerId, CancellationToken cancellationToken = default);
     Task<int> CountByAreaAsync(Guid areaId, bool includeDescendants, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Device>> GetSubtreeAsync(Guid rootId, CancellationToken cancellationToken = default);
+    Task<bool> WouldCreateParentCycleAsync(Guid childId, Guid parentId, CancellationToken cancellationToken = default);
+    Task<bool> HasPendingWorkflowAsync(Guid deviceId, CancellationToken cancellationToken = default);
 }
 public interface IDeviceIdentityRepository : IRepository<DeviceIdentity> { }
 public interface IDeviceHistoryRepository : IRepository<DeviceHistory>

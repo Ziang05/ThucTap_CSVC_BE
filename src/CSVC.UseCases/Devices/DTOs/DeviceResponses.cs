@@ -10,7 +10,10 @@ public sealed record DeviceDto(
     DeviceCondition Condition, DeviceAvailability Availability, string? ResponsibleAccountCode,
     string? ResponsibleFullName, string? ManufacturerCode, string? ManufacturerName,
     string? Model, string? SerialNumber, DateOnly? PurchaseDate, string? PaidInvoiceCode,
-    decimal? PurchasePrice, DateOnly? WarrantyExpiryDate, string? Notes, string Version);
+    decimal? PurchasePrice, DateOnly? WarrantyExpiryDate, string? Notes, string Version,
+    string? ParentDeviceCode = null, string? ParentDeviceName = null, bool IsComponent = false);
+
+public sealed record DeviceParentUpdateRequest(string? ParentDeviceCode);
 
 public sealed record DeviceHistoryDto(
     string ActionCode, string Outcome, DateTimeOffset OccurredAt, string? ActorAccountCode,

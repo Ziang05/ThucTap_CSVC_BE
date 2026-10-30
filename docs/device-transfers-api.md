@@ -69,3 +69,6 @@ List filters: `transferCode`, `departmentCode`, `status`, `fromDate`, `toDate`, 
 Create returns `201 Created` with a detail resource. Read/list return the standard `PagedResult`/DTO shape. Mutations return `204 No Content`. Errors use the API's standard problem response and workflow error codes, including `INVALID_WORKFLOW_TRANSITION`, `DEVICE_BUSY`, `DEVICE_NOT_IN_SOURCE_DEPARTMENT`, and `TRANSFER_NOT_FOUND`.
 
 Department staff history responses omit raw before/after snapshots and changed-field details; QTTB roles can see them. The implementation does not store or return rendered barcode images for transfers.
+# Tập thiết bị có quan hệ thành phần
+
+Khi tạo hoặc sửa phiếu, mỗi device code được mở rộng thành thiết bị đó và mọi hậu duệ. Backend loại trùng khi các nhánh được chọn chồng nhau; toàn bộ thiết bị mở rộng phải thuộc phòng ban nguồn, nếu không trả `DEVICE_GROUP_SOURCE_MISMATCH`. Điều chuyển cập nhật phòng ban và người chịu trách nhiệm cho từng item đã mở rộng.

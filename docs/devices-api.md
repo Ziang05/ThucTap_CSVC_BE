@@ -106,3 +106,10 @@ History trả actor code/name, action, outcome, timestamp và reason. QTTB có t
 | 409 | `DEVICE_OPERATION_CONFLICT` / `DEVICE_REFERENCE_CHANGED` | Xung đột persistence khác hoặc tham chiếu đổi đồng thời |
 
 Create/update/lock/unlock ghi `DEVICE_CREATED`, `DEVICE_UPDATED`, `DEVICE_LOCKED`, `DEVICE_UNLOCKED` vào `device_history` trong cùng inventory transaction. Nếu audit hoặc persistence lỗi, thay đổi nghiệp vụ rollback.
+# Quan hệ thiết bị cha – thành phần
+
+Device response có thêm `parentDeviceCode`, `parentDeviceName` và `isComponent`. FK UUID chỉ dùng nội bộ. `GET /api/v1/devices/{deviceCode}/children` trả danh sách thành phần trực tiếp, phân trang theo các query list thiết bị. Với Department Staff, thông tin cha khác phòng ban được ẩn theo scope.
+
+QTTB có thể gắn, đổi hoặc bỏ cha qua `PUT /api/v1/devices/{deviceCode}/parent` với body `{ "parentDeviceCode": "TB-PARENT-001" }`; gửi `null` để bỏ liên kết. Backend chặn tự tham chiếu, chu trình, khác phòng ban tại thời điểm liên kết và nhánh đang có workflow hold. Metadata thiết bị vẫn độc lập, không lan truyền.
+
+Khóa/mở khóa node áp dụng nguyên tử cho node và mọi hậu duệ. Mỗi thiết bị được audit riêng với action code có device code để đáp ứng tính duy nhất action/request trong `device_history`.

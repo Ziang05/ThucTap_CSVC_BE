@@ -20,6 +20,7 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
             table.HasCheckConstraint("ck_devices_barcode", "btrim(barcode) <> ''");
             table.HasCheckConstraint("ck_devices_name", "btrim(name) <> ''");
             table.HasCheckConstraint("ck_devices_purchase_price", "purchase_price IS NULL OR purchase_price >= 0");
+            table.HasCheckConstraint("ck_devices_parent_not_self", "parent_device_id IS NULL OR parent_device_id <> id");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).HasColumnName("id").HasColumnType("uuid").ValueGeneratedNever();
@@ -39,6 +40,8 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.Property(x => x.PurchasePrice).HasColumnName("purchase_price").HasColumnType("numeric(18,2)");
         builder.Property(x => x.WarrantyExpiryDate).HasColumnName("warranty_expiry_date").HasColumnType("date");
         builder.Property(x => x.DepartmentId).HasColumnName("department_id").HasColumnType("uuid");
+        builder.Property(x => x.ParentDeviceId).HasColumnName("parent_device_id").HasColumnType("uuid");
+        builder.HasIndex(x => x.ParentDeviceId).HasDatabaseName("ix_devices_parent_device_id");
         builder.Property(x => x.AreaId).HasColumnName("area_id").HasColumnType("uuid");
         builder.Property(x => x.ResponsibleAccountId).HasColumnName("responsible_account_id").HasColumnType("uuid");
         builder.Property(x => x.Status).HasColumnName("status").HasColumnType("entity_status").HasDefaultValue(EntityStatus.Active);
@@ -56,5 +59,6 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.HasOne<Department>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Area>().WithMany().HasForeignKey(x => x.AreaId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Account>().WithMany().HasForeignKey(x => x.ResponsibleAccountId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Device>().WithMany().HasForeignKey(x => x.ParentDeviceId).OnDelete(DeleteBehavior.Restrict);
     }
 }

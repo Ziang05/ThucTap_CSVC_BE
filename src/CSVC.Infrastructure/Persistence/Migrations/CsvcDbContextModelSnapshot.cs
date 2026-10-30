@@ -2,10 +2,10 @@
 using System;
 using System.Net;
 using CSVC.Core.Common;
-using CSVC.Core.Devices;
-using CSVC.Core.DeviceReceipts;
 using CSVC.Core.DeviceLoans;
+using CSVC.Core.DeviceReceipts;
 using CSVC.Core.DeviceTransfers;
+using CSVC.Core.Devices;
 using CSVC.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -27,12 +27,12 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_outcome", new[] { "DENIED", "FAILED", "NO_CHANGE", "SUCCESS" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "entity_status", new[] { "ACTIVE", "LOCKED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_condition", new[] { "DAMAGED", "GOOD", "MISSING" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_code_source", new[] { "GENERATED", "MANUAL" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_receipt_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "REJECTED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_condition", new[] { "DAMAGED", "GOOD", "MISSING" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_loan_status", new[] { "APPROVED", "CANCELLED", "ON_LOAN", "PENDING_APPROVAL", "REJECTED", "RETURNED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_receipt_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "REJECTED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_transfer_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "REJECTED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "entity_status", new[] { "ACTIVE", "LOCKED" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.HasSequence("account_code_seq");
@@ -844,6 +844,971 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BorrowerAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("borrower_account_id");
+
+                    b.Property<Guid>("BorrowerDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("borrower_department_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_account_id");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecisionAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decision_account_id");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("decision_reason");
+
+                    b.Property<DateTimeOffset>("DueAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("due_at");
+
+                    b.Property<DateTimeOffset?>("HandedOverAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("handed_over_at");
+
+                    b.Property<Guid?>("HandoverAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("handover_account_id");
+
+                    b.Property<string>("LoanCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("loan_code");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("purpose");
+
+                    b.Property<Guid?>("ReturnAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("return_account_id");
+
+                    b.Property<DateTimeOffset?>("ReturnedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("returned_at");
+
+                    b.Property<DeviceLoanStatus>("Status")
+                        .HasColumnType("device_loan_status")
+                        .HasColumnName("status");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BorrowerAccountId");
+
+                    b.HasIndex("BorrowerDepartmentId");
+
+                    b.HasIndex("CreatorAccountId");
+
+                    b.HasIndex("DecisionAccountId");
+
+                    b.HasIndex("HandoverAccountId");
+
+                    b.HasIndex("LoanCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_loans_code");
+
+                    b.HasIndex("ReturnAccountId");
+
+                    b.HasIndex("Status", "DueAt")
+                        .HasDatabaseName("ix_device_loans_status_due");
+
+                    b.ToTable("device_loans", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_loans_due_at", "due_at > created_at");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoanHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_fields");
+
+                    b.Property<Guid?>("LoanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("loan_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<AuditOutcome>("Outcome")
+                        .HasColumnType("audit_outcome")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("OccurredAt")
+                        .HasDatabaseName("ix_device_loan_history_occurred_at");
+
+                    b.HasIndex("LoanId", "OccurredAt")
+                        .HasDatabaseName("ix_device_loan_history_target");
+
+                    b.HasIndex("RequestId", "ActionCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_loan_history_request_action");
+
+                    b.ToTable("device_loan_history", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoanItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DeviceCondition?>("ConditionAtHandover")
+                        .HasColumnType("device_condition")
+                        .HasColumnName("condition_at_handover");
+
+                    b.Property<DeviceCondition?>("ConditionAtReturn")
+                        .HasColumnType("device_condition")
+                        .HasColumnName("condition_at_return");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("HandoverNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("handover_note");
+
+                    b.Property<Guid>("LoanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("loan_id");
+
+                    b.Property<string>("ReturnNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("return_note");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId")
+                        .HasDatabaseName("ix_device_loan_items_device");
+
+                    b.HasIndex("LoanId", "DeviceId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_loan_items_loan_device");
+
+                    b.ToTable("device_loan_items", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CarrierName")
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("carrier_name");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_account_id");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecisionAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decision_account_id");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("decision_reason");
+
+                    b.Property<string>("DeliveryBatch")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("delivery_batch");
+
+                    b.Property<DateOnly>("DeliveryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("delivery_date");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("PaidInvoiceCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("paid_invoice_code");
+
+                    b.Property<string>("ReceiptCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("receipt_code");
+
+                    b.Property<string>("RequestCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("request_code");
+
+                    b.Property<Guid>("RequestingDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requesting_department_id");
+
+                    b.Property<DeviceReceiptStatus>("Status")
+                        .HasColumnType("device_receipt_status")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("SupplierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_id");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatorAccountId");
+
+                    b.HasIndex("DecisionAccountId");
+
+                    b.HasIndex("ReceiptCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_receipts_code");
+
+                    b.HasIndex("RequestingDepartmentId");
+
+                    b.HasIndex("SupplierId");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_device_receipts_status_created");
+
+                    b.ToTable("device_receipts", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_receipts_delivery_batch", "btrim(delivery_batch) <> ''");
+
+                            t.HasCheckConstraint("ck_device_receipts_receipt_code", "btrim(receipt_code) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceiptHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_fields");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<AuditOutcome>("Outcome")
+                        .HasColumnType("audit_outcome")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid?>("ReceiptId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receipt_id");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("OccurredAt")
+                        .HasDatabaseName("ix_device_receipt_history_occurred_at");
+
+                    b.HasIndex("ReceiptId", "OccurredAt")
+                        .HasDatabaseName("ix_device_receipt_history_target");
+
+                    b.HasIndex("RequestId", "ActionCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_receipt_history_request_action");
+
+                    b.ToTable("device_receipt_history", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceiptItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Barcode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("barcode");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("DeviceCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("device_code");
+
+                    b.Property<DeviceCodeSource>("DeviceCodeSource")
+                        .HasColumnType("device_code_source")
+                        .HasColumnName("device_code_source");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ParentDeviceCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("parent_device_code");
+
+                    b.Property<Guid>("ReceiptId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receipt_id");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("serial_number");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Barcode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_receipt_items_barcode");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("DeviceCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_receipt_items_device_code");
+
+                    b.HasIndex("DeviceId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_receipt_items_device_id");
+
+                    b.HasIndex("ReceiptId");
+
+                    b.ToTable("device_receipt_items", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_receipt_items_barcode", "btrim(barcode) <> ''");
+
+                            t.HasCheckConstraint("ck_device_receipt_items_device_code", "btrim(device_code) <> ''");
+
+                            t.HasCheckConstraint("ck_device_receipt_items_name", "btrim(name) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransfer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_account_id");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecisionAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decision_account_id");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("decision_reason");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("SourceDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_department_id");
+
+                    b.Property<Guid?>("SourceHandoverAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_handover_account_id");
+
+                    b.Property<DeviceTransferStatus>("Status")
+                        .HasColumnType("device_transfer_status")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TargetDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_department_id");
+
+                    b.Property<Guid?>("TargetHandoverAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_handover_account_id");
+
+                    b.Property<Guid>("TargetResponsibleAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_responsible_account_id");
+
+                    b.Property<string>("TransferCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("transfer_code");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatorAccountId");
+
+                    b.HasIndex("DecisionAccountId");
+
+                    b.HasIndex("SourceDepartmentId");
+
+                    b.HasIndex("SourceHandoverAccountId");
+
+                    b.HasIndex("TargetDepartmentId");
+
+                    b.HasIndex("TargetHandoverAccountId");
+
+                    b.HasIndex("TargetResponsibleAccountId");
+
+                    b.HasIndex("TransferCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_transfers_code");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_device_transfers_status_created");
+
+                    b.ToTable("device_transfers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_transfers_distinct_departments", "source_department_id <> target_department_id");
+
+                            t.HasCheckConstraint("ck_device_transfers_reason", "btrim(reason) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransferHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_fields");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<AuditOutcome>("Outcome")
+                        .HasColumnType("audit_outcome")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<Guid?>("TransferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("OccurredAt")
+                        .HasDatabaseName("ix_device_transfer_history_occurred_at");
+
+                    b.HasIndex("RequestId", "ActionCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_transfer_history_request_action");
+
+                    b.HasIndex("TransferId", "OccurredAt")
+                        .HasDatabaseName("ix_device_transfer_history_target");
+
+                    b.ToTable("device_transfer_history", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransferItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DeviceCondition?>("ConditionAtHandover")
+                        .HasColumnType("device_condition")
+                        .HasColumnName("condition_at_handover");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("HandoverNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)")
+                        .HasColumnName("handover_note");
+
+                    b.Property<Guid>("TransferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId")
+                        .HasDatabaseName("ix_device_transfer_items_device");
+
+                    b.HasIndex("TransferId", "DeviceId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_transfer_items_transfer_device");
+
+                    b.ToTable("device_transfer_items", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.Device", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AreaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("area_id");
+
+                    b.Property<string>("Barcode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("barcode");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<DeviceCondition>("Condition")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("device_condition")
+                        .HasDefaultValue(DeviceCondition.Good)
+                        .HasColumnName("condition");
+
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("department_id");
+
+                    b.Property<string>("DeviceCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("device_code");
+
+                    b.Property<Guid?>("ManufacturerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("manufacturer_id");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(120)
+                        .HasColumnType("varchar(120)")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NormalizedDeviceCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("normalized_device_code")
+                        .HasComputedColumnSql("upper(btrim(device_code))", true);
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("PaidInvoiceCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("paid_invoice_code");
+
+                    b.Property<Guid?>("ParentDeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_device_id");
+
+                    b.Property<DateOnly?>("PurchaseDate")
+                        .HasColumnType("date")
+                        .HasColumnName("purchase_date");
+
+                    b.Property<decimal?>("PurchasePrice")
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("purchase_price");
+
+                    b.Property<Guid?>("ResponsibleAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("responsible_account_id");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("serial_number");
+
+                    b.Property<EntityStatus>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("entity_status")
+                        .HasDefaultValue(EntityStatus.Active)
+                        .HasColumnName("status");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("version");
+
+                    b.Property<DateOnly?>("WarrantyExpiryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("warranty_expiry_date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AreaId")
+                        .HasDatabaseName("ix_devices_area");
+
+                    b.HasIndex("Barcode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_devices_barcode");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_devices_category");
+
+                    b.HasIndex("DeviceCode");
+
+                    b.HasIndex("ManufacturerId")
+                        .HasDatabaseName("ix_devices_manufacturer");
+
+                    b.HasIndex("NormalizedDeviceCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_devices_normalized_device_code");
+
+                    b.HasIndex("ParentDeviceId")
+                        .HasDatabaseName("ix_devices_parent_device_id");
+
+                    b.HasIndex("ResponsibleAccountId");
+
+                    b.HasIndex("DepartmentId", "Status")
+                        .HasDatabaseName("ix_devices_department_status");
+
+                    b.ToTable("devices", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_devices_barcode", "btrim(barcode) <> ''");
+
+                            t.HasCheckConstraint("ck_devices_device_code", "btrim(device_code) <> ''");
+
+                            t.HasCheckConstraint("ck_devices_name", "btrim(name) <> ''");
+
+                            t.HasCheckConstraint("ck_devices_parent_not_self", "parent_device_id IS NULL OR parent_device_id <> id");
+
+                            t.HasCheckConstraint("ck_devices_purchase_price", "purchase_price IS NULL OR purchase_price >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<string>("ChangedFields")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changed_fields");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<AuditOutcome>("Outcome")
+                        .HasColumnType("audit_outcome")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("reason_code");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("OccurredAt")
+                        .HasDatabaseName("ix_device_history_occurred_at");
+
+                    b.HasIndex("DeviceId", "OccurredAt")
+                        .HasDatabaseName("ix_device_history_target");
+
+                    b.HasIndex("RequestId", "ActionCode")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_history_request_action");
+
+                    b.ToTable("device_history", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceIdentity", b =>
+                {
+                    b.Property<string>("DeviceCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("device_code");
+
+                    b.Property<string>("Barcode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("barcode");
+
+                    b.Property<DateTimeOffset>("ReservedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("reserved_at");
+
+                    b.HasKey("DeviceCode");
+
+                    b.HasAlternateKey("Barcode")
+                        .HasName("uq_device_identities_barcode");
+
+                    b.ToTable("device_identities", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_identities_barcode", "btrim(barcode) <> ''");
+
+                            t.HasCheckConstraint("ck_device_identities_device_code", "btrim(device_code) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceOperationHold", b =>
+                {
+                    b.Property<string>("DeviceCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("device_code");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTimeOffset>("HeldAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("held_at");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<string>("OperationKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("varchar(16)")
+                        .HasColumnName("operation_kind");
+
+                    b.HasKey("DeviceCode");
+
+                    b.HasIndex("DeviceId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_operation_holds_device_id")
+                        .HasFilter("device_id IS NOT NULL");
+
+                    b.HasIndex("OperationKind", "OperationId")
+                        .HasDatabaseName("ix_device_operation_holds_operation");
+
+                    b.ToTable("device_operation_holds", (string)null);
+                });
+
             modelBuilder.Entity("CSVC.Core.Manufacturers.Manufacturer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1273,6 +2238,281 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoan", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("BorrowerAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("BorrowerDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("DecisionAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("HandoverAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ReturnAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoanHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.DeviceLoans.DeviceLoan", null)
+                        .WithMany()
+                        .HasForeignKey("LoanId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoanItem", b =>
+                {
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.DeviceLoans.DeviceLoan", null)
+                        .WithMany("Items")
+                        .HasForeignKey("LoanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceipt", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("DecisionAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("RequestingDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Suppliers.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceiptHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.DeviceReceipts.DeviceReceipt", null)
+                        .WithMany()
+                        .HasForeignKey("ReceiptId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceiptItem", b =>
+                {
+                    b.HasOne("CSVC.Core.Devices.DeviceIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("Barcode")
+                        .HasPrincipalKey("Barcode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Devices.DeviceIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.DeviceReceipts.DeviceReceipt", null)
+                        .WithMany("Items")
+                        .HasForeignKey("ReceiptId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransfer", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("DecisionAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("SourceDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SourceHandoverAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("TargetDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("TargetHandoverAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("TargetResponsibleAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransferHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.DeviceTransfers.DeviceTransfer", null)
+                        .WithMany()
+                        .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransferItem", b =>
+                {
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.DeviceTransfers.DeviceTransfer", null)
+                        .WithMany("Items")
+                        .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.Device", b =>
+                {
+                    b.HasOne("CSVC.Core.Areas.Area", null)
+                        .WithMany()
+                        .HasForeignKey("AreaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Devices.DeviceIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("Barcode")
+                        .HasPrincipalKey("Barcode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Devices.DeviceIdentity", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Manufacturers.Manufacturer", null)
+                        .WithMany()
+                        .HasForeignKey("ManufacturerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("ParentDeviceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ResponsibleAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceOperationHold", b =>
+                {
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("CSVC.Core.Manufacturers.ManufacturerHistory", b =>
                 {
                     b.HasOne("CSVC.Core.Accounts.Account", null)
@@ -1299,319 +2539,21 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
-            BuildInventorySnapshot(modelBuilder);
+            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoan", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceipt", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransfer", b =>
+                {
+                    b.Navigation("Items");
+                });
 #pragma warning restore 612, 618
-        }
-
-        private static void BuildInventorySnapshot(ModelBuilder modelBuilder)
-        {
-            modelBuilder.Entity("CSVC.Core.Devices.Device", b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<string>("DeviceCode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("device_code");
-                b.Property<string>("NormalizedDeviceCode").ValueGeneratedOnAddOrUpdate().HasColumnType("text").HasComputedColumnSql("upper(btrim(device_code))", true).HasColumnName("normalized_device_code");
-                b.Property<string>("Barcode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("barcode");
-                b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("varchar(200)").HasColumnName("name");
-                b.Property<Guid>("CategoryId").HasColumnType("uuid").HasColumnName("category_id");
-                b.Property<Guid?>("ManufacturerId").HasColumnType("uuid").HasColumnName("manufacturer_id");
-                b.Property<string>("Model").HasMaxLength(120).HasColumnType("varchar(120)").HasColumnName("model");
-                b.Property<string>("SerialNumber").HasMaxLength(100).HasColumnType("varchar(100)").HasColumnName("serial_number");
-                b.Property<DateOnly?>("PurchaseDate").HasColumnType("date").HasColumnName("purchase_date");
-                b.Property<string>("PaidInvoiceCode").HasMaxLength(64).HasColumnType("varchar(64)").HasColumnName("paid_invoice_code");
-                b.Property<decimal?>("PurchasePrice").HasPrecision(18, 2).HasColumnType("numeric(18,2)").HasColumnName("purchase_price");
-                b.Property<DateOnly?>("WarrantyExpiryDate").HasColumnType("date").HasColumnName("warranty_expiry_date");
-                b.Property<Guid>("DepartmentId").HasColumnType("uuid").HasColumnName("department_id");
-                b.Property<Guid?>("AreaId").HasColumnType("uuid").HasColumnName("area_id");
-                b.Property<Guid?>("ResponsibleAccountId").HasColumnType("uuid").HasColumnName("responsible_account_id");
-                b.Property<EntityStatus>("Status").HasColumnType("entity_status").HasDefaultValue(EntityStatus.Active).HasColumnName("status");
-                b.Property<DeviceCondition>("Condition").HasColumnType("device_condition").HasDefaultValue(DeviceCondition.Good).HasColumnName("condition");
-                b.Property<string>("Notes").HasColumnType("text").HasColumnName("notes");
-                b.Property<int>("Version").IsConcurrencyToken().HasDefaultValue(1).HasColumnType("integer").HasColumnName("version");
-                b.HasKey("Id");
-                b.HasIndex("CategoryId").HasDatabaseName("ix_devices_category");
-                b.HasIndex("DepartmentId", "Status").HasDatabaseName("ix_devices_department_status");
-                b.HasIndex("ManufacturerId").HasDatabaseName("ix_devices_manufacturer");
-                b.HasIndex("AreaId").HasDatabaseName("ix_devices_area");
-                b.HasIndex("NormalizedDeviceCode").IsUnique().HasDatabaseName("uq_devices_normalized_device_code");
-                b.HasIndex("Barcode").IsUnique().HasDatabaseName("uq_devices_barcode");
-                b.ToTable("devices", t =>
-                {
-                    t.HasCheckConstraint("ck_devices_device_code", "btrim(device_code) <> ''");
-                    t.HasCheckConstraint("ck_devices_barcode", "btrim(barcode) <> ''");
-                    t.HasCheckConstraint("ck_devices_name", "btrim(name) <> ''");
-                    t.HasCheckConstraint("ck_devices_purchase_price", "purchase_price IS NULL OR purchase_price >= 0");
-                });
-            });
-
-            modelBuilder.Entity("CSVC.Core.Devices.DeviceOperationHold", b =>
-            {
-                b.Property<string>("DeviceCode").HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("device_code");
-                b.Property<Guid?>("DeviceId").HasColumnType("uuid").HasColumnName("device_id");
-                b.Property<DeviceOperationKind>("OperationKind").HasConversion<string>().HasMaxLength(16).HasColumnType("varchar(16)").HasColumnName("operation_kind");
-                b.Property<Guid>("OperationId").HasColumnType("uuid").HasColumnName("operation_id");
-                b.Property<DateTimeOffset>("HeldAt").HasColumnType("timestamptz").HasColumnName("held_at");
-                b.HasKey("DeviceCode");
-                b.HasIndex("DeviceId").IsUnique().HasFilter("device_id IS NOT NULL").HasDatabaseName("uq_device_operation_holds_device_id");
-                b.HasIndex("OperationKind", "OperationId").HasDatabaseName("ix_device_operation_holds_operation");
-                b.ToTable("device_operation_holds", t => t.HasCheckConstraint("ck_device_operation_holds_device_code", "btrim(device_code) <> ''"));
-            });
-
-            modelBuilder.Entity("CSVC.Core.Devices.DeviceIdentity", b =>
-            {
-                b.Property<string>("DeviceCode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("device_code");
-                b.Property<string>("Barcode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("barcode");
-                b.Property<DateTimeOffset>("ReservedAt").HasColumnType("timestamptz").HasColumnName("reserved_at");
-                b.HasKey("DeviceCode");
-                b.HasAlternateKey("Barcode").HasName("uq_device_identities_barcode");
-                b.ToTable("device_identities", t =>
-                {
-                    t.HasCheckConstraint("ck_device_identities_device_code", "btrim(device_code) <> ''");
-                    t.HasCheckConstraint("ck_device_identities_barcode", "btrim(barcode) <> ''");
-                });
-            });
-
-            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceipt", b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<string>("ReceiptCode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("receipt_code");
-                b.Property<Guid>("SupplierId").HasColumnType("uuid").HasColumnName("supplier_id");
-                b.Property<string>("CarrierName").HasMaxLength(200).HasColumnType("varchar(200)").HasColumnName("carrier_name");
-                b.Property<string>("RequestCode").HasMaxLength(64).HasColumnType("varchar(64)").HasColumnName("request_code");
-                b.Property<DateOnly>("DeliveryDate").HasColumnType("date").HasColumnName("delivery_date");
-                b.Property<string>("DeliveryBatch").IsRequired().HasMaxLength(100).HasColumnType("varchar(100)").HasColumnName("delivery_batch");
-                b.Property<Guid>("RequestingDepartmentId").HasColumnType("uuid").HasColumnName("requesting_department_id");
-                b.Property<string>("PaidInvoiceCode").HasMaxLength(64).HasColumnType("varchar(64)").HasColumnName("paid_invoice_code");
-                b.Property<Guid>("CreatorAccountId").HasColumnType("uuid").HasColumnName("creator_account_id");
-                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamptz").HasColumnName("created_at");
-                b.Property<DeviceReceiptStatus>("Status").HasColumnType("device_receipt_status").HasDefaultValue(DeviceReceiptStatus.PendingApproval).HasColumnName("status");
-                b.Property<Guid?>("DecisionAccountId").HasColumnType("uuid").HasColumnName("decision_account_id");
-                b.Property<DateTimeOffset?>("DecidedAt").HasColumnType("timestamptz").HasColumnName("decided_at");
-                b.Property<DateTimeOffset?>("CompletedAt").HasColumnType("timestamptz").HasColumnName("completed_at");
-                b.Property<string>("DecisionReason").HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("decision_reason");
-                b.Property<string>("Notes").HasColumnType("text").HasColumnName("notes");
-                b.Property<int>("Version").IsConcurrencyToken().HasDefaultValue(1).HasColumnType("integer").HasColumnName("version");
-                b.HasKey("Id");
-                b.HasIndex("ReceiptCode").IsUnique().HasDatabaseName("uq_device_receipts_code");
-                b.HasIndex("Status", "CreatedAt").HasDatabaseName("ix_device_receipts_status_created");
-                b.ToTable("device_receipts", t =>
-                {
-                    t.HasCheckConstraint("ck_device_receipts_receipt_code", "btrim(receipt_code) <> ''");
-                    t.HasCheckConstraint("ck_device_receipts_delivery_batch", "btrim(delivery_batch) <> ''");
-                });
-            });
-
-            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceiptItem", b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<Guid>("ReceiptId").HasColumnType("uuid").HasColumnName("receipt_id");
-                b.Property<Guid>("CategoryId").HasColumnType("uuid").HasColumnName("category_id");
-                b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("varchar(200)").HasColumnName("name");
-                b.Property<string>("DeviceCode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("device_code");
-                b.Property<string>("Barcode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("barcode");
-                b.Property<DeviceCodeSource>("DeviceCodeSource").HasColumnType("device_code_source").HasColumnName("device_code_source");
-                b.Property<string>("SerialNumber").HasMaxLength(100).HasColumnType("varchar(100)").HasColumnName("serial_number");
-                b.Property<Guid?>("DeviceId").HasColumnType("uuid").HasColumnName("device_id");
-                b.HasKey("Id");
-                b.HasIndex("DeviceCode").IsUnique().HasDatabaseName("uq_device_receipt_items_device_code");
-                b.HasIndex("Barcode").IsUnique().HasDatabaseName("uq_device_receipt_items_barcode");
-                b.HasIndex("DeviceId").IsUnique().HasDatabaseName("uq_device_receipt_items_device_id");
-                b.ToTable("device_receipt_items", t =>
-                {
-                    t.HasCheckConstraint("ck_device_receipt_items_name", "btrim(name) <> ''");
-                    t.HasCheckConstraint("ck_device_receipt_items_device_code", "btrim(device_code) <> ''");
-                    t.HasCheckConstraint("ck_device_receipt_items_barcode", "btrim(barcode) <> ''");
-                });
-            });
-
-            AddHistorySnapshot<CSVC.Core.Devices.DeviceHistory>(modelBuilder, "device_history", "device_id", "DeviceId");
-            AddHistorySnapshot<DeviceReceiptHistory>(modelBuilder, "device_receipt_history", "receipt_id", "ReceiptId");
-            AddHistorySnapshot<DeviceLoanHistory>(modelBuilder, "device_loan_history", "loan_id", "LoanId");
-            AddHistorySnapshot<DeviceTransferHistory>(modelBuilder, "device_transfer_history", "transfer_id", "TransferId");
-
-            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoan", b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<string>("LoanCode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("loan_code");
-                b.Property<Guid>("BorrowerAccountId").HasColumnType("uuid").HasColumnName("borrower_account_id");
-                b.Property<Guid>("BorrowerDepartmentId").HasColumnType("uuid").HasColumnName("borrower_department_id");
-                b.Property<string>("Purpose").IsRequired().HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("purpose");
-                b.Property<DateTimeOffset>("DueAt").HasColumnType("timestamptz").HasColumnName("due_at");
-                b.Property<Guid>("CreatorAccountId").HasColumnType("uuid").HasColumnName("creator_account_id");
-                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamptz").HasColumnName("created_at");
-                b.Property<DeviceLoanStatus>("Status").HasColumnType("device_loan_status").HasDefaultValue(DeviceLoanStatus.PendingApproval).HasColumnName("status");
-                b.Property<Guid?>("DecisionAccountId").HasColumnType("uuid").HasColumnName("decision_account_id");
-                b.Property<DateTimeOffset?>("DecidedAt").HasColumnType("timestamptz").HasColumnName("decided_at");
-                b.Property<DateTimeOffset?>("HandedOverAt").HasColumnType("timestamptz").HasColumnName("handed_over_at");
-                b.Property<Guid?>("HandoverAccountId").HasColumnType("uuid").HasColumnName("handover_account_id");
-                b.Property<DateTimeOffset?>("ReturnedAt").HasColumnType("timestamptz").HasColumnName("returned_at");
-                b.Property<Guid?>("ReturnAccountId").HasColumnType("uuid").HasColumnName("return_account_id");
-                b.Property<string>("DecisionReason").HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("decision_reason");
-                b.Property<string>("Notes").HasColumnType("text").HasColumnName("notes");
-                b.Property<int>("Version").IsConcurrencyToken().HasDefaultValue(1).HasColumnType("integer").HasColumnName("version");
-                b.HasKey("Id");
-                b.HasIndex("LoanCode").IsUnique().HasDatabaseName("uq_device_loans_code");
-                b.HasIndex("Status", "DueAt").HasDatabaseName("ix_device_loans_status_due");
-                b.ToTable("device_loans", t => t.HasCheckConstraint("ck_device_loans_due_at", "due_at > created_at"));
-            });
-
-            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoanItem", b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<Guid>("LoanId").HasColumnType("uuid").HasColumnName("loan_id");
-                b.Property<Guid>("DeviceId").HasColumnType("uuid").HasColumnName("device_id");
-                b.Property<DeviceCondition?>("ConditionAtHandover").HasColumnType("device_condition").HasColumnName("condition_at_handover");
-                b.Property<string>("HandoverNote").HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("handover_note");
-                b.Property<DeviceCondition?>("ConditionAtReturn").HasColumnType("device_condition").HasColumnName("condition_at_return");
-                b.Property<string>("ReturnNote").HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("return_note");
-                b.HasKey("Id");
-                b.HasIndex("DeviceId").HasDatabaseName("ix_device_loan_items_device");
-                b.HasIndex("LoanId", "DeviceId").IsUnique().HasDatabaseName("uq_device_loan_items_loan_device");
-                b.ToTable("device_loan_items");
-            });
-
-            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransfer", b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<string>("TransferCode").IsRequired().HasMaxLength(32).HasColumnType("varchar(32)").HasColumnName("transfer_code");
-                b.Property<Guid>("SourceDepartmentId").HasColumnType("uuid").HasColumnName("source_department_id");
-                b.Property<Guid>("TargetDepartmentId").HasColumnType("uuid").HasColumnName("target_department_id");
-                b.Property<Guid>("TargetResponsibleAccountId").HasColumnType("uuid").HasColumnName("target_responsible_account_id");
-                b.Property<string>("Reason").IsRequired().HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("reason");
-                b.Property<Guid>("CreatorAccountId").HasColumnType("uuid").HasColumnName("creator_account_id");
-                b.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamptz").HasColumnName("created_at");
-                b.Property<DeviceTransferStatus>("Status").HasColumnType("device_transfer_status").HasDefaultValue(DeviceTransferStatus.PendingApproval).HasColumnName("status");
-                b.Property<Guid?>("DecisionAccountId").HasColumnType("uuid").HasColumnName("decision_account_id");
-                b.Property<DateTimeOffset?>("DecidedAt").HasColumnType("timestamptz").HasColumnName("decided_at");
-                b.Property<Guid?>("SourceHandoverAccountId").HasColumnType("uuid").HasColumnName("source_handover_account_id");
-                b.Property<Guid?>("TargetHandoverAccountId").HasColumnType("uuid").HasColumnName("target_handover_account_id");
-                b.Property<DateTimeOffset?>("CompletedAt").HasColumnType("timestamptz").HasColumnName("completed_at");
-                b.Property<string>("DecisionReason").HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("decision_reason");
-                b.Property<string>("Notes").HasColumnType("text").HasColumnName("notes");
-                b.Property<int>("Version").IsConcurrencyToken().HasDefaultValue(1).HasColumnType("integer").HasColumnName("version");
-                b.HasKey("Id");
-                b.HasIndex("TransferCode").IsUnique().HasDatabaseName("uq_device_transfers_code");
-                b.HasIndex("Status", "CreatedAt").HasDatabaseName("ix_device_transfers_status_created");
-                b.ToTable("device_transfers", t =>
-                {
-                    t.HasCheckConstraint("ck_device_transfers_distinct_departments", "source_department_id <> target_department_id");
-                    t.HasCheckConstraint("ck_device_transfers_reason", "btrim(reason) <> ''");
-                });
-            });
-
-            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransferItem", b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<Guid>("TransferId").HasColumnType("uuid").HasColumnName("transfer_id");
-                b.Property<Guid>("DeviceId").HasColumnType("uuid").HasColumnName("device_id");
-                b.Property<DeviceCondition?>("ConditionAtHandover").HasColumnType("device_condition").HasColumnName("condition_at_handover");
-                b.Property<string>("HandoverNote").HasMaxLength(1000).HasColumnType("varchar(1000)").HasColumnName("handover_note");
-                b.HasKey("Id");
-                b.HasIndex("DeviceId").HasDatabaseName("ix_device_transfer_items_device");
-                b.HasIndex("TransferId", "DeviceId").IsUnique().HasDatabaseName("uq_device_transfer_items_transfer_device");
-                b.ToTable("device_transfer_items");
-            });
-
-            AddInventoryRelationships(modelBuilder);
-        }
-
-        private static void AddHistorySnapshot<TEntity>(ModelBuilder modelBuilder, string table, string targetColumn, string targetProperty)
-            where TEntity : class
-        {
-            modelBuilder.Entity<TEntity>(b =>
-            {
-                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
-                b.Property<Guid>("RequestId").HasColumnType("uuid").HasColumnName("request_id");
-                b.Property<Guid?>("ActorAccountId").HasColumnType("uuid").HasColumnName("actor_account_id");
-                b.Property<string>("ActionCode").IsRequired().HasMaxLength(64).HasColumnType("varchar(64)").HasColumnName("action_code");
-                b.Property<AuditOutcome>("Outcome").HasColumnType("audit_outcome").HasColumnName("outcome");
-                b.Property<string>("ReasonCode").HasMaxLength(80).HasColumnType("varchar(80)").HasColumnName("reason_code");
-                b.Property<DateTimeOffset>("OccurredAt").HasColumnType("timestamptz").HasColumnName("occurred_at");
-                b.Property<Guid?>(targetProperty).HasColumnType("uuid").HasColumnName(targetColumn);
-                b.Property<string>("ChangedFields").HasColumnType("jsonb").HasColumnName("changed_fields");
-                b.Property<string>("BeforeData").HasColumnType("jsonb").HasColumnName("before_data");
-                b.Property<string>("AfterData").HasColumnType("jsonb").HasColumnName("after_data");
-                b.HasKey("Id");
-                b.HasIndex("RequestId", "ActionCode").IsUnique().HasDatabaseName($"uq_{table}_request_action");
-                b.HasIndex(targetProperty, "OccurredAt").HasDatabaseName($"ix_{table}_target");
-                b.HasIndex("OccurredAt").HasDatabaseName($"ix_{table}_occurred_at");
-                b.ToTable(table);
-            });
-        }
-
-        private static void AddInventoryRelationships(ModelBuilder modelBuilder)
-        {
-            modelBuilder.Entity("CSVC.Core.Devices.Device", b =>
-            {
-                b.HasOne("CSVC.Core.Devices.DeviceIdentity", null).WithMany().HasForeignKey("DeviceCode").HasPrincipalKey("DeviceCode").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Devices.DeviceIdentity", null).WithMany().HasForeignKey("Barcode").HasPrincipalKey("Barcode").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null).WithMany().HasForeignKey("CategoryId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Manufacturers.Manufacturer", null).WithMany().HasForeignKey("ManufacturerId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.Departments.Department", null).WithMany().HasForeignKey("DepartmentId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Areas.Area", null).WithMany().HasForeignKey("AreaId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("ResponsibleAccountId").OnDelete(DeleteBehavior.Restrict);
-            });
-            modelBuilder.Entity("CSVC.Core.Devices.DeviceOperationHold", b =>
-                b.HasOne("CSVC.Core.Devices.Device", null).WithMany().HasForeignKey("DeviceId").OnDelete(DeleteBehavior.Restrict));
-            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceipt", b =>
-            {
-                b.HasOne("CSVC.Core.Suppliers.Supplier", null).WithMany().HasForeignKey("SupplierId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Departments.Department", null).WithMany().HasForeignKey("RequestingDepartmentId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("CreatorAccountId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("DecisionAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasMany("CSVC.Core.DeviceReceipts.DeviceReceiptItem", "Items").WithOne().HasForeignKey("ReceiptId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-            });
-            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceiptItem", b =>
-            {
-                b.HasOne("CSVC.Core.Devices.DeviceIdentity", null).WithMany().HasForeignKey("DeviceCode").HasPrincipalKey("DeviceCode").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Devices.DeviceIdentity", null).WithMany().HasForeignKey("Barcode").HasPrincipalKey("Barcode").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null).WithMany().HasForeignKey("CategoryId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Devices.Device", null).WithMany().HasForeignKey("DeviceId").OnDelete(DeleteBehavior.Restrict);
-            });
-            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoan", b =>
-            {
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("BorrowerAccountId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Departments.Department", null).WithMany().HasForeignKey("BorrowerDepartmentId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("CreatorAccountId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("DecisionAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("HandoverAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("ReturnAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasMany("CSVC.Core.DeviceLoans.DeviceLoanItem", "Items").WithOne().HasForeignKey("LoanId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-            });
-            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoanItem", b =>
-                b.HasOne("CSVC.Core.Devices.Device", null).WithMany().HasForeignKey("DeviceId").OnDelete(DeleteBehavior.Restrict).IsRequired());
-            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransfer", b =>
-            {
-                b.HasOne("CSVC.Core.Departments.Department", null).WithMany().HasForeignKey("SourceDepartmentId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Departments.Department", null).WithMany().HasForeignKey("TargetDepartmentId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("TargetResponsibleAccountId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("CreatorAccountId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("DecisionAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("SourceHandoverAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("TargetHandoverAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasMany("CSVC.Core.DeviceTransfers.DeviceTransferItem", "Items").WithOne().HasForeignKey("TransferId").OnDelete(DeleteBehavior.Restrict).IsRequired();
-            });
-            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransferItem", b =>
-                b.HasOne("CSVC.Core.Devices.Device", null).WithMany().HasForeignKey("DeviceId").OnDelete(DeleteBehavior.Restrict).IsRequired());
-            modelBuilder.Entity("CSVC.Core.Devices.DeviceHistory", b =>
-            {
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("ActorAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.Devices.Device", null).WithMany().HasForeignKey("DeviceId").OnDelete(DeleteBehavior.Restrict);
-            });
-            modelBuilder.Entity("CSVC.Core.DeviceReceipts.DeviceReceiptHistory", b =>
-            {
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("ActorAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.DeviceReceipts.DeviceReceipt", null).WithMany().HasForeignKey("ReceiptId").OnDelete(DeleteBehavior.Restrict);
-            });
-            modelBuilder.Entity("CSVC.Core.DeviceLoans.DeviceLoanHistory", b =>
-            {
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("ActorAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.DeviceLoans.DeviceLoan", null).WithMany().HasForeignKey("LoanId").OnDelete(DeleteBehavior.Restrict);
-            });
-            modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransferHistory", b =>
-            {
-                b.HasOne("CSVC.Core.Accounts.Account", null).WithMany().HasForeignKey("ActorAccountId").OnDelete(DeleteBehavior.Restrict);
-                b.HasOne("CSVC.Core.DeviceTransfers.DeviceTransfer", null).WithMany().HasForeignKey("TransferId").OnDelete(DeleteBehavior.Restrict);
-            });
         }
     }
 }

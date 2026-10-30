@@ -147,6 +147,7 @@ public sealed class DeviceReceiptService(
             if (items.Count == 0 || items.Any(x => x.DeviceId is not null)) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Receipt items are invalid or already completed.");
             var created = new List<Device>();
             var departmentCode = await DepartmentCodeAsync(receipt.RequestingDepartmentId, token);
+            var deviceByCode = new Dictionary<string, Device>(StringComparer.Ordinal);
             foreach (var item in items)
             {
                 var device = new Device
@@ -155,14 +156,30 @@ public sealed class DeviceReceiptService(
                     CategoryId = item.CategoryId, SerialNumber = item.SerialNumber,
                     DepartmentId = receipt.RequestingDepartmentId, Status = EntityStatus.Active, Condition = DeviceCondition.Good
                 };
+                deviceByCode.Add(device.DeviceCode, device);
                 item.DeviceId = device.Id;
                 unitOfWork.DeviceReceiptItems.Update(item);
                 await unitOfWork.Devices.AddAsync(device, token);
                 created.Add(device);
+            }
+            foreach (var item in items)
+            {
+                var device = deviceByCode[item.DeviceCode];
+                if (!string.IsNullOrWhiteSpace(item.ParentDeviceCode))
+                {
+                    if (deviceByCode.TryGetValue(item.ParentDeviceCode, out var pendingParent)) device.ParentDeviceId = pendingParent.Id;
+                    else
+                    {
+                        var parent = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == item.ParentDeviceCode, token)
+                            ?? throw new UseCaseException(FailureKind.NotFound, "PARENT_DEVICE_NOT_FOUND", "Parent device was not found.");
+                        if (parent.DepartmentId != receipt.RequestingDepartmentId) throw Conflict("DEVICE_PARENT_DEPARTMENT_MISMATCH", "Parent and child must belong to the receipt department.");
+                        device.ParentDeviceId = parent.Id;
+                    }
+                }
                 await unitOfWork.DeviceHistories.AddAsync(new DeviceHistory
                 {
                     RequestId = requestContext.RequestId, ActorAccountId = actor.AccountId, DeviceId = device.Id,
-                    ActionCode = "DEVICE_RECEIVED", Outcome = AuditOutcome.Success, OccurredAt = clock.GetUtcNow(),
+                    ActionCode = "DEVICE_RECEIVED_" + device.DeviceCode, Outcome = AuditOutcome.Success, OccurredAt = clock.GetUtcNow(),
                     ChangedFields = "[\"deviceCode\",\"barcode\",\"name\",\"categoryCode\",\"departmentCode\"]",
                     AfterData = JsonSerializer.Serialize(new { device.DeviceCode, device.Barcode, item.Name, receiptCode = receipt.ReceiptCode, departmentCode })
                 }, token);
@@ -241,7 +258,24 @@ public sealed class DeviceReceiptService(
             item.DeviceCode = code;
             item.DeviceCodeSource = requestedCode is null ? DeviceCodeSource.Generated : existing?.DeviceCodeSource ?? DeviceCodeSource.Manual;
             item.SerialNumber = Clean(input.SerialNumber);
+            item.ParentDeviceCode = string.IsNullOrWhiteSpace(input.ParentDeviceCode) ? null : input.ParentDeviceCode.Trim().ToUpperInvariant();
+            if (item.ParentDeviceCode == code) throw Validation("A device cannot be its own parent.");
             result.Add(item);
+        }
+        var itemCodes = result.Select(x => x.DeviceCode).ToHashSet(StringComparer.Ordinal);
+        foreach (var item in result.Where(x => x.ParentDeviceCode is not null))
+            if (!itemCodes.Contains(item.ParentDeviceCode!) && await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == item.ParentDeviceCode, ct) is null)
+                throw new UseCaseException(FailureKind.NotFound, "PARENT_DEVICE_NOT_FOUND", "Parent device was not found.");
+        var parentsByCode = result.ToDictionary(x => x.DeviceCode, x => x.ParentDeviceCode, StringComparer.Ordinal);
+        foreach (var item in result)
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var cursor = item.DeviceCode;
+            while (parentsByCode.TryGetValue(cursor, out var next) && next is not null)
+            {
+                if (!visited.Add(cursor) || next == item.DeviceCode) throw Conflict("INVALID_DEVICE_PARENT", "Receipt device relationships cannot contain a cycle.");
+                cursor = next;
+            }
         }
         return (supplier, department, result);
     }
@@ -284,7 +318,7 @@ public sealed class DeviceReceiptService(
     {
         var items = await unitOfWork.DeviceReceiptItems.ListForReceiptAsync(read.Id, ct);
         return ToDto(read) with { Items = items.Select(x => new DeviceReceiptItemDto(x.CategoryCode, x.CategoryName, x.Name, x.DeviceCode,
-            x.Barcode, x.DeviceCodeSource.ToString(), x.SerialNumber, x.Completed)).ToArray() };
+            x.Barcode, x.DeviceCodeSource.ToString(), x.SerialNumber, x.Completed, x.ParentDeviceCode)).ToArray() };
     }
 
     private static DeviceReceiptDto ToDto(DeviceReceiptReadModel x)

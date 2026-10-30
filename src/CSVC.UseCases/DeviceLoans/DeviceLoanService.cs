@@ -260,7 +260,13 @@ public sealed class DeviceLoanService(
                 ?? throw new UseCaseException(FailureKind.NotFound, "DEVICE_NOT_FOUND", "A requested device was not found.");
             ValidateDeviceAvailable(device);
             if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(device.Id, ct)) throw Conflict("DEVICE_BUSY", "A requested device is already reserved.");
-            devices.Add(device);
+            foreach (var member in await unitOfWork.Devices.GetSubtreeAsync(device.Id, ct))
+            {
+                if (devices.Any(x => x.Id == member.Id)) continue;
+                ValidateDeviceAvailable(member);
+                if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(member.Id, ct)) throw Conflict("DEVICE_BUSY", "A device in the selected subtree is already reserved.");
+                devices.Add(member);
+            }
         }
         return (purpose, dueAt, devices);
     }

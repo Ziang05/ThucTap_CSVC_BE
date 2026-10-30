@@ -27,6 +27,7 @@ public sealed class DeviceReceiptItemRequest
     [Required, StringLength(200)] public string Name { get; init; } = "";
     [StringLength(32)] public string? DeviceCode { get; init; }
     [StringLength(100)] public string? SerialNumber { get; init; }
+    [StringLength(32)] public string? ParentDeviceCode { get; init; }
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

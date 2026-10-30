@@ -7,6 +7,10 @@ public sealed class DeviceReadModel
 {
     public Guid Id { get; init; }
     public required string DeviceCode { get; init; }
+    public string? ParentDeviceCode { get; init; }
+    public string? ParentDeviceName { get; init; }
+    public bool HasParent { get; init; }
+    public bool IsComponent => HasParent;
     public required string Barcode { get; init; }
     public required string Name { get; init; }
     public required string CategoryCode { get; init; }

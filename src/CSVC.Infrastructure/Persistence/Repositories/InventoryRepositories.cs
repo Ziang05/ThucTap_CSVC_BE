@@ -31,6 +31,8 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
            from profile in profiles.DefaultIfEmpty()
            join manufacturer0 in _context.Manufacturers.AsNoTracking() on device.ManufacturerId equals manufacturer0.Id into manufacturers
            from manufacturer in manufacturers.DefaultIfEmpty()
+           join parent0 in _context.Devices.AsNoTracking() on device.ParentDeviceId equals parent0.Id into parents
+           from parent in parents.DefaultIfEmpty()
            join hold0 in _context.DeviceOperationHolds.AsNoTracking() on device.Id equals hold0.DeviceId into holds
            from hold in holds.DefaultIfEmpty()
            join loan0 in _context.DeviceLoans.AsNoTracking() on hold!.OperationId equals loan0.Id into loans
@@ -38,6 +40,9 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
            select new DeviceReadModel
            {
                Id = device.Id, DeviceCode = device.DeviceCode, Barcode = device.Barcode, Name = device.Name,
+               ParentDeviceCode = parent == null || parent.DepartmentId != device.DepartmentId ? null : parent.DeviceCode,
+               ParentDeviceName = parent == null || parent.DepartmentId != device.DepartmentId ? null : parent.Name,
+               HasParent = device.ParentDeviceId != null,
                CategoryCode = category.DisplayCode, CategoryName = category.Name,
                DepartmentCode = department.Code, DepartmentName = department.Name, AreaCode = area == null ? null : area.Code,
                Status = device.Status, Condition = device.Condition,
@@ -55,6 +60,11 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
     public async Task<PagedResult<DeviceReadModel>> ListAsync(DeviceListQuery query, Guid? departmentScope, CancellationToken ct = default)
     {
         var source = ReadModels();
+        if (!string.IsNullOrWhiteSpace(query.ParentDeviceCode))
+        {
+            var parentCode = query.ParentDeviceCode.Trim().ToUpperInvariant();
+            source = source.Where(x => _context.Devices.Any(d => d.Id == x.Id && _context.Devices.Any(p => p.Id == d.ParentDeviceId && p.DeviceCode == parentCode)));
+        }
         if (departmentScope is { } departmentId) source = source.Where(x => _context.Devices.Any(d => d.Id == x.Id && d.DepartmentId == departmentId));
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
@@ -115,6 +125,30 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
 
     public Task<int> CountByManufacturerAsync(Guid manufacturerId, CancellationToken ct = default)
         => _context.Devices.CountAsync(x => x.ManufacturerId == manufacturerId, ct);
+
+    public async Task<IReadOnlyList<Device>> GetSubtreeAsync(Guid rootId, CancellationToken ct = default)
+        => await _context.Devices.FromSqlInterpolated($"""
+            WITH RECURSIVE device_tree AS (
+                SELECT id, parent_device_id FROM devices WHERE id = {rootId}
+                UNION
+                SELECT child.id, child.parent_device_id
+                FROM devices child JOIN device_tree tree ON child.parent_device_id = tree.id
+            ) SELECT d.* FROM devices d JOIN device_tree t ON t.id = d.id ORDER BY d.id
+            """).AsNoTracking().ToListAsync(ct);
+
+    public async Task<bool> WouldCreateParentCycleAsync(Guid childId, Guid parentId, CancellationToken ct = default)
+        => await _context.Devices.FromSqlInterpolated($"""
+            WITH RECURSIVE descendants AS (
+                SELECT id FROM devices WHERE parent_device_id = {childId}
+                UNION SELECT d.id FROM devices d JOIN descendants x ON d.parent_device_id = x.id
+            ) SELECT d.* FROM devices d JOIN descendants x ON x.id = d.id WHERE d.id = {parentId} LIMIT 1
+            """).AnyAsync(ct);
+
+    public async Task<bool> HasPendingWorkflowAsync(Guid deviceId, CancellationToken ct = default)
+    {
+        if (await _context.DeviceTransferItems.AnyAsync(i => i.DeviceId == deviceId && _context.DeviceTransfers.Any(t => t.Id == i.TransferId && t.Status == DeviceTransferStatus.PendingApproval), ct)) return true;
+        return await _context.DeviceLoanItems.AnyAsync(i => i.DeviceId == deviceId && _context.DeviceLoans.Any(l => l.Id == i.LoanId && l.Status == DeviceLoanStatus.PendingApproval), ct);
+    }
 
     public async Task<int> CountByAreaAsync(Guid areaId, bool includeDescendants, CancellationToken ct = default)
     {
@@ -283,7 +317,7 @@ public sealed class DeviceReceiptItemRepository(CsvcDbContext context) : Generic
                   {
                       Id = item.Id, CategoryCode = category.DisplayCode, CategoryName = category.Name, Name = item.Name,
                       DeviceCode = item.DeviceCode, Barcode = item.Barcode, DeviceCodeSource = item.DeviceCodeSource,
-                      SerialNumber = item.SerialNumber, Completed = item.DeviceId != null
+                      SerialNumber = item.SerialNumber, Completed = item.DeviceId != null, ParentDeviceCode = item.ParentDeviceCode
                   }).ToListAsync(ct);
 }
 public sealed class DeviceReceiptHistoryRepository(CsvcDbContext context) : GenericRepository<DeviceReceiptHistory>(context), IDeviceReceiptHistoryRepository

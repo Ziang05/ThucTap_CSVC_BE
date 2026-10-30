@@ -73,3 +73,6 @@ Create/detail response gồm `receiptCode`, nhà cung cấp, phòng ban yêu c�
 | 409 | `DEVICE_OPERATION_CONFLICT` / `DEVICE_REFERENCE_CHANGED` | Unique/FK conflict khác |
 
 Audit actions: `RECEIPT_CREATED`, `RECEIPT_UPDATED`, `RECEIPT_APPROVED`, `RECEIPT_REJECTED`, `RECEIPT_CANCELLED`, `RECEIPT_COMPLETED`; completion còn ghi `DEVICE_RECEIVED` cho từng device. Audit và nghiệp vụ cùng transaction; lỗi audit rollback toàn bộ thao tác.
+# Quan hệ cha–con khi nhập kho
+
+Receipt item hỗ trợ `parentDeviceCode` tùy chọn. Mã này có thể trỏ tới thiết bị đã tồn tại hoặc item khác trong cùng receipt. Khi hoàn tất phiếu, backend tạo device records và liên kết cha–con trong cùng transaction. Thiết bị mới trong cùng phiếu không được tạo quan hệ vòng.

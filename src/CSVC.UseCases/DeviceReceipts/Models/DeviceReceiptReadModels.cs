@@ -39,6 +39,7 @@ public sealed class DeviceReceiptItemReadModel
     public required string Barcode { get; init; }
     public DeviceCodeSource DeviceCodeSource { get; init; }
     public string? SerialNumber { get; init; }
+    public string? ParentDeviceCode { get; init; }
     public bool Completed { get; init; }
 }
 

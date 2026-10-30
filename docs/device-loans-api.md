@@ -70,3 +70,6 @@ Response list/detail dùng `loanCode`, borrower account code/name, department co
 | 409 | `DEVICE_OPERATION_CONFLICT` / `DEVICE_REFERENCE_CHANGED` | Unique/FK conflict khác |
 
 Audit actions: `LOAN_CREATED`, `LOAN_UPDATED`, `LOAN_CANCELLED`, `LOAN_APPROVED`, `LOAN_REJECTED`, `LOAN_HANDED_OVER`, `LOAN_RETURNED`. Audit, device condition, loan items/status và hold được lưu nguyên tử trong inventory transaction. Department Staff chỉ xem history metadata cơ bản; snapshot chỉ dành cho QTTB.
+# Mượn thiết bị có thành phần
+
+Khi tạo/sửa phiếu mượn, backend mở rộng mỗi device code đã chọn thành thiết bị đó và toàn bộ hậu duệ, loại trùng các nhánh chồng nhau rồi lưu từng item vào phiếu. Giao và trả tiếp tục yêu cầu đầy đủ item của phiếu; tình trạng ghi nhận riêng từng thiết bị.

@@ -42,5 +42,6 @@ public sealed class DeviceReceiptItem
     public required string Barcode { get; set; }
     public CSVC.Core.Devices.DeviceCodeSource DeviceCodeSource { get; set; }
     public string? SerialNumber { get; set; }
+    public string? ParentDeviceCode { get; set; }
     public Guid? DeviceId { get; set; }
 }

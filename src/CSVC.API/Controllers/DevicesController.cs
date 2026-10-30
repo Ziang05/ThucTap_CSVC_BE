@@ -15,6 +15,14 @@ public sealed class DevicesController(IDeviceService devices) : AuthenticatedApi
     public async Task<ActionResult<PagedResult<DeviceDto>>> List([FromQuery] DeviceListQuery query, CancellationToken cancellationToken)
         => Ok(await devices.ListAsync(query, cancellationToken));
 
+    [HttpGet("{deviceCode}/children")]
+    [ProducesResponseType<PagedResult<DeviceDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<DeviceDto>>> Children(string deviceCode, [FromQuery] DeviceListQuery query, CancellationToken cancellationToken)
+    {
+        query.ParentDeviceCode = deviceCode;
+        return Ok(await devices.ListAsync(query, cancellationToken));
+    }
+
     [HttpGet("by-barcode/{barcode}")]
     [ProducesResponseType<DeviceDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<DeviceDto>> GetByBarcode(string barcode, CancellationToken cancellationToken)
@@ -38,6 +46,14 @@ public sealed class DevicesController(IDeviceService devices) : AuthenticatedApi
     public async Task<IActionResult> Update(string deviceCode, UpdateDeviceRequest request, CancellationToken cancellationToken)
     {
         await devices.UpdateAsync(deviceCode, request, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPut("{deviceCode}/parent")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> SetParent(string deviceCode, DeviceParentUpdateRequest request, CancellationToken cancellationToken)
+    {
+        await devices.SetParentAsync(deviceCode, request.ParentDeviceCode, cancellationToken);
         return NoContent();
     }
 
