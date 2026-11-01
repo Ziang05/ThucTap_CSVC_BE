@@ -49,3 +49,5 @@ Chuỗi kết nối trên dùng cấu hình mẫu; điều chỉnh cho khớp v�
 Swagger vẫn tại **http://localhost:8080/swagger**. Nhấn `Ctrl+C` để dừng API.
 
 Quy ước cho team: [CONTRIBUTING.md](CONTRIBUTING.md). Chi tiết kiến trúc: [docs/architecture.md](docs/architecture.md).
+
+- [API bảo trì, sửa chữa và phiếu xuất](docs/service-orders-and-exports-api.md)
