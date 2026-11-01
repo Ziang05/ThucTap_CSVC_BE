@@ -123,7 +123,7 @@ public sealed class DedicatedRepositoryTests
     }
 
     [Fact]
-    public async Task PostgreSql_model_generates_schema_for_all_eighteen_dbml_tables_and_native_enum_labels()
+    public async Task PostgreSql_model_generates_schema_for_catalog_inventory_service_and_export_tables()
     {
         var services = new ServiceCollection();
         services.AddInfrastructure(CreateConfiguration());
@@ -132,7 +132,9 @@ public sealed class DedicatedRepositoryTests
         var context = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
         var script = context.Database.GenerateCreateScript();
 
-        Assert.Equal(18, context.Model.GetEntityTypes().Count());
+        Assert.Equal(38, context.Model.GetEntityTypes().Count());
+        foreach (var table in new[] { "service_orders", "service_order_items", "repair_item_details", "export_slips", "export_slip_items", "service_order_history", "export_history" })
+            Assert.Contains($"CREATE TABLE {table}", script);
         Assert.Contains("CREATE TYPE entity_status AS ENUM ('ACTIVE', 'LOCKED')", script);
         Assert.Contains("'NO_CHANGE'", script);
         Assert.Contains("before_data jsonb", script);

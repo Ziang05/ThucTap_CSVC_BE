@@ -1,3 +1,4 @@
+using CSVC.Core.ServiceOrders;
 using CSVC.Core.Accounts;
 using CSVC.Core.Areas;
 using CSVC.Core.Authentication;
@@ -66,6 +67,14 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
     public DbSet<DeviceTransfer> DeviceTransfers => Set<DeviceTransfer>();
     public DbSet<DeviceTransferItem> DeviceTransferItems => Set<DeviceTransferItem>();
     public DbSet<DeviceTransferHistory> DeviceTransferHistories => Set<DeviceTransferHistory>();
+
+    public DbSet<ServiceOrder> ServiceOrders => Set<ServiceOrder>();
+    public DbSet<ServiceOrderItem> ServiceOrderItems => Set<ServiceOrderItem>();
+    public DbSet<RepairItemDetail> RepairItemDetails => Set<RepairItemDetail>();
+    public DbSet<ExportSlip> ExportSlips => Set<ExportSlip>();
+    public DbSet<ExportSlipItem> ExportSlipItems => Set<ExportSlipItem>();
+    public DbSet<ServiceOrderHistory> ServiceOrderHistories => Set<ServiceOrderHistory>();
+    public DbSet<ExportHistory> ExportHistories => Set<ExportHistory>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {

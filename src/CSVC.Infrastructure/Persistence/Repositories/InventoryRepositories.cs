@@ -146,6 +146,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
 
     public async Task<bool> HasPendingWorkflowAsync(Guid deviceId, CancellationToken ct = default)
     {
+        if (await _context.ServiceOrderItems.AnyAsync(i => i.DeviceId == deviceId && _context.ServiceOrders.Any(o => o.Id == i.ServiceOrderId && o.Status == CSVC.Core.ServiceOrders.ServiceWorkflowStatus.PendingApproval), ct)) return true;
         if (await _context.DeviceTransferItems.AnyAsync(i => i.DeviceId == deviceId && _context.DeviceTransfers.Any(t => t.Id == i.TransferId && t.Status == DeviceTransferStatus.PendingApproval), ct)) return true;
         return await _context.DeviceLoanItems.AnyAsync(i => i.DeviceId == deviceId && _context.DeviceLoans.Any(l => l.Id == i.LoanId && l.Status == DeviceLoanStatus.PendingApproval), ct);
     }
