@@ -2,6 +2,7 @@ using CSVC.Core.Devices;
 using CSVC.UseCases.Abstractions.Persistence;
 using CSVC.UseCases.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 
 namespace CSVC.Infrastructure.Persistence;
@@ -13,7 +14,7 @@ public sealed class InventoryTransaction(CsvcDbContext context) : IInventoryTran
 
     public async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await BeginAsync(cancellationToken);
         try
         {
             await context.Database.ExecuteSqlInterpolatedAsync(
@@ -27,7 +28,8 @@ public sealed class InventoryTransaction(CsvcDbContext context) : IInventoryTran
         }
         catch (Exception exception)
         {
-            await transaction.RollbackAsync(CancellationToken.None);
+            try { await transaction.RollbackAsync(CancellationToken.None); }
+            catch (NpgsqlException) { /* The disconnected transaction is disposed below. */ }
             context.ChangeTracker.Clear();
             if (exception is DbUpdateException { InnerException: PostgresException postgres })
             {
@@ -46,7 +48,20 @@ public sealed class InventoryTransaction(CsvcDbContext context) : IInventoryTran
                 if (postgres.SqlState == PostgresErrorCodes.ForeignKeyViolation)
                     throw new UseCaseException(FailureKind.Conflict, "DEVICE_REFERENCE_CHANGED", "Related data changed. Reload and retry.");
             }
+            if (exception is DbUpdateConcurrencyException)
+                throw new UseCaseException(FailureKind.Conflict, "VERSION_CONFLICT", "Related data changed. Reload and retry.");
+            if (exception is NpgsqlException or DbUpdateException or TimeoutException)
+                throw new UseCaseException(FailureKind.Unavailable, "DEVICE_WORKFLOW_UNAVAILABLE", "The device workflow is temporarily unavailable.");
             throw;
+        }
+    }
+
+    private async Task<IDbContextTransaction> BeginAsync(CancellationToken ct)
+    {
+        try { return await context.Database.BeginTransactionAsync(ct); }
+        catch (Exception exception) when (exception is NpgsqlException or TimeoutException)
+        {
+            throw new UseCaseException(FailureKind.Unavailable, "DEVICE_WORKFLOW_UNAVAILABLE", "The device workflow is temporarily unavailable.");
         }
     }
 
