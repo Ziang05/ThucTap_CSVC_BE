@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddScoped<DeviceReceipts.IDeviceReceiptService, DeviceReceipts.DeviceReceiptService>();
         services.AddScoped<DeviceLoans.IDeviceLoanService, DeviceLoans.DeviceLoanService>();
         services.AddScoped<DeviceTransfers.IDeviceTransferService, DeviceTransfers.DeviceTransferService>();
+        services.AddScoped<ServiceOrders.IServiceOrderService, ServiceOrders.ServiceOrderService>();
         services.AddScoped<History.IHistoryService, History.HistoryService>();
         services.AddScoped<IAccountAuthenticationService, AccountAuthenticationService>();
         services.AddScoped<ISessionLifecycle, SessionLifecycle>();
