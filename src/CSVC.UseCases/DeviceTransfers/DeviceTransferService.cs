@@ -302,13 +302,14 @@ public sealed class DeviceTransferService(
         var account = await FindByCodeAsync(unitOfWork.Accounts, accountCode, x => x.AccountCode, "HANDOVER_ACCOUNT_NOT_FOUND", ct);
         var profile = await unitOfWork.UserProfiles.GetByIdAsync(account.UserProfileId, ct);
         var role = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
-        if (account.IsLock || profile?.DepartmentId != departmentId || role?.Code != RoleCodes.DepartmentStaff)
-            throw Validation("Handover accounts must be active Department Staff members of their respective departments.");
+        if (account.IsLock || profile?.DepartmentId != departmentId || !RoleCodes.CanActAsDepartmentStaff(role?.Code))
+            throw Validation("Handover accounts must be active department or equipment staff members of their respective departments.");
         return account;
     }
 
     private static void ValidateTransferDevice(Device device, Guid sourceDepartmentId)
     {
+        if (device.Quantity != 1) throw Conflict("DEVICE_NOT_RECEIVED", "The device has not been received yet.");
         if (device.DepartmentId != sourceDepartmentId) throw Conflict("DEVICE_NOT_IN_SOURCE_DEPARTMENT", "Every device must still belong to the source department.");
         if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "A locked device cannot be transferred.");
         if (device.Condition != DeviceCondition.Good) throw Conflict("DEVICE_NOT_AVAILABLE", "A damaged or missing device cannot be transferred.");
@@ -329,7 +330,7 @@ public sealed class DeviceTransferService(
     private async Task<Actor> RequireDepartmentStaffAsync(CancellationToken ct)
     {
         var actor = await RequireActorAsync(ct);
-        if (actor.RoleCode != RoleCodes.DepartmentStaff) throw Forbidden("Only department staff may perform this action.");
+        if (!RoleCodes.CanActAsDepartmentStaff(actor.RoleCode)) throw Forbidden("Only department or equipment staff may perform this action.");
         return actor;
     }
 

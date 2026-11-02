@@ -299,6 +299,7 @@ public sealed class ServiceOrderService(
 
     private async Task ValidateDeviceAsync(Device device, ServiceOrderType type, CancellationToken ct)
     {
+        if (device.Quantity != 1) throw Conflict("DEVICE_NOT_RECEIVED", "The device has not been received yet.");
         if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "The device is locked.");
         if (device.Condition == DeviceCondition.Missing || (type == ServiceOrderType.Maintenance && device.Condition != DeviceCondition.Good))
             throw Conflict("DEVICE_NOT_AVAILABLE", "The device condition is incompatible with this service order.");

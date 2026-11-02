@@ -13,6 +13,7 @@ public sealed class DeviceReadModel
     public bool IsComponent => HasParent;
     public required string Barcode { get; init; }
     public required string Name { get; init; }
+    public int Quantity { get; init; }
     public required string CategoryCode { get; init; }
     public required string CategoryName { get; init; }
     public required string DepartmentCode { get; init; }

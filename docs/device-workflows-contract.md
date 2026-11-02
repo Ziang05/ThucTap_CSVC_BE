@@ -4,6 +4,17 @@ Trạng thái: **Phase 0 hoàn tất; contract baseline cho implementation**. T�
 
 ## 1. Quy ước chung
 
+### Bổ sung ngày 2026-11-02: tiếp nhận từng thiết bị
+
+Quy tắc này ưu tiên các mô tả cũ về tạo thiết bị tại các mục dưới:
+
+- Device có `quantity` chỉ bằng 0 hoặc 1, trả trong list/detail/barcode. Tạo ngoài receipt luôn bằng 0; hoàn tất tiếp nhận mới bằng 1. Không cho client sửa số lượng, không cho nhập lại mã đã có số lượng 1.
+- Receipt item hỗ trợ `existingDeviceCode` để chọn hồ sơ số lượng 0 có sẵn, cùng phòng ban và Active; backend giữ nguyên identity và metadata. Item mới vẫn khai báo `categoryCode`, `name`, `deviceCode`/serial/parent tùy chọn ngay trong phiếu. Có thể kết hợp hai kiểu item trong cùng phiếu.
+- Thiết bị có sẵn được liên kết khi complete; thiết bị mới được tạo khi complete. Duyệt/chờ duyệt/hủy/từ chối không tăng số lượng. Audit và thay đổi số lượng cùng transaction.
+- Phiếu hủy/từ chối không ngăn chọn lại hồ sơ có sẵn trên phiếu khác. Approval hold và kiểm tra quantity bảo vệ khỏi nhập trùng giữa các phiếu.
+- Device `availability` thêm `NotReceived`; `Available` yêu cầu quantity=1. Mượn/điều chuyển/bảo trì/sửa chữa chặn quantity=0 với `DEVICE_NOT_RECEIVED`.
+- API chi tiết và payload: [devices-api.md](devices-api.md), [device-receipts-api.md](device-receipts-api.md).
+
 - Base path: `/api/v1`; JSON camelCase; enum response dạng PascalCase string như `PendingApproval`, `Active`, `Good`.
 - Endpoint cần xác thực dùng session bearer hiện có. Actor luôn lấy từ `ICurrentAccount`; không nhận `actorAccountId`, role hoặc quyền từ payload.
 - PK/FK là UUID nội bộ. API dùng `deviceCode`, `barcode`, `receiptCode`, `loanCode`, `transferCode`, `categoryCode`, `supplierCode`, `departmentCode`.
@@ -87,6 +98,8 @@ Loan có một borrower nội bộ; không gia hạn và không trả từng ph�
 Source và target phải khác nhau. Mỗi device phải đang do source department quản lý khi tạo và vẫn vậy khi duyệt/hoàn tất. Transfer completion đổi department và người chịu trách nhiệm tài sản sang target; loan không đổi hai thuộc tính này.
 
 ## 4. Role và phạm vi dữ liệu
+
+Bổ sung: `QTTB_STAFF` giữ toàn bộ quyền QTTB hiện có và đồng thời được thực hiện các workflow của `DEPARTMENT_STAFF` theo phòng ban hiện tại của mình (tạo/sửa/hủy phiếu mượn và điều chuyển, nhận/trả, tham gia bàn giao ở bên giao hoặc bên nhận). Quyền đọc/duyệt toàn cục không thay thế kiểm tra creator, phòng ban hoặc người tham gia khi thực hiện các thao tác này. `QTTB_MANAGER` không được mở rộng quyền theo bổ sung này. Quy tắc này ưu tiên các ô quyền cũ trong bảng bên dưới.
 
 | Hành động | QTTB Manager | QTTB Staff | Department Staff |
 |---|---:|---:|---:|

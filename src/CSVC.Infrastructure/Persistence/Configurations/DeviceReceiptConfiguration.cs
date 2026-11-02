@@ -69,8 +69,8 @@ public sealed class DeviceReceiptItemConfiguration : IEntityTypeConfiguration<De
         builder.Property(x => x.SerialNumber).HasColumnName("serial_number").HasColumnType("varchar(100)").HasMaxLength(100);
         builder.Property(x => x.ParentDeviceCode).HasColumnName("parent_device_code").HasColumnType("varchar(32)").HasMaxLength(32);
         builder.Property(x => x.DeviceId).HasColumnName("device_id").HasColumnType("uuid");
-        builder.HasIndex(x => x.DeviceCode).IsUnique().HasDatabaseName("uq_device_receipt_items_device_code");
-        builder.HasIndex(x => x.Barcode).IsUnique().HasDatabaseName("uq_device_receipt_items_barcode");
+        builder.HasIndex(x => new { x.ReceiptId, x.DeviceCode }).IsUnique().HasDatabaseName("uq_device_receipt_items_receipt_device_code");
+        builder.HasIndex(x => new { x.ReceiptId, x.Barcode }).IsUnique().HasDatabaseName("uq_device_receipt_items_receipt_barcode");
         builder.HasIndex(x => x.DeviceId).IsUnique().HasDatabaseName("uq_device_receipt_items_device_id");
         builder.HasOne<DeviceCategory>().WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<DeviceIdentity>().WithMany().HasForeignKey(x => x.DeviceCode).HasPrincipalKey(x => x.DeviceCode).OnDelete(DeleteBehavior.Restrict);

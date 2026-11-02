@@ -8,6 +8,7 @@ public sealed class Device
     public required string DeviceCode { get; set; }
     public required string Barcode { get; set; }
     public required string Name { get; set; }
+    public int Quantity { get; set; }
     public Guid CategoryId { get; set; }
     public Guid? ManufacturerId { get; set; }
     public string? Model { get; set; }

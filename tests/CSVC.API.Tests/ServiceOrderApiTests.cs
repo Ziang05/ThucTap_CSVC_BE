@@ -416,7 +416,7 @@ public sealed class ServiceOrderApiTests
                         context.Add(new DeviceIdentity { DeviceCode = "TB_SERVICE_" + n, Barcode = "BC_SERVICE_" + n, ReservedAt = host.Clock.GetUtcNow() });
                         context.Add(new Device
                     {
-                        DeviceCode = "TB_SERVICE_" + n, Barcode = "BC_SERVICE_" + n, Name = "Device " + n,
+                        DeviceCode = "TB_SERVICE_" + n, Barcode = "BC_SERVICE_" + n, Name = "Device " + n, Quantity = 1,
                         CategoryId = category.Id, DepartmentId = seed.Department, ResponsibleAccountId = seed.Staff
                     });
                     }

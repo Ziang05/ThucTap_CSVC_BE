@@ -4,7 +4,8 @@ using CSVC.UseCases.Common;
 namespace CSVC.UseCases.DeviceReceipts.DTOs;
 
 public sealed record DeviceReceiptItemDto(string CategoryCode, string CategoryName, string Name, string DeviceCode,
-    string Barcode, string DeviceCodeSource, string? SerialNumber, bool Completed, string? ParentDeviceCode = null);
+    string Barcode, string DeviceCodeSource, string? SerialNumber, bool Completed, string? ParentDeviceCode = null,
+    string? ExistingDeviceCode = null);
 
 public sealed record DeviceReceiptDto(string ReceiptCode, string SupplierCode, string SupplierName, string? CarrierName,
     string? RequestCode, DateOnly DeliveryDate, string DeliveryBatch, string RequestingDepartmentCode,

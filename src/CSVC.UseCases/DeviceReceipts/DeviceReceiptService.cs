@@ -55,8 +55,7 @@ public sealed class DeviceReceiptService(
                 CreatorAccountId = actor.AccountId, CreatedAt = clock.GetUtcNow(), Status = DeviceReceiptStatus.PendingApproval,
                 Notes = Clean(request.Notes), Items = items
             };
-            foreach (var item in items)
-                await unitOfWork.DeviceIdentities.AddAsync(new DeviceIdentity { DeviceCode = item.DeviceCode, Barcode = item.Barcode, ReservedAt = clock.GetUtcNow() }, token);
+            await ReserveIdentitiesAsync(items, token);
             await unitOfWork.DeviceReceipts.AddAsync(receipt, token);
             await ReceiptAuditAsync(receipt, actor.AccountId, "RECEIPT_CREATED", ["header", "items"], null, Snapshot(receipt, supplier.DisplayCode, department.Code, items), token);
             await unitOfWork.CommitAsync(token);
@@ -83,8 +82,7 @@ public sealed class DeviceReceiptService(
                 item.ReceiptId = receipt.Id;
                 if (!oldItems.Any(old => old.Id == item.Id)) await unitOfWork.DeviceReceiptItems.AddAsync(item, token);
             }
-            foreach (var item in items.Where(item => !oldItems.Any(old => old.Id == item.Id)))
-                await unitOfWork.DeviceIdentities.AddAsync(new DeviceIdentity { DeviceCode = item.DeviceCode, Barcode = item.Barcode, ReservedAt = clock.GetUtcNow() }, token);
+            await ReserveIdentitiesAsync(items, token);
             receipt.SupplierId = supplier.Id;
             receipt.CarrierName = Clean(request.CarrierName);
             receipt.RequestCode = Clean(request.RequestCode);
@@ -113,9 +111,11 @@ public sealed class DeviceReceiptService(
             {
                 foreach (var item in items)
                 {
+                    var device = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == item.DeviceCode, token);
+                    if (device is not null) RequireReceivable(device, receipt.RequestingDepartmentId);
                     var acquired = await unitOfWork.DeviceOperationHolds.TryAcquireAsync(new DeviceOperationHold
                     {
-                        DeviceCode = item.DeviceCode, OperationKind = DeviceOperationKind.Receipt,
+                        DeviceCode = item.DeviceCode, DeviceId = device?.Id, OperationKind = DeviceOperationKind.Receipt,
                         OperationId = receipt.Id, HeldAt = clock.GetUtcNow()
                     }, token);
                     if (!acquired) throw Conflict("DEVICE_BUSY", "An item is already held by another operation.");
@@ -148,24 +148,39 @@ public sealed class DeviceReceiptService(
             var created = new List<Device>();
             var departmentCode = await DepartmentCodeAsync(receipt.RequestingDepartmentId, token);
             var deviceByCode = new Dictionary<string, Device>(StringComparer.Ordinal);
+            var linkedCodes = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in items)
             {
-                var device = new Device
+                if (!await unitOfWork.DeviceOperationHolds.IsOwnedByAsync(item.DeviceCode, DeviceOperationKind.Receipt, receipt.Id, token))
+                    throw Conflict("DEVICE_BUSY", "The receipt no longer owns its device reservation.");
+                var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == item.DeviceCode, token);
+                if (device is not null)
                 {
-                    Id = Guid.NewGuid(), DeviceCode = item.DeviceCode, Barcode = item.Barcode, Name = item.Name,
-                    CategoryId = item.CategoryId, SerialNumber = item.SerialNumber,
-                    DepartmentId = receipt.RequestingDepartmentId, Status = EntityStatus.Active, Condition = DeviceCondition.Good
-                };
+                    await transaction.LockDevicesAsync([device.Id], token);
+                    RequireReceivable(device, receipt.RequestingDepartmentId);
+                    linkedCodes.Add(device.DeviceCode);
+                    device.Quantity = 1;
+                    unitOfWork.Devices.Update(device);
+                }
+                else
+                {
+                    device = new Device
+                    {
+                        Id = Guid.NewGuid(), DeviceCode = item.DeviceCode, Barcode = item.Barcode, Name = item.Name,
+                        CategoryId = item.CategoryId, SerialNumber = item.SerialNumber, Quantity = 1,
+                        DepartmentId = receipt.RequestingDepartmentId, Status = EntityStatus.Active, Condition = DeviceCondition.Good
+                    };
+                    await unitOfWork.Devices.AddAsync(device, token);
+                }
                 deviceByCode.Add(device.DeviceCode, device);
                 item.DeviceId = device.Id;
                 unitOfWork.DeviceReceiptItems.Update(item);
-                await unitOfWork.Devices.AddAsync(device, token);
                 created.Add(device);
             }
             foreach (var item in items)
             {
                 var device = deviceByCode[item.DeviceCode];
-                if (!string.IsNullOrWhiteSpace(item.ParentDeviceCode))
+                if (!linkedCodes.Contains(item.DeviceCode) && !string.IsNullOrWhiteSpace(item.ParentDeviceCode))
                 {
                     if (deviceByCode.TryGetValue(item.ParentDeviceCode, out var pendingParent)) device.ParentDeviceId = pendingParent.Id;
                     else
@@ -180,8 +195,9 @@ public sealed class DeviceReceiptService(
                 {
                     RequestId = requestContext.RequestId, ActorAccountId = actor.AccountId, DeviceId = device.Id,
                     ActionCode = "DEVICE_RECEIVED_" + device.DeviceCode, Outcome = AuditOutcome.Success, OccurredAt = clock.GetUtcNow(),
-                    ChangedFields = "[\"deviceCode\",\"barcode\",\"name\",\"categoryCode\",\"departmentCode\"]",
-                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, device.Barcode, item.Name, receiptCode = receipt.ReceiptCode, departmentCode })
+                    ChangedFields = "[\"deviceCode\",\"barcode\",\"name\",\"categoryCode\",\"departmentCode\",\"quantity\"]",
+                    BeforeData = JsonSerializer.Serialize(new { quantity = 0 }),
+                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, device.Barcode, device.Name, quantity = device.Quantity, receiptCode = receipt.ReceiptCode, departmentCode })
                 }, token);
                 var released = await unitOfWork.DeviceOperationHolds.ReleaseAsync(item.DeviceCode, DeviceOperationKind.Receipt, receipt.Id, token);
                 if (!released) throw Conflict("DEVICE_BUSY", "The receipt no longer owns its device reservation.");
@@ -239,26 +255,45 @@ public sealed class DeviceReceiptService(
         foreach (var input in request.Items)
         {
             if (input is null) throw Validation("Receipt items cannot contain null values.");
-            if (string.IsNullOrWhiteSpace(input.CategoryCode) || string.IsNullOrWhiteSpace(input.Name))
-                throw Validation("Every item requires categoryCode and name.");
-            var category = await FindByCodeAsync(unitOfWork.DeviceCategories, input.CategoryCode, x => x.DisplayCode, "DEVICE_CATEGORY_NOT_FOUND", ct);
-            if (category.Status != EntityStatus.Active) throw Conflict("DEVICE_CATEGORY_UNAVAILABLE", "A selected category is locked.");
-            var name = TextNormalization.Name(input.Name ?? "");
-            if (name.Length == 0) throw Validation("Device name is required.");
-            var requestedCode = string.IsNullOrWhiteSpace(input.DeviceCode) ? null : input.DeviceCode.Trim().ToUpperInvariant();
+            Validate(input);
+            if (!string.IsNullOrWhiteSpace(input.ExistingDeviceCode) && !string.IsNullOrWhiteSpace(input.DeviceCode))
+                throw Validation("Use existingDeviceCode to select a device or deviceCode to declare a new one.");
+            var selectedCode = string.IsNullOrWhiteSpace(input.ExistingDeviceCode) ? input.DeviceCode : input.ExistingDeviceCode;
+            var requestedCode = string.IsNullOrWhiteSpace(selectedCode) ? null : selectedCode.Trim().ToUpperInvariant();
             var code = requestedCode ?? BusinessCode.NewRandom("TB");
             if (code.Length > 32 || !DeviceCodePattern.IsMatch(code)) throw Validation("Device code format is invalid.");
             if (!codes.Add(code)) throw Conflict("DEVICE_CODE_CONFLICT", "The receipt contains a duplicate device code.");
             var existing = existingItems.FirstOrDefault(x => x.DeviceCode == code);
-            if (existing is null && await unitOfWork.DeviceIdentities.ExistsAsync(x => x.DeviceCode == code, ct))
+            var device = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == code, ct);
+            if (!string.IsNullOrWhiteSpace(input.ExistingDeviceCode) && device is null)
+                throw new UseCaseException(FailureKind.NotFound, "DEVICE_NOT_FOUND", "The selected device was not found.");
+            if (device is not null) RequireReceivable(device, department.Id);
+            if (existing is null && device is null && await unitOfWork.DeviceIdentities.ExistsAsync(x => x.DeviceCode == code, ct))
                 throw Conflict("DEVICE_CODE_CONFLICT", "The device code has already been reserved.");
-            var item = existing ?? new DeviceReceiptItem { DeviceCode = code, Barcode = BusinessCode.NewRandom("BC"), Name = name };
+            if (device is null && (string.IsNullOrWhiteSpace(input.CategoryCode) || string.IsNullOrWhiteSpace(input.Name)))
+                throw Validation("New devices require categoryCode and name.");
+            var category = device is null
+                ? await FindByCodeAsync(unitOfWork.DeviceCategories, input.CategoryCode!, x => x.DisplayCode, "DEVICE_CATEGORY_NOT_FOUND", ct)
+                : await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, ct)
+                    ?? throw new UseCaseException(FailureKind.NotFound, "DEVICE_CATEGORY_NOT_FOUND", "The selected category was not found.");
+            if (category.Status != EntityStatus.Active) throw Conflict("DEVICE_CATEGORY_UNAVAILABLE", "A selected category is locked.");
+            var name = device?.Name ?? TextNormalization.Name(input.Name!);
+            if (name.Length == 0) throw Validation("Device name is required.");
+            var parentCode = device?.ParentDeviceId is { } parentId
+                ? (await unitOfWork.Devices.GetByIdAsync(parentId, ct))?.DeviceCode : null;
+            if (device is not null && (
+                !string.IsNullOrWhiteSpace(input.CategoryCode) && !string.Equals(input.CategoryCode.Trim(), category.DisplayCode, StringComparison.OrdinalIgnoreCase)
+                || !string.IsNullOrWhiteSpace(input.Name) && TextNormalization.Name(input.Name) != device.Name
+                || !string.IsNullOrWhiteSpace(input.SerialNumber) && Clean(input.SerialNumber) != device.SerialNumber
+                || !string.IsNullOrWhiteSpace(input.ParentDeviceCode) && !string.Equals(input.ParentDeviceCode.Trim(), parentCode, StringComparison.OrdinalIgnoreCase)))
+                throw Validation("Existing device metadata must be edited on the device record before receipt.");
+            var item = existing ?? new DeviceReceiptItem { DeviceCode = code, Barcode = device?.Barcode ?? BusinessCode.NewRandom("BC"), Name = name };
             item.CategoryId = category.Id;
             item.Name = name;
             item.DeviceCode = code;
             item.DeviceCodeSource = requestedCode is null ? DeviceCodeSource.Generated : existing?.DeviceCodeSource ?? DeviceCodeSource.Manual;
-            item.SerialNumber = Clean(input.SerialNumber);
-            item.ParentDeviceCode = string.IsNullOrWhiteSpace(input.ParentDeviceCode) ? null : input.ParentDeviceCode.Trim().ToUpperInvariant();
+            item.SerialNumber = device?.SerialNumber ?? Clean(input.SerialNumber);
+            item.ParentDeviceCode = device is not null ? parentCode : string.IsNullOrWhiteSpace(input.ParentDeviceCode) ? null : input.ParentDeviceCode.Trim().ToUpperInvariant();
             if (item.ParentDeviceCode == code) throw Validation("A device cannot be its own parent.");
             result.Add(item);
         }
@@ -278,6 +313,22 @@ public sealed class DeviceReceiptService(
             }
         }
         return (supplier, department, result);
+    }
+
+    private async Task ReserveIdentitiesAsync(IEnumerable<DeviceReceiptItem> items, CancellationToken ct)
+    {
+        foreach (var item in items)
+            if (!await unitOfWork.DeviceIdentities.ExistsAsync(x => x.DeviceCode == item.DeviceCode, ct))
+                await unitOfWork.DeviceIdentities.AddAsync(new DeviceIdentity
+                    { DeviceCode = item.DeviceCode, Barcode = item.Barcode, ReservedAt = clock.GetUtcNow() }, ct);
+    }
+
+    private static void RequireReceivable(Device device, Guid departmentId)
+    {
+        if (device.Quantity != 0) throw Conflict("DEVICE_ALREADY_RECEIVED", "The device has already been received.");
+        if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "Unlock the device before receiving it.");
+        if (device.DepartmentId != departmentId)
+            throw Conflict("DEVICE_RECEIPT_DEPARTMENT_MISMATCH", "The device must belong to the receipt department.");
     }
 
     private async Task<Actor> RequireActorAsync(bool managerOnly, CancellationToken ct)
@@ -318,7 +369,7 @@ public sealed class DeviceReceiptService(
     {
         var items = await unitOfWork.DeviceReceiptItems.ListForReceiptAsync(read.Id, ct);
         return ToDto(read) with { Items = items.Select(x => new DeviceReceiptItemDto(x.CategoryCode, x.CategoryName, x.Name, x.DeviceCode,
-            x.Barcode, x.DeviceCodeSource.ToString(), x.SerialNumber, x.Completed, x.ParentDeviceCode)).ToArray() };
+            x.Barcode, x.DeviceCodeSource.ToString(), x.SerialNumber, x.Completed, x.ParentDeviceCode, x.ExistingDeviceCode)).ToArray() };
     }
 
     private static DeviceReceiptDto ToDto(DeviceReceiptReadModel x)

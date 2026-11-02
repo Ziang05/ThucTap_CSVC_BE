@@ -6,7 +6,8 @@ Base path: `/api/v1/device-transfers`. All routes require an authenticated activ
 
 - `DepartmentStaff` may create a request if their department is the source or target, edit/cancel their own pending request, and list/read requests involving their department.
 - `EquipmentStaff` and `EquipmentManager` may list/read all requests and approve or reject a pending request.
-- Handover completion is performed by a `DepartmentStaff` member from either participating department. The actor must be one of the declared source/target handover accounts; both accounts must be active staff in their respective departments.
+- `EquipmentStaff` additionally has all department staff workflow permissions: create requests involving their current department, edit/cancel their own pending requests, and complete handovers as a participant in their department. Global QTTB read/approval/history permissions remain available.
+- Handover completion is performed by a `DepartmentStaff` or `EquipmentStaff` member from either participating department. The actor must be one of the declared source/target handover accounts; both accounts must be active department or equipment staff in their respective departments. `EquipmentManager` does not receive these participant permissions.
 - Out-of-scope requests return `404` so transfer codes cannot be used to discover other departments' requests.
 
 ## Routes

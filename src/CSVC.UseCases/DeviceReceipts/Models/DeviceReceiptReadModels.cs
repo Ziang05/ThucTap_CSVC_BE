@@ -31,6 +31,7 @@ public sealed class DeviceReceiptReadModel
 
 public sealed class DeviceReceiptItemReadModel
 {
+    public string? ExistingDeviceCode { get; init; }
     public Guid Id { get; init; }
     public required string CategoryCode { get; init; }
     public required string CategoryName { get; init; }

@@ -45,7 +45,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
                HasParent = device.ParentDeviceId != null,
                CategoryCode = category.DisplayCode, CategoryName = category.Name,
                DepartmentCode = department.Code, DepartmentName = department.Name, AreaCode = area == null ? null : area.Code,
-               Status = device.Status, Condition = device.Condition,
+               Status = device.Status, Condition = device.Condition, Quantity = device.Quantity,
                ResponsibleAccountCode = account == null ? null : account.AccountCode,
                ResponsibleFullName = profile == null ? null : profile.FullName,
                ManufacturerCode = manufacturer == null ? null : manufacturer.DisplayCode,
@@ -60,6 +60,26 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
     public async Task<PagedResult<DeviceReadModel>> ListAsync(DeviceListQuery query, Guid? departmentScope, CancellationToken ct = default)
     {
         var source = ReadModels();
+        if (query.EligibleFor is { } workflow)
+        {
+            var transferring = workflow == DeviceWorkflowEligibility.Transfer;
+            // An operation includes the entire subtree. Reject every ancestor of an
+            // unavailable member; UNION also terminates safely on malformed cycles.
+            var unavailable = _context.Database.SqlQuery<Guid>($"""
+                WITH RECURSIVE unavailable AS (
+                    SELECT d.id FROM devices d
+                    WHERE d.quantity <> 1 OR d.status <> 'ACTIVE' OR d.condition <> 'GOOD'
+                       OR EXISTS (SELECT 1 FROM device_operation_holds h WHERE h.device_id = d.id)
+                       OR ({transferring} AND EXISTS (
+                           SELECT 1 FROM devices child
+                           WHERE child.parent_device_id = d.id AND child.department_id <> d.department_id))
+                    UNION
+                    SELECT d.parent_device_id FROM devices d JOIN unavailable u ON u.id = d.id
+                    WHERE d.parent_device_id IS NOT NULL
+                ) SELECT id AS "Value" FROM unavailable
+                """);
+            source = source.Where(x => !unavailable.Contains(x.Id));
+        }
         if (!string.IsNullOrWhiteSpace(query.ParentDeviceCode))
         {
             var parentCode = query.ParentDeviceCode.Trim().ToUpperInvariant();
@@ -80,7 +100,8 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
         if (query.Availability is { } availability)
             source = availability switch
             {
-                DeviceAvailability.Available => source.Where(x => !x.HasHold),
+                DeviceAvailability.Available => source.Where(x => !x.HasHold && x.Quantity == 1),
+                DeviceAvailability.NotReceived => source.Where(x => !x.HasHold && x.Quantity == 0),
                 DeviceAvailability.Reserved => source.Where(x => x.HasHold && !x.IsOnLoan && x.HoldKind != DeviceOperationKind.Transfer),
                 DeviceAvailability.OnLoan => source.Where(x => x.IsOnLoan),
                 _ => source.Where(x => x.HasHold && x.HoldKind == DeviceOperationKind.Transfer)
@@ -200,7 +221,7 @@ public sealed class DeviceHistoryRepository(CsvcDbContext context) : GenericRepo
                            select new DeviceHistoryReadModel
                            {
                                EventType = "DEVICE", ActionCode = history.ActionCode, Outcome = history.Outcome, OccurredAt = history.OccurredAt,
-                               DeviceCode = device.DeviceCode, DeviceName = device.Name, DepartmentCode = department.Code,
+                               BusinessCode = null, DeviceCode = device.DeviceCode, DeviceName = device.Name, DepartmentCode = department.Code,
                                ActorAccountCode = account == null ? null : account.AccountCode, ActorFullName = profile == null ? null : profile.FullName,
                                ReasonCode = history.ReasonCode, ChangedFields = history.ChangedFields, BeforeData = history.BeforeData, AfterData = history.AfterData
                            };
@@ -318,6 +339,7 @@ public sealed class DeviceReceiptItemRepository(CsvcDbContext context) : Generic
                   {
                       Id = item.Id, CategoryCode = category.DisplayCode, CategoryName = category.Name, Name = item.Name,
                       DeviceCode = item.DeviceCode, Barcode = item.Barcode, DeviceCodeSource = item.DeviceCodeSource,
+                      ExistingDeviceCode = _context.Devices.Any(x => x.DeviceCode == item.DeviceCode) ? item.DeviceCode : null,
                       SerialNumber = item.SerialNumber, Completed = item.DeviceId != null, ParentDeviceCode = item.ParentDeviceCode
                   }).ToListAsync(ct);
 }

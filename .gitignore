@@ -1,8 +1,6 @@
 # Local documents
 /Documents/
-/docs/backend-device-workflows-plan.md
-/docs/backend-device-workflows-implementation-plan.md
-/docs/device-parent-relationship-plan.md
+/docs/plan/
 
 # Graphify generated graphs, reports, and caches
 /graphify-out/

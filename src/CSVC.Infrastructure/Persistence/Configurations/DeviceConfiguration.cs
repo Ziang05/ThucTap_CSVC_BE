@@ -19,6 +19,7 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
             table.HasCheckConstraint("ck_devices_device_code", "btrim(device_code) <> ''");
             table.HasCheckConstraint("ck_devices_barcode", "btrim(barcode) <> ''");
             table.HasCheckConstraint("ck_devices_name", "btrim(name) <> ''");
+            table.HasCheckConstraint("ck_devices_quantity", "quantity IN (0, 1)");
             table.HasCheckConstraint("ck_devices_purchase_price", "purchase_price IS NULL OR purchase_price >= 0");
             table.HasCheckConstraint("ck_devices_parent_not_self", "parent_device_id IS NULL OR parent_device_id <> id");
         });
@@ -32,6 +33,7 @@ public sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.HasIndex(x => x.Barcode).IsUnique().HasDatabaseName("uq_devices_barcode");
         builder.Property(x => x.Name).HasColumnName("name").HasColumnType("varchar(200)").HasMaxLength(200).IsRequired();
         builder.Property(x => x.CategoryId).HasColumnName("category_id").HasColumnType("uuid");
+        builder.Property(x => x.Quantity).HasColumnName("quantity").HasColumnType("integer").HasDefaultValue(0);
         builder.Property(x => x.ManufacturerId).HasColumnName("manufacturer_id").HasColumnType("uuid");
         builder.Property(x => x.Model).HasColumnName("model").HasColumnType("varchar(120)").HasMaxLength(120);
         builder.Property(x => x.SerialNumber).HasColumnName("serial_number").HasColumnType("varchar(100)").HasMaxLength(100);
