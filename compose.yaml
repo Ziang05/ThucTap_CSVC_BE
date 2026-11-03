@@ -43,5 +43,24 @@ services:
       - ALL
     restart: unless-stopped
 
+  tooling:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    profiles: [tools]
+    working_dir: /source
+    volumes:
+      - .:/source
+      - nuget_cache:/root/.nuget/packages
+      - dotnet_tools:/root/.dotnet
+    environment:
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-csvc};Username=${POSTGRES_USER:-csvc};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD};Timeout=5;GSS Encryption Mode=Disable"
+      CSVC_POSTGRES_TEST_CONNECTION: "Host=postgres;Port=5432;Database=postgres;Username=${POSTGRES_USER:-csvc};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD};Timeout=5;GSS Encryption Mode=Disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: [dotnet]
+    command: [build, CSVC.sln]
+
 volumes:
   postgres_data:
+  nuget_cache:
+  dotnet_tools:

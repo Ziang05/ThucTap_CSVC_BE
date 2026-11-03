@@ -20,6 +20,9 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
 {
     public DbSet<Role> Roles => Set<Role>();
 
+    public DbSet<CSVC.Core.Settings.EquipmentSettings> EquipmentSettings => Set<CSVC.Core.Settings.EquipmentSettings>();
+    public DbSet<CSVC.Core.Settings.EquipmentSettingsHistory> EquipmentSettingsHistories => Set<CSVC.Core.Settings.EquipmentSettingsHistory>();
+
     public DbSet<Department> Departments => Set<Department>();
 
     public DbSet<DepartmentHistory> DepartmentHistories => Set<DepartmentHistory>();

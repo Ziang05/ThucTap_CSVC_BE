@@ -4,6 +4,8 @@ API mượn/trả nội bộ theo [device-workflows-contract.md](device-workflow
 
 Base path: `/api/v1/device-loans`
 
+Các thao tác ghi yêu cầu đã chọn phòng phụ trách thiết bị trong [Cấu hình](equipment-settings-api.md). Tài khoản `QTTB_STAFF`/`QTTB_MANAGER` phải thuộc đúng phòng được chọn. Quyền đọc toàn cục và khả năng tự duyệt hiện tại được giữ nguyên; không bổ sung điều kiện người duyệt khác người lập.
+
 ## Quyền và phạm vi
 
 | Hành động | QTTB Manager | QTTB Staff | Department Staff |

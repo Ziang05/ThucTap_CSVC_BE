@@ -1,5 +1,7 @@
 # API quản lý tài khoản và người dùng
 
+Bổ sung cấu hình phòng QTTB: khi đã chọn phòng phụ trách thiết bị, tạo tài khoản mang role `QTTB_STAFF`/`QTTB_MANAGER` hoặc đổi phòng ban của tài khoản QTTB phải khớp phòng được chọn. Trước khi chọn phòng vẫn cho tạo tài khoản để thiết lập hệ thống. Manager lệch phòng vẫn được quản lý cấu hình và sửa hồ sơ để khắc phục dữ liệu. Xem [API cấu hình](equipment-settings-api.md).
+
 Phạm vi: UC-TK-01 đến UC-TK-06 của tab **Nhóm 1** trong [Danh sách nghiệp vụ](https://docs.google.com/spreadsheets/d/1xQg5ao1fWNIA5qC8qisSoVaUeUuRZ9UFa3_nse2ZHyA/edit#gid=29721909).
 
 ## Cấu trúc

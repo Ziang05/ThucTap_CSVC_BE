@@ -191,8 +191,8 @@ public sealed class AreaApiTests
         var impact = await env.Manager.GetFromJsonAsync<AreaLockImpactDto>($"{Root}/{a.Id}/lock-impact", Json);
         Assert.Equal(1, impact!.ChildCount);
         Assert.Equal(2, impact.DescendantCount);
-        Assert.Null(impact.DirectDeviceCount);
-        Assert.Null(impact.SubtreeDeviceCount);
+        Assert.Equal(0, impact.DirectDeviceCount);
+        Assert.Equal(0, impact.SubtreeDeviceCount);
         Assert.Null(impact.RequestCount);
         Assert.False(impact.LinkCountsComplete);
         Assert.Equal(HttpStatusCode.NoContent, (await env.Manager.PutAsync($"{Root}/{a.Id}/lock", null)).StatusCode);

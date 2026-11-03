@@ -13,6 +13,8 @@ public static class DependencyInjection
         services.TryAddSingleton(TimeProvider.System);
         services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
         services.AddScoped<IAccountService, AccountService>();
+        services.AddScoped<Settings.IEquipmentSettingsService, Settings.EquipmentSettingsService>();
+        services.AddScoped<Settings.IEquipmentDepartmentPolicy, Settings.EquipmentDepartmentPolicy>();
         services.AddScoped<Departments.IDepartmentService, Departments.DepartmentService>();
         services.AddScoped<DeviceCategories.ICategoryService, DeviceCategories.CategoryService>();
         services.AddScoped<Suppliers.ISupplierService, Suppliers.SupplierService>();

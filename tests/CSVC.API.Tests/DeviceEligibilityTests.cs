@@ -50,6 +50,7 @@ public sealed class DeviceEligibilityTests
             db.Add(new DeviceOperationHold { DeviceCode = busy.DeviceCode, DeviceId = busy.Id,
                 OperationKind = DeviceOperationKind.Loan, OperationId = Guid.NewGuid(), HeldAt = host.Clock.GetUtcNow() });
             Add("GOOD-CHILD", Add("GOOD-PARENT"));
+            Add("DAMAGED-CHILD", Add("RECOVERY-PARENT")).Condition = DeviceCondition.Damaged;
             Add("FOREIGN-CHILD", Add("MIXED-PARENT"), other.Id);
             await db.SaveChangesAsync();
         }
@@ -69,10 +70,13 @@ public sealed class DeviceEligibilityTests
         Assert.Equal(new[] { "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "READY" }, Codes(await List(staff, "eligibleFor=Transfer")));
         Assert.Equal(new[] { "GOOD-CHILD", "GOOD-PARENT", "READY" }, Codes(await List(departmentStaff, "eligibleFor=Transfer")));
         Assert.Empty(Codes(await List(departmentStaff, "eligibleFor=Transfer&departmentCode=OTHER")));
+        Assert.Equal(new[] { "DAMAGED", "DAMAGED-CHILD", "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(staff, "eligibleFor=Recovery")));
+        Assert.Equal(new[] { "DAMAGED", "DAMAGED-CHILD", "GOOD-CHILD", "GOOD-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(departmentStaff, "eligibleFor=Recovery")));
+        Assert.Empty(Codes(await List(departmentStaff, "eligibleFor=Recovery&departmentCode=OTHER")));
         var paged = await List(staff, "eligibleFor=Transfer&departmentCode=PB_TEST&search=GOOD&pageSize=1&page=2&sortBy=Name");
         Assert.Equal(2, paged.GetProperty("totalCount").GetInt32());
         Assert.Equal(new[] { "GOOD-PARENT" }, Codes(paged));
-        Assert.Equal(12, (await List(staff, "")).GetProperty("totalCount").GetInt32()); // Existing unfiltered list stays intact.
+        Assert.Equal(14, (await List(staff, "")).GetProperty("totalCount").GetInt32()); // Existing unfiltered list stays intact.
         using var invalid = await staff.GetAsync("/api/v1/devices?eligibleFor=Unknown");
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
     }

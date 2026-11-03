@@ -62,13 +62,15 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
         var source = ReadModels();
         if (query.EligibleFor is { } workflow)
         {
-            var transferring = workflow == DeviceWorkflowEligibility.Transfer;
+            var transferring = workflow is DeviceWorkflowEligibility.Transfer or DeviceWorkflowEligibility.Recovery;
+            var recovering = workflow == DeviceWorkflowEligibility.Recovery;
             // An operation includes the entire subtree. Reject every ancestor of an
             // unavailable member; UNION also terminates safely on malformed cycles.
             var unavailable = _context.Database.SqlQuery<Guid>($"""
                 WITH RECURSIVE unavailable AS (
                     SELECT d.id FROM devices d
-                    WHERE d.quantity <> 1 OR d.status <> 'ACTIVE' OR d.condition <> 'GOOD'
+                    WHERE d.quantity <> 1 OR d.status <> 'ACTIVE'
+                       OR (d.condition <> 'GOOD' AND (NOT {recovering} OR d.condition <> 'DAMAGED'))
                        OR EXISTS (SELECT 1 FROM device_operation_holds h WHERE h.device_id = d.id)
                        OR ({transferring} AND EXISTS (
                            SELECT 1 FROM devices child
@@ -168,7 +170,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
     public async Task<bool> HasPendingWorkflowAsync(Guid deviceId, CancellationToken ct = default)
     {
         if (await _context.ServiceOrderItems.AnyAsync(i => i.DeviceId == deviceId && _context.ServiceOrders.Any(o => o.Id == i.ServiceOrderId && o.Status == CSVC.Core.ServiceOrders.ServiceWorkflowStatus.PendingApproval), ct)) return true;
-        if (await _context.DeviceTransferItems.AnyAsync(i => i.DeviceId == deviceId && _context.DeviceTransfers.Any(t => t.Id == i.TransferId && t.Status == DeviceTransferStatus.PendingApproval), ct)) return true;
+        if (await _context.DeviceTransferItems.AnyAsync(i => i.DeviceId == deviceId && _context.DeviceTransfers.Any(t => t.Id == i.TransferId && (t.Status == DeviceTransferStatus.PendingApproval || t.Status == DeviceTransferStatus.PendingConfirmation)), ct)) return true;
         return await _context.DeviceLoanItems.AnyAsync(i => i.DeviceId == deviceId && _context.DeviceLoans.Any(l => l.Id == i.LoanId && l.Status == DeviceLoanStatus.PendingApproval), ct);
     }
 
@@ -479,6 +481,11 @@ public sealed class DeviceTransferRepository(CsvcDbContext context) : GenericRep
            select new DeviceTransferReadModel
            {
                Id = transfer.Id, TransferCode = transfer.TransferCode,
+               TransferType = transfer.TransferType,
+               ReceiverConfirmedAccountCode = _context.Accounts.Where(a => a.Id == transfer.ReceiverConfirmedAccountId).Select(a => a.AccountCode).FirstOrDefault(),
+               ReceiverConfirmedAt = transfer.ReceiverConfirmedAt,
+               ReceiverRejectedAccountCode = _context.Accounts.Where(a => a.Id == transfer.ReceiverRejectedAccountId).Select(a => a.AccountCode).FirstOrDefault(),
+               ReceiverRejectedAt = transfer.ReceiverRejectedAt, ReceiverRejectionReason = transfer.ReceiverRejectionReason,
                SourceDepartmentCode = source.Code, SourceDepartmentName = source.Name,
                TargetDepartmentCode = target.Code, TargetDepartmentName = target.Name,
                TargetResponsibleAccountCode = responsible.AccountCode, TargetResponsibleFullName = profile.FullName,
@@ -548,7 +555,7 @@ public sealed class DeviceTransferItemRepository(CsvcDbContext context) : Generi
                   select new DeviceTransferItemReadModel
                   {
                       DeviceCode = device.DeviceCode, Name = device.Name, CategoryCode = category.DisplayCode, CategoryName = category.Name,
-                      ConditionAtHandover = item.ConditionAtHandover, HandoverNote = item.HandoverNote
+                      ConditionAtHandover = item.ConditionAtHandover, HandoverNote = item.HandoverNote, CurrentCondition = device.Condition
                   }).ToListAsync(ct);
 }
 public sealed class DeviceTransferHistoryRepository(CsvcDbContext context) : GenericRepository<DeviceTransferHistory>(context), IDeviceTransferHistoryRepository

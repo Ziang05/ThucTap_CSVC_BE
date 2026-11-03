@@ -31,7 +31,7 @@ namespace CSVC.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_condition", new[] { "DAMAGED", "GOOD", "MISSING" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_loan_status", new[] { "APPROVED", "CANCELLED", "ON_LOAN", "PENDING_APPROVAL", "REJECTED", "RETURNED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_receipt_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "REJECTED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_transfer_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "REJECTED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_transfer_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "PENDING_CONFIRMATION", "REJECTED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "entity_status", new[] { "ACTIVE", "LOCKED" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -1360,6 +1360,27 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(1000)")
                         .HasColumnName("reason");
 
+                    b.Property<Guid?>("ReceiverConfirmedAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receiver_confirmed_account_id");
+
+                    b.Property<DateTimeOffset?>("ReceiverConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("receiver_confirmed_at");
+
+                    b.Property<Guid?>("ReceiverRejectedAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receiver_rejected_account_id");
+
+                    b.Property<DateTimeOffset?>("ReceiverRejectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("receiver_rejected_at");
+
+                    b.Property<string>("ReceiverRejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("receiver_rejection_reason");
+
                     b.Property<Guid>("SourceDepartmentId")
                         .HasColumnType("uuid")
                         .HasColumnName("source_department_id");
@@ -1390,6 +1411,12 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(32)")
                         .HasColumnName("transfer_code");
 
+                    b.Property<string>("TransferType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("transfer_type");
+
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
@@ -1402,6 +1429,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasIndex("CreatorAccountId");
 
                     b.HasIndex("DecisionAccountId");
+
+                    b.HasIndex("ReceiverConfirmedAccountId");
+
+                    b.HasIndex("ReceiverRejectedAccountId");
 
                     b.HasIndex("SourceDepartmentId");
 
@@ -2514,6 +2545,90 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CSVC.Core.Settings.EquipmentSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("EquipmentDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("equipment_department_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_account_id");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EquipmentDepartmentId");
+
+                    b.HasIndex("UpdatedByAccountId");
+
+                    b.ToTable("equipment_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_equipment_settings_singleton", "id = 1");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Version = 0
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Settings.EquipmentSettingsHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("department_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid?>("PreviousDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("previous_department_id");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.HasIndex("OccurredAt");
+
+                    b.HasIndex("PreviousDepartmentId");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.ToTable("equipment_settings_history", (string)null);
+                });
+
             modelBuilder.Entity("CSVC.Core.Suppliers.Supplier", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2943,6 +3058,16 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("DecisionAccountId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ReceiverConfirmedAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ReceiverRejectedAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CSVC.Core.Departments.Department", null)
                         .WithMany()
                         .HasForeignKey("SourceDepartmentId")
@@ -3201,6 +3326,39 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ServiceOrderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Settings.EquipmentSettings", b =>
+                {
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("EquipmentDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Settings.EquipmentSettingsHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("PreviousDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("CSVC.Core.Suppliers.SupplierHistory", b =>

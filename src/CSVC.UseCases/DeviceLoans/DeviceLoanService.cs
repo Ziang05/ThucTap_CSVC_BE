@@ -17,7 +17,7 @@ namespace CSVC.UseCases.DeviceLoans;
 
 public sealed class DeviceLoanService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock) : IDeviceLoanService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy) : IDeviceLoanService
 {
     public async Task<PagedResult<DeviceLoanDto>> ListAsync(DeviceLoanListQuery query, CancellationToken ct)
     {
@@ -321,6 +321,7 @@ public sealed class DeviceLoanService(
     {
         var actor = await RequireActorAsync(ct);
         if (!RoleCodes.CanActAsDepartmentStaff(actor.RoleCode)) throw Forbidden("Only department or equipment staff may perform this action.");
+        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
         return actor;
     }
 
@@ -328,6 +329,7 @@ public sealed class DeviceLoanService(
     {
         var actor = await RequireActorAsync(ct);
         if (actor.RoleCode is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff)) throw Forbidden("Only equipment staff may decide loan requests.");
+        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
         return actor;
     }
 

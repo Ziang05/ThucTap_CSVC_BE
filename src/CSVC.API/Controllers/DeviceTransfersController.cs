@@ -43,6 +43,20 @@ public sealed class DeviceTransfersController(IDeviceTransferService transfers) 
         return NoContent();
     }
 
+    [HttpPost("{transferCode}/confirm-receipt-intent")]
+    public async Task<IActionResult> ConfirmReceiptIntent(string transferCode, CancellationToken cancellationToken)
+    {
+        await transfers.ConfirmReceiptIntentAsync(transferCode, true, new(), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{transferCode}/reject-receipt-intent")]
+    public async Task<IActionResult> RejectReceiptIntent(string transferCode, [FromBody] TransferDecisionRequest? request, CancellationToken cancellationToken)
+    {
+        await transfers.ConfirmReceiptIntentAsync(transferCode, false, request ?? new(), cancellationToken);
+        return NoContent();
+    }
+
     [HttpPost("{transferCode}/reject")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Reject(string transferCode, [FromBody] TransferDecisionRequest? request, CancellationToken cancellationToken)

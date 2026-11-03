@@ -17,7 +17,7 @@ namespace CSVC.UseCases.Departments;
 public sealed class DepartmentService(
     IUnitOfWork unitOfWork, IDepartmentTransaction transaction, ICurrentAccount current,
     IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<DepartmentService> logger,
-    IBusinessCodeGenerator codes) : IDepartmentService
+    IBusinessCodeGenerator codes, IRepository<CSVC.Core.Settings.EquipmentSettings> settings) : IDepartmentService
 {
     public async Task<PagedResult<DepartmentListItemDto>> ListAsync(DepartmentListQuery query, CancellationToken cancellationToken)
     {
@@ -79,6 +79,8 @@ public sealed class DepartmentService(
             var department = await unitOfWork.Departments.GetByIdAsync(id, ct) ?? throw Missing();
             var status = locked ? EntityStatus.Locked : EntityStatus.Active;
             if (department.Status == status) return true;
+            if (locked && await settings.ExistsAsync(x => x.EquipmentDepartmentId == id, ct))
+                throw Error(FailureKind.Conflict, "EQUIPMENT_DEPARTMENT_LOCK_FORBIDDEN", "Select another equipment department in Settings before locking this department.");
             var before = Snapshot(department);
             department.Status = status;
             unitOfWork.Departments.Update(department);

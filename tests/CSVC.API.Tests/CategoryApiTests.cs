@@ -207,7 +207,7 @@ public sealed class CategoryApiTests
     }
 
     [PostgreSqlFact]
-    public async Task List_filters_sorts_pages_and_lock_impact_reports_unknown_device_counts()
+    public async Task List_filters_sorts_pages_and_lock_impact_reports_device_counts()
     {
         await using var database = await AccountTestDatabase.CreateAsync();
         await using var factory = new AccountApiTestHost(database.ConnectionString);
@@ -234,8 +234,8 @@ public sealed class CategoryApiTests
         Assert.Equal(0, empty.GetProperty("totalCount").GetInt32());
         Assert.Empty(empty.GetProperty("items").EnumerateArray());
         var impact = await client.GetFromJsonAsync<JsonElement>($"{Root}/DM_BETA/lock-impact");
-        Assert.Equal(JsonValueKind.Null, impact.GetProperty("deviceCount").ValueKind);
-        Assert.False(impact.GetProperty("linkCountsComplete").GetBoolean());
+        Assert.Equal(0, impact.GetProperty("deviceCount").GetInt32());
+        Assert.True(impact.GetProperty("linkCountsComplete").GetBoolean());
         Assert.Equal("Locked", impact.GetProperty("status").GetString());
         foreach (var query in new[] { "page=0", "pageSize=101", "sortBy=999", "sortDirection=999", "status=999" })
             Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync($"{Root}?{query}")).StatusCode);
