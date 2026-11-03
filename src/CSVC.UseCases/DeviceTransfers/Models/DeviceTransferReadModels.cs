@@ -16,6 +16,12 @@ public sealed class DeviceTransferReadModel
     public required string TargetResponsibleFullName { get; init; }
     public required string Reason { get; init; }
     public DeviceTransferStatus Status { get; init; }
+    public DeviceTransferType TransferType { get; init; }
+    public string? ReceiverConfirmedAccountCode { get; init; }
+    public DateTimeOffset? ReceiverConfirmedAt { get; init; }
+    public string? ReceiverRejectedAccountCode { get; init; }
+    public DateTimeOffset? ReceiverRejectedAt { get; init; }
+    public string? ReceiverRejectionReason { get; init; }
     public required string CreatorAccountCode { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public string? DecisionAccountCode { get; init; }
@@ -36,6 +42,7 @@ public sealed class DeviceTransferItemReadModel
     public required string CategoryCode { get; init; }
     public required string CategoryName { get; init; }
     public DeviceCondition? ConditionAtHandover { get; init; }
+    public DeviceCondition CurrentCondition { get; init; }
     public string? HandoverNote { get; init; }
 }
 

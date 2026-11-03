@@ -11,7 +11,8 @@ public enum DeviceOperationKind
 {
     Receipt,
     Loan,
-    Transfer
+    Transfer,
+    ServiceOrder
 }
 
 public enum DeviceCodeSource

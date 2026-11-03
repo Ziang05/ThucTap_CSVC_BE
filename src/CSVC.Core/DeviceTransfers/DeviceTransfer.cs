@@ -8,8 +8,11 @@ public enum DeviceTransferStatus
     Rejected,
     Approved,
     Completed,
-    Cancelled
+    Cancelled,
+    PendingConfirmation
 }
+
+public enum DeviceTransferType { Allocation, InterDepartment, Recovery }
 
 public sealed class DeviceTransfer
 {
@@ -21,7 +24,13 @@ public sealed class DeviceTransfer
     public required string Reason { get; set; }
     public Guid CreatorAccountId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
-    public DeviceTransferStatus Status { get; set; } = DeviceTransferStatus.PendingApproval;
+    public DeviceTransferStatus Status { get; set; } = DeviceTransferStatus.PendingConfirmation;
+    public DeviceTransferType TransferType { get; set; }
+    public Guid? ReceiverConfirmedAccountId { get; set; }
+    public DateTimeOffset? ReceiverConfirmedAt { get; set; }
+    public Guid? ReceiverRejectedAccountId { get; set; }
+    public DateTimeOffset? ReceiverRejectedAt { get; set; }
+    public string? ReceiverRejectionReason { get; set; }
     public Guid? DecisionAccountId { get; set; }
     public DateTimeOffset? DecidedAt { get; set; }
     public Guid? SourceHandoverAccountId { get; set; }

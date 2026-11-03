@@ -4,6 +4,8 @@ This guide covers the schema and API changes for devices, receipts, loans, trans
 
 ## Before release
 
+Quantity update (2026-11-02): `20261102105247_DeviceReceiptQuantity` adds `devices.quantity` (0/1), backfills 1 only for devices linked to completed receipts, and replaces global receipt-item code/barcode uniqueness with uniqueness within each receipt. Review legacy devices without a completed receipt before release: they remain 0 and cannot enter loans, transfers or service orders until received. Down migration cannot recreate the previous global unique indexes if the same existing device has since appeared on multiple receipts; restore the backup for rollback in that case.
+
 1. Review the migration diff and confirm the target environment is backed up. The current development migration is `20261029120000_InventoryFoundation`; preserve migrations already applied in shared or production databases.
 2. Build and tag the API image with the release version. Avoid deploying a mutable `latest` tag.
 3. Put the API into maintenance mode or stop API instances while the migration runs. Do not run multiple migration jobs concurrently.

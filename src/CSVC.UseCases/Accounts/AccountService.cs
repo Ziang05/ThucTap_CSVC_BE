@@ -20,7 +20,8 @@ namespace CSVC.UseCases.Accounts;
 public sealed class AccountService(
     IUnitOfWork unitOfWork, IAccountTransaction transaction, ICurrentAccount current,
     IRequestContext requestContext, IAccountPasswordHasher passwords, IPasswordResetSender resetSender, ISessionLifecycle sessions,
-    IMapper mapper, TimeProvider clock, ILogger<AccountService> logger, IBusinessCodeGenerator codes) : IAccountService
+    IMapper mapper, TimeProvider clock, ILogger<AccountService> logger, IBusinessCodeGenerator codes,
+    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy) : IAccountService
 {
     public async Task<PagedResult<AccountListItemDto>> ListAsync(AccountListQuery query, CancellationToken cancellationToken = default)
     {
@@ -55,6 +56,7 @@ public sealed class AccountService(
             var role = await unitOfWork.Roles.GetByIdAsync(request.RoleId, ct);
             if (role is null || role.Code is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff or RoleCodes.DepartmentStaff))
                 throw Error(FailureKind.Validation, "INVALID_ROLE", "Select a supported role.");
+            await equipmentPolicy.ValidateAssignmentAsync(role.Code, request.DepartmentId, ct);
             if (await unitOfWork.Accounts.GetByNormalizedEmailAsync(request.Email, ct) is not null)
                 throw Error(FailureKind.Conflict, "EMAIL_ALREADY_EXISTS", "Email is already in use.");
             var profile = mapper.Map<UserProfile>(request);
@@ -97,6 +99,11 @@ public sealed class AccountService(
             if (profile.BirthDate != request.BirthDate) fields.Add("birth_date");
             if (profile.Phone != request.Phone?.Trim()) fields.Add("phone");
             var departmentChanged = request.DepartmentId.HasValue && request.DepartmentId != profile.DepartmentId;
+            if (departmentChanged)
+            {
+                var targetRole = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
+                await equipmentPolicy.ValidateAssignmentAsync(targetRole?.Code ?? "", request.DepartmentId!.Value, ct);
+            }
             if (departmentChanged) fields.Add("department_id");
             if (fields.Count == 0) return;
             mapper.Map(request, profile);

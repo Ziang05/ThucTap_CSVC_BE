@@ -112,9 +112,30 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         public string? FailNextCategoryAction { get; set; }
         public string? FailNextSupplierAction { get; set; }
         public string? FailNextManufacturerAction { get; set; }
+        public string? FailNextServiceAction { get; set; }
+        public bool FailNextSettingsChange { get; set; }
+        public string? FailNextTransferAction { get; set; }
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
+            if (FailNextSettingsChange && eventData.Context!.ChangeTracker.Entries<CSVC.Core.Settings.EquipmentSettingsHistory>()
+                .Any(entry => entry.State == EntityState.Added))
+            {
+                FailNextSettingsChange = false;
+                throw new DbUpdateException("Simulated settings audit failure.");
+            }
+            if (FailNextTransferAction is { } transferAction && eventData.Context!.ChangeTracker.Entries<CSVC.Core.DeviceTransfers.DeviceTransferHistory>()
+                .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == transferAction))
+            {
+                FailNextTransferAction = null;
+                throw new DbUpdateException("Simulated transfer audit failure.");
+            }
+            if (FailNextServiceAction is { } serviceAction && eventData.Context!.ChangeTracker.Entries<CSVC.Core.ServiceOrders.ServiceOrderHistory>()
+                .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == serviceAction))
+            {
+                FailNextServiceAction = null;
+                throw new DbUpdateException("Simulated service-order audit failure.");
+            }
             if (FailNextManufacturerAction is { } manufacturerAction && eventData.Context!.ChangeTracker.Entries<ManufacturerHistory>()
                     .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == manufacturerAction))
             {

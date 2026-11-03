@@ -34,6 +34,15 @@ docker compose down
 
 ## Chạy API local
 
+Có thể build/test mà không cần cài SDK trên máy bằng Docker:
+
+```powershell
+docker compose --profile tools run --rm tooling build CSVC.sln
+docker compose --profile tools run --rm tooling test CSVC.sln
+```
+
+Các integration test tự tạo/xóa database test riêng trên PostgreSQL của Compose. Sau migration, đăng nhập manager và chọn phòng phụ trách thiết bị tại **Cấu hình** (`/settings`) trước khi thao tác mượn/trả hoặc điều chuyển. Xem [hướng dẫn cấu hình](docs/equipment-settings-api.md).
+
 Cần **SDK .NET 10** và PostgreSQL. Có thể dùng Docker để chạy riêng PostgreSQL:
 
 ```powershell
@@ -49,3 +58,5 @@ Chuỗi kết nối trên dùng cấu hình mẫu; điều chỉnh cho khớp v�
 Swagger vẫn tại **http://localhost:8080/swagger**. Nhấn `Ctrl+C` để dừng API.
 
 Quy ước cho team: [CONTRIBUTING.md](CONTRIBUTING.md). Chi tiết kiến trúc: [docs/architecture.md](docs/architecture.md).
+
+- [API bảo trì, sửa chữa và phiếu xuất](docs/service-orders-and-exports-api.md)

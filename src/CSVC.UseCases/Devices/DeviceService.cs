@@ -89,11 +89,11 @@ public sealed class DeviceService(
                 ManufacturerId = manufacturer?.Id, Model = Clean(request.Model), SerialNumber = Clean(request.SerialNumber),
                 PurchaseDate = request.PurchaseDate, PaidInvoiceCode = Clean(request.PaidInvoiceCode), PurchasePrice = request.PurchasePrice,
                 WarrantyExpiryDate = request.WarrantyExpiryDate, DepartmentId = department.Id, AreaId = area?.Id,
-                ResponsibleAccountId = responsible?.Id, Condition = request.Condition, Status = EntityStatus.Active, Notes = Clean(request.Notes)
+                ResponsibleAccountId = responsible?.Id, Condition = request.Condition, Status = EntityStatus.Active, Quantity = 0, Notes = Clean(request.Notes)
             };
             await unitOfWork.DeviceIdentities.AddAsync(identity, token);
             await unitOfWork.Devices.AddAsync(device, token);
-            await AuditAsync(device, actor.AccountId, "DEVICE_CREATED", ["deviceCode", "barcode", "name", "categoryCode", "departmentCode", "responsibleAccountCode", "condition", "serialNumber", "manufacturerCode", "model", "purchaseDate", "paidInvoiceCode", "purchasePrice", "warrantyExpiryDate", "areaCode", "notes"], null,
+            await AuditAsync(device, actor.AccountId, "DEVICE_CREATED", ["deviceCode", "barcode", "name", "quantity", "categoryCode", "departmentCode", "responsibleAccountCode", "condition", "serialNumber", "manufacturerCode", "model", "purchaseDate", "paidInvoiceCode", "purchasePrice", "warrantyExpiryDate", "areaCode", "notes"], null,
                 CreateSnapshot(device, category.DisplayCode, department.Code, responsible?.AccountCode, manufacturer?.DisplayCode, area?.Code), token);
             await unitOfWork.CommitAsync(token);
             var read = await unitOfWork.Devices.GetByCodeAsync(code, null, token) ?? throw Missing();
@@ -248,9 +248,9 @@ public sealed class DeviceService(
         => new(x.DeviceCode, includeBarcode ? x.Barcode : null, x.Name, x.CategoryCode, x.CategoryName, x.DepartmentCode, x.DepartmentName,
             x.AreaCode, x.Status, x.Condition, Availability(x), x.ResponsibleAccountCode, x.ResponsibleFullName,
             x.ManufacturerCode, x.ManufacturerName, x.Model, x.SerialNumber, x.PurchaseDate, x.PaidInvoiceCode,
-            x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, VersionOf(x), x.ParentDeviceCode, x.ParentDeviceName, x.IsComponent);
+            x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, VersionOf(x), x.ParentDeviceCode, x.ParentDeviceName, x.IsComponent, x.Quantity);
 
-    private static DeviceAvailability Availability(DeviceReadModel x) => !x.HasHold ? DeviceAvailability.Available
+    private static DeviceAvailability Availability(DeviceReadModel x) => !x.HasHold ? x.Quantity == 0 ? DeviceAvailability.NotReceived : DeviceAvailability.Available
         : x.IsOnLoan ? DeviceAvailability.OnLoan
         : x.HoldKind == DeviceOperationKind.Transfer ? DeviceAvailability.TransferPending : DeviceAvailability.Reserved;
 
@@ -268,7 +268,7 @@ public sealed class DeviceService(
     private static string EditableSnapshot(Device d, string? manufacturerCode) => JsonSerializer.Serialize(new { d.Name, d.SerialNumber, ManufacturerCode = manufacturerCode, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes });
     private static string StateSnapshot(Device d) => JsonSerializer.Serialize(new { d.DeviceCode, status = d.Status.ToString() });
     private static string CreateSnapshot(Device d, string categoryCode, string departmentCode, string? responsibleAccountCode, string? manufacturerCode, string? areaCode)
-        => JsonSerializer.Serialize(new { d.DeviceCode, d.Barcode, d.Name, categoryCode, departmentCode, responsibleAccountCode, manufacturerCode, areaCode, condition = d.Condition.ToString(), d.SerialNumber, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes });
+        => JsonSerializer.Serialize(new { d.DeviceCode, d.Barcode, d.Name, d.Quantity, categoryCode, departmentCode, responsibleAccountCode, manufacturerCode, areaCode, condition = d.Condition.ToString(), d.SerialNumber, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes });
     private static List<string> ChangedFields(string before, string after)
     {
         var a = JsonDocument.Parse(before).RootElement; var b = JsonDocument.Parse(after).RootElement; List<string> fields = [];

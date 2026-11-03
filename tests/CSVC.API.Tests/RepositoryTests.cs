@@ -139,7 +139,20 @@ public sealed class RepositoryTests
             new SupplierRepository(context, SupplierMapper()),
             new SupplierHistoryRepository(context, SupplierMapper()),
             new ManufacturerRepository(context, ManufacturerMapper()),
-            new ManufacturerHistoryRepository(context, ManufacturerMapper()));
+            new ManufacturerHistoryRepository(context, ManufacturerMapper()),
+            new DeviceRepository(context),
+            new DeviceIdentityRepository(context),
+            new DeviceHistoryRepository(context),
+            new DeviceOperationHoldRepository(context),
+            new DeviceReceiptRepository(context),
+            new DeviceReceiptItemRepository(context),
+            new DeviceReceiptHistoryRepository(context),
+            new DeviceLoanRepository(context),
+            new DeviceLoanItemRepository(context),
+            new DeviceLoanHistoryRepository(context),
+            new DeviceTransferRepository(context),
+            new DeviceTransferItemRepository(context),
+            new DeviceTransferHistoryRepository(context));
 
 
     private static AutoMapper.IMapper ManufacturerMapper()

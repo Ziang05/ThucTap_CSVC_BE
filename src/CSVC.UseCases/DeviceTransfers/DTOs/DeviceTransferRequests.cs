@@ -34,8 +34,7 @@ public sealed class TransferDecisionRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class TransferHandoverRequest
 {
-    [Required, StringLength(32)] public string SourceHandoverAccountCode { get; init; } = "";
-    [Required, StringLength(32)] public string TargetHandoverAccountCode { get; init; } = "";
+    [StringLength(32)] public string? SourceHandoverAccountCode { get; init; }
     [Required, MinLength(1)] public List<TransferHandoverItemRequest> Items { get; init; } = [];
 }
 
@@ -43,7 +42,7 @@ public sealed class TransferHandoverRequest
 public sealed class TransferHandoverItemRequest
 {
     [Required, StringLength(32)] public string DeviceCode { get; init; } = "";
-    [EnumDataType(typeof(DeviceCondition))] public DeviceCondition Condition { get; init; } = DeviceCondition.Good;
+    [EnumDataType(typeof(DeviceCondition))] public DeviceCondition? Condition { get; init; }
     [StringLength(1000)] public string? Note { get; init; }
 }
 

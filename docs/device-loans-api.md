@@ -4,14 +4,16 @@ API mượn/trả nội bộ theo [device-workflows-contract.md](device-workflow
 
 Base path: `/api/v1/device-loans`
 
+Các thao tác ghi yêu cầu đã chọn phòng phụ trách thiết bị trong [Cấu hình](equipment-settings-api.md). Tài khoản `QTTB_STAFF`/`QTTB_MANAGER` phải thuộc đúng phòng được chọn. Quyền đọc toàn cục và khả năng tự duyệt hiện tại được giữ nguyên; không bổ sung điều kiện người duyệt khác người lập.
+
 ## Quyền và phạm vi
 
 | Hành động | QTTB Manager | QTTB Staff | Department Staff |
 |---|---:|---:|---:|
 | List/detail/history | Toàn cục | Toàn cục | Loan của phòng ban hiện tại hoặc loan do account tạo/mượn |
-| Tạo/sửa/hủy Pending | Không | Không | Có; chỉ tạo cho chính account, sửa/hủy creator |
+| Tạo/sửa/hủy Pending | Không | Có; tạo cho chính account, sửa/hủy creator | Có; chỉ tạo cho chính account, sửa/hủy creator |
 | Approve/reject | Có | Có | Không |
-| Handover/return | Không | Không | Nhân viên thuộc borrower department |
+| Handover/return | Không | Nhân viên thuộc borrower department | Nhân viên thuộc borrower department |
 
 Object ngoài scope trả `404 LOAN_NOT_FOUND`. Thiết bị mượn có thể thuộc đơn vị quản lý khác; loan không đổi department, area hoặc responsible account.
 
@@ -43,12 +45,12 @@ List filter: `loanCode`, `borrowerAccountCode`, `departmentCode`, `status`, `ove
 }
 ```
 
-Borrower là Department Staff hiện tại. `dueAt` phải ở tương lai; backend lưu UTC. Cần 1–200 item; mã thiết bị không được trùng. Thiết bị phải tồn tại, Active, condition `Good`, và không có operation hold. Phiếu mới có mã `MT` + 30 ký tự hex và trạng thái `PendingApproval`. Creator được thay header/items hoặc cancel khi còn Pending.
+Borrower là account hiện tại có role `DEPARTMENT_STAFF` hoặc `QTTB_STAFF`, phòng ban lấy từ hồ sơ account. `QTTB_STAFF` có thêm toàn bộ thao tác của nhân viên phòng ban: tạo/sửa/hủy phiếu của mình trước duyệt, nhận/trả thiết bị cho phiếu thuộc phòng ban mình. Quyền đọc toàn cục, duyệt và xem snapshot lịch sử của QTTB được giữ nguyên; quyền thao tác theo phòng ban vẫn được kiểm tra riêng. `QTTB_MANAGER` không được bổ sung các thao tác này. `dueAt` phải ở tương lai; backend lưu UTC. Cần 1–200 item; mã thiết bị không được trùng. Thiết bị phải tồn tại, Active, condition `Good`, và không có operation hold. Phiếu mới có mã `MT` + 30 ký tự hex và trạng thái `PendingApproval`. Creator được thay header/items hoặc cancel khi còn Pending.
 
 ## Duyệt, giao và trả
 
 1. QTTB Manager hoặc Staff duyệt/từ chối toàn phiếu. Approve kiểm tra lại tất cả thiết bị và giữ operation hold cho toàn bộ danh sách trong cùng transaction.
-2. Department Staff thuộc borrower department xác nhận đã nhận đủ. Request phải có mỗi deviceCode đúng một lần; condition mặc định `Good`, không chấp nhận `Missing`. Có thể ghi note tình trạng. Thao tác chuyển loan từ `Approved` sang `OnLoan` và ghi người xác nhận/time.
+2. Department Staff hoặc QTTB Staff thuộc borrower department xác nhận đã nhận đủ. Request phải có mỗi deviceCode đúng một lần; condition mặc định `Good`, không chấp nhận `Missing`. Có thể ghi note tình trạng. Thao tác chuyển loan từ `Approved` sang `OnLoan` và ghi người xác nhận/time.
 3. Khi trả, request phải có đủ mỗi deviceCode một lần và condition `Good|Damaged|Missing` cho từng item. Backend cập nhật condition gần nhất của device, đánh dấu loan `Returned` và giải phóng toàn bộ holds trong một transaction.
 4. Không trả một phần, gia hạn, hoặc hủy sau duyệt. Condition lúc trả `Damaged`/`Missing` ngăn thiết bị được mượn lần nữa cho đến khi condition được xử lý.
 5. `Overdue` là projection: loan `OnLoan` với `dueAt < now` được response với `status: "Overdue"`, `isOverdue: true`; không có background worker hoặc persisted overdue flag.

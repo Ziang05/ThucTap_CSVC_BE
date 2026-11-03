@@ -40,12 +40,14 @@ public sealed class UpdateDeviceRequest
 }
 
 public enum DeviceStatusFilter { Active, Locked }
-public enum DeviceAvailability { Available, Reserved, OnLoan, TransferPending }
+public enum DeviceAvailability { Available, Reserved, OnLoan, TransferPending, NotReceived }
 public enum DeviceSortBy { DeviceCode, Name, Category, Department, Status }
 public enum DeviceSortDirection { Asc, Desc }
+public enum DeviceWorkflowEligibility { Loan, Transfer, Recovery }
 
 public sealed class DeviceListQuery
 {
+    [EnumDataType(typeof(DeviceWorkflowEligibility))] public DeviceWorkflowEligibility? EligibleFor { get; init; }
     [StringLength(32)] public string? ParentDeviceCode { get; set; }
     [StringLength(200)] public string? Search { get; init; }
     [StringLength(32)] public string? CategoryCode { get; init; }

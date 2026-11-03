@@ -4,6 +4,15 @@ API quản lý hồ sơ tài sản thiết bị, được implement theo contrac
 
 Base path: `/api/v1/devices`
 
+## Số lượng theo từng thiết bị
+
+- Mỗi mã là một thiết bị riêng, `quantity` chỉ nhận `0` hoặc `1` và do backend quản lý.
+- Tạo hồ sơ qua `POST /devices` luôn có `quantity=0`. List, detail và barcode lookup đều trả trường này; không nhận sửa số lượng trong request tạo/sửa.
+- Hoàn tất phiếu tiếp nhận mới đổi `0 → 1`. Thiết bị đã tiếp nhận không được nhập lại. Mượn, điều chuyển và bảo trì/sửa chữa yêu cầu `quantity=1`, nếu chưa tiếp nhận trả `409 DEVICE_NOT_RECEIVED`.
+- `availability=NotReceived` lọc hồ sơ chưa tiếp nhận và chưa được giữ bởi phiếu. `Available` chỉ gồm thiết bị có `quantity=1`, chưa có operation hold. Thiết bị số lượng 0 đã được duyệt tiếp nhận có availability `Reserved`.
+- Dropdown chọn thiết bị trên phiếu tiếp nhận dùng `GET /devices?availability=NotReceived&status=Active&departmentCode=...&search=...`, giữ nguyên phân trang hiện có.
+- Migration bổ sung số lượng mặc định 0, backfill 1 cho thiết bị thuộc phiếu tiếp nhận đã hoàn tất, và CHECK constraint giới hạn 0/1.
+
 ## Quyền
 
 | Thao tác | QTTB Manager | QTTB Staff | Department Staff |
@@ -29,6 +38,8 @@ Record ngoài phòng ban của Department Staff trả `404 DEVICE_NOT_FOUND` đ�
 | GET | `/api/v1/history/devices` | QTTB global device timeline |
 
 ### List
+
+`eligibleFor=Loan|Transfer|Recovery` lọc thiết bị có thể chọn khi tạo/sửa phiếu: đã tiếp nhận (`quantity=1`), đang hoạt động, chưa bị giữ chỗ. `Loan` và `Transfer` yêu cầu tình trạng `Good`; riêng `Recovery` cho phép `Good` hoặc `Damaged`, không cho `Missing`. Kiểm tra áp dụng cho cả cây thiết bị con; `Transfer` và `Recovery` còn yêu cầu mọi thành phần cùng phòng ban với thiết bị được chọn. Filter này kết hợp với tìm kiếm, phòng ban, sắp xếp và phân trang tại database, giữ nguyên scope của người dùng. Ví dụ: `GET /devices?eligibleFor=Recovery&departmentCode=CNTT&page=1&pageSize=20`. Khi gửi phiếu, backend vẫn xác định loại nghiệp vụ từ phòng nguồn/đích và kiểm tra lại điều kiện; việc lấy danh sách `Recovery` không cho phép đưa thiết bị hỏng vào cấp phát hoặc điều chuyển giữa phòng ban.
 
 Query hỗ trợ `search`, `categoryCode`, `status`, `condition`, `departmentCode`, `areaCode`, `availability`, `sortBy`, `sortDirection`, `page`, `pageSize`. `sortBy`: `DeviceCode|Name|Category|Department|Status`; direction `Asc|Desc`. `availability`: `Available|Reserved|OnLoan|TransferPending`. Mặc định page 1, pageSize 20; pageSize tối đa 100.
 

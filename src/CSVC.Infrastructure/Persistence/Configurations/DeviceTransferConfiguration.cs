@@ -28,6 +28,14 @@ public sealed class DeviceTransferConfiguration : IEntityTypeConfiguration<Devic
         builder.Property(x => x.CreatorAccountId).HasColumnName("creator_account_id").HasColumnType("uuid");
         builder.Property(x => x.CreatedAt).HasColumnName("created_at").HasColumnType("timestamptz");
         builder.Property(x => x.Status).HasColumnName("status").HasColumnType("device_transfer_status");
+        builder.Property(x => x.TransferType).HasColumnName("transfer_type").HasConversion<string>().HasMaxLength(32);
+        builder.Property(x => x.ReceiverConfirmedAccountId).HasColumnName("receiver_confirmed_account_id");
+        builder.Property(x => x.ReceiverConfirmedAt).HasColumnName("receiver_confirmed_at");
+        builder.Property(x => x.ReceiverRejectedAccountId).HasColumnName("receiver_rejected_account_id");
+        builder.Property(x => x.ReceiverRejectedAt).HasColumnName("receiver_rejected_at");
+        builder.Property(x => x.ReceiverRejectionReason).HasColumnName("receiver_rejection_reason").HasMaxLength(1000);
+        builder.HasOne<Account>().WithMany().HasForeignKey(x => x.ReceiverConfirmedAccountId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Account>().WithMany().HasForeignKey(x => x.ReceiverRejectedAccountId).OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.DecisionAccountId).HasColumnName("decision_account_id").HasColumnType("uuid");
         builder.Property(x => x.DecidedAt).HasColumnName("decided_at").HasColumnType("timestamptz");
         builder.Property(x => x.SourceHandoverAccountId).HasColumnName("source_handover_account_id").HasColumnType("uuid");

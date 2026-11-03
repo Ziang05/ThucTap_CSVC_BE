@@ -17,7 +17,7 @@ namespace CSVC.UseCases.DeviceLoans;
 
 public sealed class DeviceLoanService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock) : IDeviceLoanService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy) : IDeviceLoanService
 {
     public async Task<PagedResult<DeviceLoanDto>> ListAsync(DeviceLoanListQuery query, CancellationToken ct)
     {
@@ -300,6 +300,7 @@ public sealed class DeviceLoanService(
 
     private static void ValidateDeviceAvailable(Device device)
     {
+        if (device.Quantity != 1) throw Conflict("DEVICE_NOT_RECEIVED", "The device has not been received yet.");
         if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "A requested device is locked.");
         if (device.Condition != DeviceCondition.Good) throw Conflict("DEVICE_NOT_AVAILABLE", "A damaged or missing device cannot be loaned.");
     }
@@ -319,7 +320,8 @@ public sealed class DeviceLoanService(
     private async Task<Actor> RequireDepartmentStaffAsync(CancellationToken ct)
     {
         var actor = await RequireActorAsync(ct);
-        if (actor.RoleCode != RoleCodes.DepartmentStaff) throw Forbidden("Only department staff may perform this action.");
+        if (!RoleCodes.CanActAsDepartmentStaff(actor.RoleCode)) throw Forbidden("Only department or equipment staff may perform this action.");
+        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
         return actor;
     }
 
@@ -327,6 +329,7 @@ public sealed class DeviceLoanService(
     {
         var actor = await RequireActorAsync(ct);
         if (actor.RoleCode is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff)) throw Forbidden("Only equipment staff may decide loan requests.");
+        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
         return actor;
     }
 

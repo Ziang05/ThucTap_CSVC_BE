@@ -18,7 +18,7 @@ namespace CSVC.UseCases.DeviceTransfers;
 
 public sealed class DeviceTransferService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock) : IDeviceTransferService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy) : IDeviceTransferService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -44,13 +44,14 @@ public sealed class DeviceTransferService(
         {
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
-            var (source, target, responsible, reason, devices) = await ValidateTransferRequestAsync(request, actor, [], token);
+            var (source, target, responsible, reason, devices, transferType) = await ValidateTransferRequestAsync(request, actor, [], token);
             var transfer = new DeviceTransfer
             {
                 TransferCode = BusinessCode.NewRandom("DC"),
                 SourceDepartmentId = source.Id, TargetDepartmentId = target.Id,
                 TargetResponsibleAccountId = responsible.Id, Reason = reason, CreatorAccountId = actor.AccountId,
-                CreatedAt = clock.GetUtcNow(), Status = DeviceTransferStatus.PendingApproval, Notes = Clean(request.Notes),
+                CreatedAt = clock.GetUtcNow(), Status = DeviceTransferStatus.PendingConfirmation, Notes = Clean(request.Notes),
+                TransferType = transferType,
                 Items = devices.Select(device => new DeviceTransferItem { DeviceId = device.Id }).ToList()
             };
             await unitOfWork.DeviceTransfers.AddAsync(transfer, token);
@@ -67,7 +68,7 @@ public sealed class DeviceTransferService(
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
             var transfer = await unitOfWork.DeviceTransfers.FirstOrDefaultTrackedAsync(x => x.TransferCode == NormalizeCode(transferCode), token) ?? throw Missing();
-            RequirePending(transfer);
+            RequireConfirmationPending(transfer);
             if (transfer.CreatorAccountId != actor.AccountId) throw Forbidden("Only the transfer creator may edit it.");
             var oldItems = await unitOfWork.DeviceTransferItems.ListTrackedForTransferAsync(transfer.Id, token);
             var oldDevices = await LoadTransferDevicesAsync(oldItems, token);
@@ -75,7 +76,7 @@ public sealed class DeviceTransferService(
             var targetBefore = await DepartmentCodeAsync(transfer.TargetDepartmentId, token);
             var responsibleBefore = await AccountCodeAsync(transfer.TargetResponsibleAccountId, token);
             var before = Snapshot(transfer, sourceBefore, targetBefore, responsibleBefore, oldDevices.Select(x => new { x.DeviceCode, x.Name }));
-            var (source, target, responsible, reason, devices) = await ValidateTransferRequestAsync(request, actor, oldDevices, token);
+            var (source, target, responsible, reason, devices, transferType) = await ValidateTransferRequestAsync(request, actor, oldDevices, token);
             var retainedIds = devices.Select(x => x.Id).ToHashSet();
             foreach (var old in oldItems.Where(x => !retainedIds.Contains(x.DeviceId))) await unitOfWork.DeviceTransferItems.DeleteAsync(old, token);
             var existingIds = oldItems.Select(x => x.DeviceId).ToHashSet();
@@ -83,6 +84,7 @@ public sealed class DeviceTransferService(
                 await unitOfWork.DeviceTransferItems.AddAsync(new DeviceTransferItem { TransferId = transfer.Id, DeviceId = device.Id }, token);
             transfer.SourceDepartmentId = source.Id;
             transfer.TargetDepartmentId = target.Id;
+            transfer.TransferType = transferType;
             transfer.TargetResponsibleAccountId = responsible.Id;
             transfer.Reason = reason;
             transfer.Notes = Clean(request.Notes);
@@ -99,30 +101,14 @@ public sealed class DeviceTransferService(
             var actor = await RequireEquipmentAsync(token);
             Validate(request);
             var transfer = await unitOfWork.DeviceTransfers.FirstOrDefaultTrackedAsync(x => x.TransferCode == NormalizeCode(transferCode), token) ?? throw Missing();
-            RequirePending(transfer);
+            if (transfer.Status != DeviceTransferStatus.PendingApproval || transfer.TransferType != DeviceTransferType.InterDepartment || transfer.ReceiverConfirmedAt is null)
+                throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only an inter-department transfer accepted by its receiver can be decided.");
             var items = await unitOfWork.DeviceTransferItems.ListTrackedForTransferAsync(transfer.Id, token);
             if (items.Count == 0) throw Conflict("TRANSFER_EMPTY", "A transfer must contain at least one device.");
             var before = SnapshotStatus(transfer);
             if (approve)
             {
-                var responsible = await GetTargetResponsibleAsync(transfer.TargetResponsibleAccountId, transfer.TargetDepartmentId, token);
-                if (responsible.IsLock) throw Conflict("TARGET_RESPONSIBLE_UNAVAILABLE", "The target responsible account is locked.");
-                var source = await unitOfWork.Departments.GetByIdAsync(transfer.SourceDepartmentId, token) ?? throw Conflict("DEPARTMENT_UNAVAILABLE", "The source department no longer exists.");
-                var target = await unitOfWork.Departments.GetByIdAsync(transfer.TargetDepartmentId, token) ?? throw Conflict("DEPARTMENT_UNAVAILABLE", "The target department no longer exists.");
-                if (source.Status != EntityStatus.Active || target.Status != EntityStatus.Active) throw Conflict("DEPARTMENT_UNAVAILABLE", "A transfer department is locked.");
-                await transaction.LockDevicesAsync(items.Select(x => x.DeviceId).ToArray(), token);
-                var devices = await LoadTransferDevicesAsync(items, token);
-                if (devices.Count != items.Count) throw Conflict("DEVICE_NOT_IN_SOURCE_DEPARTMENT", "A transfer device no longer exists.");
-                foreach (var device in devices)
-                {
-                    ValidateTransferDevice(device, transfer.SourceDepartmentId);
-                    var acquired = await unitOfWork.DeviceOperationHolds.TryAcquireAsync(new DeviceOperationHold
-                    {
-                        DeviceCode = device.DeviceCode, DeviceId = device.Id, OperationKind = DeviceOperationKind.Transfer,
-                        OperationId = transfer.Id, HeldAt = clock.GetUtcNow()
-                    }, token);
-                    if (!acquired) throw Conflict("DEVICE_BUSY", "A transfer device is already held by another operation.");
-                }
+                await ReserveAsync(transfer, items, token);
                 transfer.Status = DeviceTransferStatus.Approved;
             }
             else transfer.Status = DeviceTransferStatus.Rejected;
@@ -136,6 +122,65 @@ public sealed class DeviceTransferService(
             return true;
         }, ct);
 
+    public async Task ConfirmReceiptIntentAsync(string transferCode, bool accept, TransferDecisionRequest request, CancellationToken ct)
+        => await transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireDepartmentStaffAsync(token);
+            Validate(request);
+            var transfer = await unitOfWork.DeviceTransfers.FirstOrDefaultTrackedAsync(x => x.TransferCode == NormalizeCode(transferCode), token) ?? throw Missing();
+            RequireReceiver(transfer, actor);
+            RequireConfirmationPending(transfer);
+            var before = SnapshotStatus(transfer);
+            if (accept)
+            {
+                if (transfer.TransferType is DeviceTransferType.Allocation or DeviceTransferType.Recovery)
+                {
+                    var items = await unitOfWork.DeviceTransferItems.ListTrackedForTransferAsync(transfer.Id, token);
+                    await ReserveAsync(transfer, items, token);
+                    transfer.Status = DeviceTransferStatus.Approved;
+                }
+                else transfer.Status = DeviceTransferStatus.PendingApproval;
+                transfer.ReceiverConfirmedAccountId = actor.AccountId;
+                transfer.ReceiverConfirmedAt = clock.GetUtcNow();
+            }
+            else
+            {
+                transfer.Status = DeviceTransferStatus.Rejected;
+                transfer.ReceiverRejectedAccountId = actor.AccountId;
+                transfer.ReceiverRejectedAt = clock.GetUtcNow();
+                transfer.ReceiverRejectionReason = Clean(request.Reason);
+            }
+            unitOfWork.DeviceTransfers.Update(transfer);
+            await AuditAsync(transfer, actor.AccountId, accept ? "TRANSFER_RECEIVER_CONFIRMED" : "TRANSFER_RECEIVER_REJECTED",
+                ["status", "receiverConfirmedAccount", "receiverConfirmedAt", "receiverRejectedAccount", "receiverRejectedAt", "receiverRejectionReason"],
+                before, SnapshotStatus(transfer), token);
+            await unitOfWork.CommitAsync(token);
+            return true;
+        }, ct);
+
+    private async Task ReserveAsync(DeviceTransfer transfer, IReadOnlyList<DeviceTransferItem> items, CancellationToken token)
+    {
+        if (items.Count == 0) throw Conflict("TRANSFER_EMPTY", "A transfer must contain at least one device.");
+        var responsible = await GetTargetResponsibleAsync(transfer.TargetResponsibleAccountId, transfer.TargetDepartmentId, token);
+        if (responsible.IsLock) throw Conflict("TARGET_RESPONSIBLE_UNAVAILABLE", "The target responsible account is locked.");
+        var source = await unitOfWork.Departments.GetByIdAsync(transfer.SourceDepartmentId, token) ?? throw Conflict("DEPARTMENT_UNAVAILABLE", "The source department no longer exists.");
+        var target = await unitOfWork.Departments.GetByIdAsync(transfer.TargetDepartmentId, token) ?? throw Conflict("DEPARTMENT_UNAVAILABLE", "The target department no longer exists.");
+        if (source.Status != EntityStatus.Active || target.Status != EntityStatus.Active) throw Conflict("DEPARTMENT_UNAVAILABLE", "A transfer department is locked.");
+        await transaction.LockDevicesAsync(items.Select(x => x.DeviceId).ToArray(), token);
+        var devices = await LoadTransferDevicesAsync(items, token);
+        if (devices.Count != items.Count) throw Conflict("DEVICE_NOT_IN_SOURCE_DEPARTMENT", "A transfer device no longer exists.");
+        foreach (var device in devices)
+        {
+            ValidateTransferDevice(device, transfer.SourceDepartmentId, transfer.TransferType);
+            var acquired = await unitOfWork.DeviceOperationHolds.TryAcquireAsync(new DeviceOperationHold
+            {
+                DeviceCode = device.DeviceCode, DeviceId = device.Id, OperationKind = DeviceOperationKind.Transfer,
+                OperationId = transfer.Id, HeldAt = clock.GetUtcNow()
+            }, token);
+            if (!acquired) throw Conflict("DEVICE_BUSY", "A transfer device is already held by another operation.");
+        }
+    }
+
     public async Task HandoverCompleteAsync(string transferCode, TransferHandoverRequest request, CancellationToken ct)
         => await transaction.ExecuteAsync(async token =>
         {
@@ -143,15 +188,19 @@ public sealed class DeviceTransferService(
             Validate(request);
             var transfer = await unitOfWork.DeviceTransfers.FirstOrDefaultTrackedAsync(x => x.TransferCode == NormalizeCode(transferCode), token) ?? throw Missing();
             if (transfer.Status != DeviceTransferStatus.Approved) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only an approved transfer can be completed.");
-            if (actor.DepartmentId != transfer.SourceDepartmentId && actor.DepartmentId != transfer.TargetDepartmentId) throw Missing();
-            var sourceHandover = await FindHandoverAccountAsync(request.SourceHandoverAccountCode, transfer.SourceDepartmentId, token);
-            var targetHandover = await FindHandoverAccountAsync(request.TargetHandoverAccountCode, transfer.TargetDepartmentId, token);
-            if (actor.AccountId != sourceHandover.Id && actor.AccountId != targetHandover.Id)
-                throw Forbidden("The current actor must be one of the declared handover participants.");
+            RequireReceiver(transfer, actor);
+            var sourceHandover = string.IsNullOrWhiteSpace(request.SourceHandoverAccountCode) ? null
+                : await FindHandoverAccountAsync(request.SourceHandoverAccountCode, transfer.SourceDepartmentId, token);
+            var responsible = await GetTargetResponsibleAsync(transfer.TargetResponsibleAccountId, transfer.TargetDepartmentId, token);
+            if (responsible.IsLock) throw Conflict("TARGET_RESPONSIBLE_UNAVAILABLE", "The target responsible account is locked.");
+            if (!await unitOfWork.Departments.ExistsAsync(x => x.Id == transfer.TargetDepartmentId && x.Status == EntityStatus.Active, token))
+                throw Conflict("DEPARTMENT_UNAVAILABLE", "The receiving department is unavailable.");
             var items = await unitOfWork.DeviceTransferItems.ListTrackedForTransferAsync(transfer.Id, token);
             if (request.Items is null || request.Items.Count != items.Count || items.Count == 0)
                 throw Validation("Handover must include every transfer device exactly once.");
-            if (request.Items.Any(x => x is null || !Enum.IsDefined(x.Condition) || x.Condition == DeviceCondition.Missing || x.Note?.Length > 1000))
+            if (request.Items.Any(x => x is null || (x.Condition is { } condition && !Enum.IsDefined(condition))
+                || x.Condition == DeviceCondition.Missing || x.Note?.Length > 1000
+                || (transfer.TransferType == DeviceTransferType.Recovery && x.Condition is null)))
                 throw Validation("Handover item condition or note is invalid.");
             var codes = request.Items.Select(x => NormalizeCode(x.DeviceCode)).ToArray();
             if (codes.Distinct(StringComparer.Ordinal).Count() != codes.Length || codes.Any(x => !DeviceCodePattern.IsMatch(x)))
@@ -170,37 +219,38 @@ public sealed class DeviceTransferService(
             foreach (var item in items)
             {
                 var device = devicesById[item.DeviceId];
-                ValidateTransferDevice(device, transfer.SourceDepartmentId);
+                ValidateTransferDevice(device, transfer.SourceDepartmentId, transfer.TransferType);
                 if (!await unitOfWork.DeviceOperationHolds.IsOwnedByAsync(device.DeviceCode, DeviceOperationKind.Transfer, transfer.Id, token))
                     throw Conflict("DEVICE_BUSY", "The transfer no longer owns a device reservation.");
                 var input = requestByCode[device.DeviceCode];
-                item.ConditionAtHandover = input.Condition;
+                var receivedCondition = input.Condition ?? DeviceCondition.Good;
+                item.ConditionAtHandover = receivedCondition;
                 item.HandoverNote = Clean(input.Note);
                 device.DepartmentId = transfer.TargetDepartmentId;
                 device.AreaId = null;
                 device.ResponsibleAccountId = transfer.TargetResponsibleAccountId;
-                device.Condition = input.Condition;
+                device.Condition = receivedCondition;
                 unitOfWork.DeviceTransferItems.Update(item);
                 unitOfWork.Devices.Update(device);
                 await unitOfWork.DeviceHistories.AddAsync(new DeviceHistory
                 {
                     RequestId = requestContext.RequestId, ActorAccountId = actor.AccountId, DeviceId = device.Id,
-                    ActionCode = "DEVICE_TRANSFER_COMPLETED_" + device.DeviceCode, Outcome = AuditOutcome.Success,
+                    ActionCode = (transfer.TransferType == DeviceTransferType.Recovery ? "DEVICE_RECOVERY_COMPLETED_" : "DEVICE_TRANSFER_COMPLETED_") + device.DeviceCode, Outcome = AuditOutcome.Success,
                     OccurredAt = clock.GetUtcNow(), ChangedFields = "[\"departmentCode\",\"areaCode\",\"responsibleAccountCode\",\"condition\"]",
                     BeforeData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = sourceCode }),
-                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = targetCode, responsibleAccountCode = responsibleCode, condition = input.Condition.ToString(), transferCode = transfer.TransferCode })
+                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = targetCode, responsibleAccountCode = responsibleCode, condition = receivedCondition.ToString(), transferCode = transfer.TransferCode, transferType = transfer.TransferType.ToString() })
                 }, token);
                 if (!await unitOfWork.DeviceOperationHolds.ReleaseAsync(device.DeviceCode, DeviceOperationKind.Transfer, transfer.Id, token))
                     throw Conflict("DEVICE_BUSY", "The transfer no longer owns a device reservation.");
             }
-            transfer.SourceHandoverAccountId = sourceHandover.Id;
-            transfer.TargetHandoverAccountId = targetHandover.Id;
+            transfer.SourceHandoverAccountId = sourceHandover?.Id;
+            transfer.TargetHandoverAccountId = actor.AccountId;
             transfer.CompletedAt = clock.GetUtcNow();
             transfer.Status = DeviceTransferStatus.Completed;
             unitOfWork.DeviceTransfers.Update(transfer);
             await AuditAsync(transfer, actor.AccountId, "TRANSFER_COMPLETED", ["status", "sourceHandoverAccount", "targetHandoverAccount", "completedAt", "items"],
                 before, Snapshot(transfer, sourceCode, targetCode, responsibleCode,
-                    request.Items.Select(x => new { deviceCode = NormalizeCode(x.DeviceCode), condition = x.Condition.ToString(), note = Clean(x.Note) })), token);
+                    request.Items.Select(x => new { deviceCode = NormalizeCode(x.DeviceCode), condition = (x.Condition ?? DeviceCondition.Good).ToString(), note = Clean(x.Note) })), token);
             await unitOfWork.CommitAsync(token);
             return true;
         }, ct);
@@ -210,8 +260,9 @@ public sealed class DeviceTransferService(
         {
             var actor = await RequireDepartmentStaffAsync(token);
             var transfer = await unitOfWork.DeviceTransfers.FirstOrDefaultTrackedAsync(x => x.TransferCode == NormalizeCode(transferCode), token) ?? throw Missing();
-            RequirePending(transfer);
-            if (transfer.CreatorAccountId != actor.AccountId) throw Forbidden("Only the transfer creator may cancel it.");
+            if (transfer.Status is not (DeviceTransferStatus.PendingConfirmation or DeviceTransferStatus.PendingApproval))
+                throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only a transfer awaiting confirmation or approval can be cancelled.");
+            if (transfer.CreatorAccountId != actor.AccountId || actor.DepartmentId != transfer.SourceDepartmentId) throw Forbidden("Only the creator in the source department may cancel it.");
             var before = SnapshotStatus(transfer);
             transfer.Status = DeviceTransferStatus.Cancelled;
             unitOfWork.DeviceTransfers.Update(transfer);
@@ -233,7 +284,7 @@ public sealed class DeviceTransferService(
             actor.RoleCode == RoleCodes.DepartmentStaff ? null : x.AfterData)).ToArray(), page.TotalCount, page.Page, page.PageSize);
     }
 
-    private async Task<(Department Source, Department Target, Account Responsible, string Reason, List<Device> Devices)> ValidateTransferRequestAsync(
+    private async Task<(Department Source, Department Target, Account Responsible, string Reason, List<Device> Devices, DeviceTransferType TransferType)> ValidateTransferRequestAsync(
         CreateDeviceTransferRequest request, Actor actor, IReadOnlyList<Device> existingDevices, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.SourceDepartmentCode) || string.IsNullOrWhiteSpace(request.TargetDepartmentCode)
@@ -244,7 +295,9 @@ public sealed class DeviceTransferService(
         var target = await FindByCodeAsync(unitOfWork.Departments, request.TargetDepartmentCode, x => x.Code, "DEPARTMENT_NOT_FOUND", ct);
         if (source.Id == target.Id) throw Validation("Source and target departments must be different.");
         if (source.Status != EntityStatus.Active || target.Status != EntityStatus.Active) throw Conflict("DEPARTMENT_UNAVAILABLE", "Both transfer departments must be active.");
-        if (actor.DepartmentId != source.Id && actor.DepartmentId != target.Id) throw Forbidden("The creator must belong to the source or target department.");
+        if (actor.DepartmentId != source.Id) throw Forbidden("Only the source department may create a transfer.");
+        var equipmentDepartmentId = await equipmentPolicy.RequireConfiguredAsync(ct);
+        var transferType = ResolveTransferType(source.Id, target.Id, equipmentDepartmentId);
         var responsible = await FindByCodeAsync(unitOfWork.Accounts, request.TargetResponsibleAccountCode, x => x.AccountCode, "TARGET_RESPONSIBLE_NOT_FOUND", ct);
         if (responsible.IsLock) throw Conflict("TARGET_RESPONSIBLE_UNAVAILABLE", "The target responsible account is locked.");
         var responsibleProfile = await unitOfWork.UserProfiles.GetByIdAsync(responsible.UserProfileId, ct);
@@ -263,19 +316,19 @@ public sealed class DeviceTransferService(
             var device = existingByCode.GetValueOrDefault(code)
                 ?? await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == code, ct)
                 ?? throw new UseCaseException(FailureKind.NotFound, "DEVICE_NOT_FOUND", "A requested device was not found.");
-            ValidateTransferDevice(device, source.Id);
+            ValidateTransferDevice(device, source.Id, transferType);
             if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(device.Id, ct)) throw Conflict("DEVICE_BUSY", "A transfer device is already held by another operation.");
             var subtree = await unitOfWork.Devices.GetSubtreeAsync(device.Id, ct);
             if (subtree.Any(x => x.DepartmentId != source.Id)) throw Conflict("DEVICE_GROUP_SOURCE_MISMATCH", "Every device in the selected subtree must belong to the transfer source department.");
             foreach (var member in subtree)
             {
                 if (devices.Any(x => x.Id == member.Id)) continue;
-                ValidateTransferDevice(member, source.Id);
+                ValidateTransferDevice(member, source.Id, transferType);
                 if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(member.Id, ct)) throw Conflict("DEVICE_BUSY", "A device in the selected subtree is already held by another operation.");
                 devices.Add(member);
             }
         }
-        return (source, target, responsible, reason, devices);
+        return (source, target, responsible, reason, devices, transferType);
     }
 
     private async Task<List<Device>> LoadTransferDevicesAsync(IEnumerable<DeviceTransferItem> items, CancellationToken ct)
@@ -302,16 +355,29 @@ public sealed class DeviceTransferService(
         var account = await FindByCodeAsync(unitOfWork.Accounts, accountCode, x => x.AccountCode, "HANDOVER_ACCOUNT_NOT_FOUND", ct);
         var profile = await unitOfWork.UserProfiles.GetByIdAsync(account.UserProfileId, ct);
         var role = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
-        if (account.IsLock || profile?.DepartmentId != departmentId || role?.Code != RoleCodes.DepartmentStaff)
-            throw Validation("Handover accounts must be active Department Staff members of their respective departments.");
+        if (account.IsLock || profile?.DepartmentId != departmentId || !RoleCodes.CanActAsDepartmentStaff(role?.Code))
+            throw Validation("Handover accounts must be active department or equipment staff members of their respective departments.");
         return account;
     }
 
-    private static void ValidateTransferDevice(Device device, Guid sourceDepartmentId)
+    private static DeviceTransferType ResolveTransferType(Guid source, Guid target, Guid equipmentDepartment)
+        => source == equipmentDepartment ? DeviceTransferType.Allocation
+            : target == equipmentDepartment ? DeviceTransferType.Recovery : DeviceTransferType.InterDepartment;
+
+    private static void RequireReceiver(DeviceTransfer transfer, Actor actor)
     {
+        if (actor.DepartmentId != transfer.TargetDepartmentId) throw Missing();
+        if (transfer.TransferType == DeviceTransferType.Recovery && actor.RoleCode != RoleCodes.EquipmentStaff)
+            throw Forbidden("Only equipment staff in the receiving equipment department may accept and complete recovery.");
+    }
+
+    private static void ValidateTransferDevice(Device device, Guid sourceDepartmentId, DeviceTransferType transferType)
+    {
+        if (device.Quantity != 1) throw Conflict("DEVICE_NOT_RECEIVED", "The device has not been received yet.");
         if (device.DepartmentId != sourceDepartmentId) throw Conflict("DEVICE_NOT_IN_SOURCE_DEPARTMENT", "Every device must still belong to the source department.");
         if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "A locked device cannot be transferred.");
-        if (device.Condition != DeviceCondition.Good) throw Conflict("DEVICE_NOT_AVAILABLE", "A damaged or missing device cannot be transferred.");
+        if (device.Condition != DeviceCondition.Good && !(transferType == DeviceTransferType.Recovery && device.Condition == DeviceCondition.Damaged))
+            throw Conflict("DEVICE_NOT_AVAILABLE", "Only good devices may be transferred; recovery also accepts damaged devices.");
     }
 
     private async Task<Actor> RequireActorAsync(CancellationToken ct)
@@ -329,7 +395,8 @@ public sealed class DeviceTransferService(
     private async Task<Actor> RequireDepartmentStaffAsync(CancellationToken ct)
     {
         var actor = await RequireActorAsync(ct);
-        if (actor.RoleCode != RoleCodes.DepartmentStaff) throw Forbidden("Only department staff may perform this action.");
+        if (!RoleCodes.CanActAsDepartmentStaff(actor.RoleCode)) throw Forbidden("Only department or equipment staff may perform this action.");
+        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
         return actor;
     }
 
@@ -337,6 +404,7 @@ public sealed class DeviceTransferService(
     {
         var actor = await RequireActorAsync(ct);
         if (actor.RoleCode is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff)) throw Forbidden("Only QTTB may decide transfer requests.");
+        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
         return actor;
     }
 
@@ -348,14 +416,17 @@ public sealed class DeviceTransferService(
     {
         var items = await unitOfWork.DeviceTransferItems.ListForTransferAsync(read.Id, ct);
         return ToDto(read) with { Items = items.Select(x => new DeviceTransferItemDto(x.DeviceCode, x.Name, x.CategoryCode, x.CategoryName,
-            x.ConditionAtHandover, x.HandoverNote)).ToArray() };
+            x.ConditionAtHandover, x.HandoverNote, x.CurrentCondition)).ToArray() };
     }
 
     private static DeviceTransferDto ToDto(DeviceTransferReadModel x)
         => new(x.TransferCode, x.SourceDepartmentCode, x.SourceDepartmentName, x.TargetDepartmentCode, x.TargetDepartmentName,
             x.TargetResponsibleAccountCode, x.TargetResponsibleFullName, x.Reason, x.Status, x.CreatorAccountCode, x.CreatedAt,
             x.DecisionAccountCode, x.DecidedAt, x.DecisionReason, x.SourceHandoverAccountCode, x.TargetHandoverAccountCode,
-            x.CompletedAt, x.Notes, x.ItemCount, x.Version);
+            x.CompletedAt, x.Notes, x.ItemCount, x.Version, TransferType: x.TransferType,
+            ReceiverConfirmedAccountCode: x.ReceiverConfirmedAccountCode, ReceiverConfirmedAt: x.ReceiverConfirmedAt,
+            ReceiverRejectedAccountCode: x.ReceiverRejectedAccountCode, ReceiverRejectedAt: x.ReceiverRejectedAt,
+            ReceiverRejectionReason: x.ReceiverRejectionReason);
 
     private Task AuditAsync(DeviceTransfer transfer, Guid actor, string action, IReadOnlyList<string> fields, string? before, string after, CancellationToken ct)
         => unitOfWork.DeviceTransferHistories.AddAsync(new DeviceTransferHistory
@@ -379,12 +450,12 @@ public sealed class DeviceTransferService(
     private async Task<string> AccountCodeAsync(Guid id, CancellationToken ct)
         => (await unitOfWork.Accounts.GetByIdAsync(id, ct))?.AccountCode ?? "";
     private static string Snapshot(DeviceTransfer transfer, string sourceCode, string targetCode, string responsibleCode, IEnumerable<object> items)
-        => JsonSerializer.Serialize(new { transfer.TransferCode, sourceCode, targetCode, responsibleCode, transfer.Reason, transfer.Notes, items });
+        => JsonSerializer.Serialize(new { transfer.TransferCode, sourceCode, targetCode, responsibleCode, transfer.Reason, transfer.Notes, transferType = transfer.TransferType.ToString(), items });
     private static string SnapshotStatus(DeviceTransfer transfer)
-        => JsonSerializer.Serialize(new { transfer.TransferCode, status = transfer.Status.ToString(), transfer.DecisionReason, transfer.DecidedAt, transfer.CompletedAt });
-    private static void RequirePending(DeviceTransfer transfer)
+        => JsonSerializer.Serialize(new { transfer.TransferCode, status = transfer.Status.ToString(), transferType = transfer.TransferType.ToString(), transfer.DecisionReason, transfer.DecidedAt, transfer.CompletedAt, transfer.ReceiverConfirmedAccountId, transfer.ReceiverConfirmedAt, transfer.ReceiverRejectedAccountId, transfer.ReceiverRejectedAt, transfer.ReceiverRejectionReason });
+    private static void RequireConfirmationPending(DeviceTransfer transfer)
     {
-        if (transfer.Status != DeviceTransferStatus.PendingApproval) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only a pending transfer can be changed or decided.");
+        if (transfer.Status != DeviceTransferStatus.PendingConfirmation) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only a transfer awaiting receiver confirmation can be changed or confirmed.");
     }
     private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : TextNormalization.Name(value);

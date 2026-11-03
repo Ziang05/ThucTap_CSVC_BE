@@ -1,8 +1,19 @@
 # Contract nghiệp vụ và API cho các luồng thiết bị
 
-Trạng thái: **Phase 0 hoàn tất; contract baseline cho implementation**. Tài liệu này cụ thể hóa quyết định tại [backend-device-workflows-plan.md](backend-device-workflows-plan.md) và là đầu vào cho [implementation plan](backend-device-workflows-implementation-plan.md). Nếu có khác biệt với tài liệu SRS/sơ đồ cũ thì ưu tiên contract này. Các endpoint dưới đây là contract dự kiến để implement, không khẳng định API đã tồn tại.
+Trạng thái: **Phase 0 hoàn tất; contract baseline cho implementation**. Tài liệu này cụ thể hóa quyết định tại [backend-device-workflows-plan.md](plan/backend-device-workflows-plan.md) và là đầu vào cho [implementation plan](plan/backend-device-workflows-implementation-plan.md). Nếu có khác biệt với tài liệu SRS/sơ đồ cũ thì ưu tiên contract này. Các endpoint dưới đây là contract dự kiến để implement, không khẳng định API đã tồn tại.
 
 ## 1. Quy ước chung
+
+### Bổ sung ngày 2026-11-02: tiếp nhận từng thiết bị
+
+Quy tắc này ưu tiên các mô tả cũ về tạo thiết bị tại các mục dưới:
+
+- Device có `quantity` chỉ bằng 0 hoặc 1, trả trong list/detail/barcode. Tạo ngoài receipt luôn bằng 0; hoàn tất tiếp nhận mới bằng 1. Không cho client sửa số lượng, không cho nhập lại mã đã có số lượng 1.
+- Receipt item hỗ trợ `existingDeviceCode` để chọn hồ sơ số lượng 0 có sẵn, cùng phòng ban và Active; backend giữ nguyên identity và metadata. Item mới vẫn khai báo `categoryCode`, `name`, `deviceCode`/serial/parent tùy chọn ngay trong phiếu. Có thể kết hợp hai kiểu item trong cùng phiếu.
+- Thiết bị có sẵn được liên kết khi complete; thiết bị mới được tạo khi complete. Duyệt/chờ duyệt/hủy/từ chối không tăng số lượng. Audit và thay đổi số lượng cùng transaction.
+- Phiếu hủy/từ chối không ngăn chọn lại hồ sơ có sẵn trên phiếu khác. Approval hold và kiểm tra quantity bảo vệ khỏi nhập trùng giữa các phiếu.
+- Device `availability` thêm `NotReceived`; `Available` yêu cầu quantity=1. Mượn/điều chuyển/bảo trì/sửa chữa chặn quantity=0 với `DEVICE_NOT_RECEIVED`.
+- API chi tiết và payload: [devices-api.md](devices-api.md), [device-receipts-api.md](device-receipts-api.md).
 
 - Base path: `/api/v1`; JSON camelCase; enum response dạng PascalCase string như `PendingApproval`, `Active`, `Good`.
 - Endpoint cần xác thực dùng session bearer hiện có. Actor luôn lấy từ `ICurrentAccount`; không nhận `actorAccountId`, role hoặc quyền từ payload.
@@ -79,14 +90,21 @@ Loan có một borrower nội bộ; không gia hạn và không trả từng ph�
 
 | Hiện tại | Lệnh | Vai trò | Tiếp theo | Ghi chú |
 |---|---|---|---|---|
-| `PendingApproval` | Edit/Cancel | Creator thuộc source hoặc target department | PendingApproval/`Cancelled` | Chỉ trước duyệt. |
-| `PendingApproval` | Approve/Reject | QTTB Manager hoặc QTTB Staff được phân quyền | `Approved`/`Rejected` | Quyết định toàn phiếu; approve giữ toàn bộ device. |
-| `Approved` | HandoverComplete | Department Staff thuộc source hoặc target; khai báo actor giao/nhận thuộc đúng hai bên | `Completed` | Một lần cho toàn bộ; cập nhật department/area/responsible person cùng transaction. Không hủy sau duyệt. |
+| `PendingConfirmation` | Edit/Cancel | Creator thuộc source department | PendingConfirmation/`Cancelled` | Chỉ bên giao lập phiếu, không lập hộ. |
+| `PendingConfirmation` | ConfirmReceiptIntent | Nhân sự có quyền thuộc target department; thu hồi yêu cầu QTTB Staff | `Approved` nếu cấp phát/thu hồi; `PendingApproval` nếu giữa hai phòng ban | Cấp phát/thu hồi giữ chỗ thiết bị ngay khi bên nhận đồng ý. |
+| `PendingConfirmation` | RejectReceiptIntent | Nhân sự có quyền thuộc target department | `Rejected` | Ghi riêng quyết định bên nhận, không ghi duyệt QTTB giả. |
+| `PendingApproval` | Cancel | Creator thuộc source department | `Cancelled` | Không sửa nội dung sau khi bên nhận đã đồng ý. |
+| `PendingApproval` | Approve/Reject | QTTB Manager hoặc QTTB Staff đúng phòng cấu hình | `Approved`/`Rejected` | Chỉ nhánh InterDepartment; approve giữ toàn bộ device. Không thêm quy tắc cấm tự duyệt. |
+| `Approved` | HandoverComplete | Nhân sự có quyền thuộc target department; thu hồi yêu cầu QTTB Staff | `Completed` | Actor nhận từ session; cập nhật department/area/responsible person cùng transaction. Không hủy sau duyệt. |
 | Terminal state | Any mutation | Any | Không đổi | Trả 409. |
 
 Source và target phải khác nhau. Mỗi device phải đang do source department quản lý khi tạo và vẫn vậy khi duyệt/hoàn tất. Transfer completion đổi department và người chịu trách nhiệm tài sản sang target; loan không đổi hai thuộc tính này.
 
+Phòng QTTB được chọn bằng `EquipmentDepartmentId` tại trang Cấu hình, không phụ thuộc tên phòng. Nguồn là QTTB thì `Allocation`; hai phòng khác QTTB thì `InterDepartment`; đích là QTTB thì `Recovery`. Thu hồi do bên giao lập, QTTB Staff đồng ý rồi thực nhận, không có bước manager duyệt riêng. Thu hồi chấp nhận thiết bị `Good`/`Damaged`, chặn `Missing`; hai nhánh khác vẫn chỉ nhận `Good`. Nhân sự bên nhận đồng ý và thực nhận có thể khác nhau, không bắt buộc là người chịu trách nhiệm thiết bị. Khi thực nhận thu hồi phải khai báo tình trạng từng item. Chi tiết API: [device-transfers-api.md](device-transfers-api.md), [equipment-settings-api.md](equipment-settings-api.md).
+
 ## 4. Role và phạm vi dữ liệu
+
+Bổ sung: `QTTB_STAFF` giữ quyền QTTB và quyền tham gia workflow theo phòng ban hiện tại (tạo/sửa/hủy phiếu mượn và điều chuyển, nhận/trả). Điều chuyển chỉ bên giao lập và chỉ bên nhận xác nhận thực nhận. Các thao tác ghi mượn/trả và điều chuyển kiểm tra cấu hình phòng QTTB; tài khoản QTTB phải khớp phòng được chọn. Quyền đọc/duyệt toàn cục không thay thế kiểm tra creator, phòng ban hoặc trạng thái. `QTTB_MANAGER` không được mở rộng quyền tham gia của nhân viên. Quy tắc này và phần 3.4 ưu tiên các ô quyền cũ trong bảng bên dưới.
 
 | Hành động | QTTB Manager | QTTB Staff | Department Staff |
 |---|---:|---:|---:|
