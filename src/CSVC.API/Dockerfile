@@ -14,5 +14,6 @@ WORKDIR /app
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 COPY --from=build /app/publish .
+RUN mkdir -p /var/lib/csvc/damage-report-evidence && chown "$APP_UID" /var/lib/csvc/damage-report-evidence
 USER $APP_UID
 ENTRYPOINT ["dotnet", "CSVC.API.dll"]
