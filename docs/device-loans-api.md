@@ -1,77 +1,78 @@
-# Device Loans API
+# Mượn trả giữa hai phòng ban
 
-API mượn/trả nội bộ theo [device-workflows-contract.md](device-workflows-contract.md). Mọi endpoint cần session bearer. Borrower account/department, creator, actor duyệt, người giao và người nhận lấy từ session; API không cho client chỉ định các actor này.
+Cập nhật 04/11/2026. Base `/api/v1/device-loans`, mọi endpoint dùng session bearer.
 
-Base path: `/api/v1/device-loans`
+Một phiếu có phòng mượn A (từ hồ sơ actor) và phòng cho mượn B (chọn bằng `lenderDepartmentCode`), A khác B. Tất cả thiết bị, kể cả hậu duệ mở rộng từ thiết bị cha, phải do B quản lý. Mượn/trả không đổi department, responsible account hoặc area thiết bị.
 
-Các thao tác ghi yêu cầu đã chọn phòng phụ trách thiết bị trong [Cấu hình](equipment-settings-api.md). Tài khoản `QTTB_STAFF`/`QTTB_MANAGER` phải thuộc đúng phòng được chọn. Quyền đọc toàn cục và khả năng tự duyệt hiện tại được giữ nguyên; không bổ sung điều kiện người duyệt khác người lập.
+## Quyền và trạng thái
 
-## Quyền và phạm vi
+`DEPARTMENT_STAFF` và `QTTB_STAFF` thao tác theo phòng hiện tại; nhân viên QTTB phải thuộc phòng đã cấu hình. Hai phòng thường không cần cấu hình QTTB để mượn với nhau. QTTB giữ quyền đọc toàn cục nhưng không quyết định thay hai bên. `QTTB_MANAGER` không được thực hiện các bước nhân viên.
 
-| Hành động | QTTB Manager | QTTB Staff | Department Staff |
-|---|---:|---:|---:|
-| List/detail/history | Toàn cục | Toàn cục | Loan của phòng ban hiện tại hoặc loan do account tạo/mượn |
-| Tạo/sửa/hủy Pending | Không | Có; tạo cho chính account, sửa/hủy creator | Có; chỉ tạo cho chính account, sửa/hủy creator |
-| Approve/reject | Có | Có | Không |
-| Handover/return | Không | Nhân viên thuộc borrower department | Nhân viên thuộc borrower department |
+List/detail/history thuộc phạm vi cả A và B. Nhân viên phòng khác nhận 404; snapshot lịch sử chi tiết tiếp tục dành cho QTTB. Actor lấy từ session.
 
-Object ngoài scope trả `404 LOAN_NOT_FOUND`. Thiết bị mượn có thể thuộc đơn vị quản lý khác; loan không đổi department, area hoặc responsible account.
+| Trạng thái | Thao tác | Bên thực hiện | Kết quả |
+| --- | --- | --- | --- |
+| PendingApproval | approve/reject | Nhân viên B | Approved/Rejected |
+| PendingApproval | update/cancel | Creator vẫn thuộc A | PendingApproval/Cancelled |
+| Approved | handover-complete | Nhân viên A | OnLoan |
+| OnLoan | return | Nhân viên A báo trả | PendingReturnConfirmation |
+| PendingReturnConfirmation | confirm-return | Nhân viên B thực nhận | Returned |
+| PendingReturnConfirmation | reject-return | Nhân viên B, có lý do | OnLoan |
 
-## Routes
+Approve là bên cho mượn đồng ý, không phải QTTB duyệt. Khi đồng ý mới giữ operation hold toàn phiếu. Báo trả không giải phóng hold hoặc đổi condition thiết bị. B thực nhận mới cập nhật condition và release đúng hold Loan của phiếu. Từ chối nhận trả giữ hold; lịch sử giữ các lần báo trả trước.
 
-| Method | Route | Kết quả |
-|---|---|---|
-| GET | `/api/v1/device-loans` | Paged list |
-| POST | `/api/v1/device-loans` | `201 Created` + detail |
-| GET | `/api/v1/device-loans/{loanCode}` | Detail + device items |
-| PUT | `/api/v1/device-loans/{loanCode}` | Sửa purpose/dueAt/items khi Pending, `204` |
-| POST | `/api/v1/device-loans/{loanCode}/approve` | QTTB duyệt toàn phiếu, `204` |
-| POST | `/api/v1/device-loans/{loanCode}/reject` | QTTB từ chối toàn phiếu, `204` |
-| POST | `/api/v1/device-loans/{loanCode}/handover-complete` | Xác nhận giao đủ toàn bộ, `204` |
-| POST | `/api/v1/device-loans/{loanCode}/return` | Trả đủ toàn bộ một lần, `204` |
-| POST | `/api/v1/device-loans/{loanCode}/cancel` | Creator hủy trước duyệt, `204` |
-| GET | `/api/v1/device-loans/{loanCode}/history` | Paged history |
+Không gia hạn hoặc giao/trả từng phần. Nhận lần đầu chấp nhận Good/Damaged; báo trả và nhận lại chấp nhận Good/Damaged/Missing. Tình trạng A khai báo lưu riêng `declaredReturnCondition/Note`; B ghi `conditionAtReturn/returnNote`.
 
-List filter: `loanCode`, `borrowerAccountCode`, `departmentCode`, `status`, `overdue`, `page`, `pageSize`. Sort mặc định `createdAt Desc`, sau đó `loanCode Desc`. Department scope được áp dụng trước filter/count/paging. Page size tối đa 100.
+`status=Overdue` là projection khi quá hạn và còn OnLoan hoặc PendingReturnConfirmation. `workflowStatus` luôn là trạng thái thật để xác định thao tác. Mỗi mutation tăng version và ghi audit trong cùng transaction.
 
-## Tạo và sửa phiếu
+## Chọn thiết bị
+
+`GET /eligible-devices?lenderDepartmentCode=QTTB&search=may&page=1&pageSize=20`
+
+Lender filter tùy chọn, bỏ filter để xem các nguồn khác A. Hỗ trợ thêm `categoryCode`; count/sort/paging tại DB. Options chỉ trả mã/tên/danh mục/phòng/serial/quan hệ cha con/tình trạng, không trả giá mua hay ghi chú nội bộ. Không cấp quyền detail/barcode/history thiết bị ngoài phạm vi quản lý.
+
+Thiết bị: quantity=1, Active, Good, đúng B, không có operation hold hoặc service hold. Cả cây phải hợp lệ và cùng B; con không hợp lệ loại cả cha khỏi options. Tối đa 200 tính cả thành phần sau mở rộng. B phải hoạt động và có nhân viên có thể xác nhận.
+
+`GET /devices?eligibleFor=Loan` cũ trả 400 `LOAN_ELIGIBILITY_ENDPOINT_CHANGED`. Chuyển caller sang options mới. `eligibleFor=Transfer|Recovery` và scope quản lý thiết bị thông thường giữ nguyên.
+
+## Request và routes
+
+Tạo `POST /`:
 
 ```json
 {
-  "purpose": "Sử dụng hội trường",
-  "dueAt": "2026-11-05T17:00:00+07:00",
-  "items": [{ "deviceCode": "TB-2026-0001" }],
+  "lenderDepartmentCode": "QTTB",
+  "purpose": "Thực hành",
+  "dueAt": "2026-11-11T17:00:00+07:00",
+  "items": [{ "deviceCode": "TB-MT-001" }],
   "notes": null
 }
 ```
 
-Borrower là account hiện tại có role `DEPARTMENT_STAFF` hoặc `QTTB_STAFF`, phòng ban lấy từ hồ sơ account. `QTTB_STAFF` có thêm toàn bộ thao tác của nhân viên phòng ban: tạo/sửa/hủy phiếu của mình trước duyệt, nhận/trả thiết bị cho phiếu thuộc phòng ban mình. Quyền đọc toàn cục, duyệt và xem snapshot lịch sử của QTTB được giữ nguyên; quyền thao tác theo phòng ban vẫn được kiểm tra riêng. `QTTB_MANAGER` không được bổ sung các thao tác này. `dueAt` phải ở tương lai; backend lưu UTC. Cần 1–200 item; mã thiết bị không được trùng. Thiết bị phải tồn tại, Active, condition `Good`, và không có operation hold. Phiếu mới có mã `MT` + 30 ký tự hex và trạng thái `PendingApproval`. Creator được thay header/items hoặc cancel khi còn Pending.
+`dueAt` ở tương lai. `PUT /{loanCode}` cùng body và thêm `version` hiện tại. Đổi B phải chọn lại thiết bị theo B mới.
 
-## Duyệt, giao và trả
+- `GET /`, `GET /{loanCode}`, `GET /{loanCode}/history`: list/detail/history.
+- `POST /{loanCode}/approve`, `/reject`, `/cancel`, `/reject-return`: `{ "version": 1, "reason": "..." }`. Reason bắt buộc với reject/reject-return.
+- `POST /{loanCode}/handover-complete`, `/return`, `/confirm-return`: `{ "version": 2, "items": [{ "deviceCode": "TB-MT-001", "condition": "Good", "note": null }] }`. Phải đủ tất cả item đúng một lần.
 
-1. QTTB Manager hoặc Staff duyệt/từ chối toàn phiếu. Approve kiểm tra lại tất cả thiết bị và giữ operation hold cho toàn bộ danh sách trong cùng transaction.
-2. Department Staff hoặc QTTB Staff thuộc borrower department xác nhận đã nhận đủ. Request phải có mỗi deviceCode đúng một lần; condition mặc định `Good`, không chấp nhận `Missing`. Có thể ghi note tình trạng. Thao tác chuyển loan từ `Approved` sang `OnLoan` và ghi người xác nhận/time.
-3. Khi trả, request phải có đủ mỗi deviceCode một lần và condition `Good|Damaged|Missing` cho từng item. Backend cập nhật condition gần nhất của device, đánh dấu loan `Returned` và giải phóng toàn bộ holds trong một transaction.
-4. Không trả một phần, gia hạn, hoặc hủy sau duyệt. Condition lúc trả `Damaged`/`Missing` ngăn thiết bị được mượn lần nữa cho đến khi condition được xử lý.
-5. `Overdue` là projection: loan `OnLoan` với `dueAt < now` được response với `status: "Overdue"`, `isOverdue: true`; không có background worker hoặc persisted overdue flag.
+Version sai: 409 VERSION_CONFLICT; thiếu: validation error. Không nhận borrower hoặc actor tùy ý.
 
-Response list/detail dùng `loanCode`, borrower account code/name, department code/name, due/status, người xử lý theo account code, itemCount và version. Detail thêm các device code/name/category và tình trạng lúc giao/trả. Không trả UUID/FK nội bộ.
+List filters: `loanCode`, `borrowerAccountCode`, `departmentCode` (A), `lenderDepartmentCode` (B), `status` (persisted), `overdue`, `page`, `pageSize` (tối đa 100). Sort createdAt Desc/code Desc, scope trước count/paging.
 
-## Error codes
+Response giữ `departmentCode/Name` là A, thêm `lenderDepartmentCode/Name`, `workflowVersion`, `workflowStatus`, `returnRequestedByAccountCode/At` và metadata hai bên. Decision lịch sử vẫn được giữ; alias lenderConfirmedBy/At chỉ cho workflow mới.
 
-| HTTP | Code | Ý nghĩa |
-|---:|---|---|
-| 400 | `VALIDATION_FAILED` | Input thiếu/sai, dueAt quá hạn, list trùng/thiếu item |
-| 403 | `WORKFLOW_ACTION_FORBIDDEN` | Role/actor không được phép |
-| 404 | `LOAN_NOT_FOUND`, `DEVICE_NOT_FOUND` | Loan/device không tồn tại hoặc loan ngoài scope |
-| 409 | `INVALID_WORKFLOW_TRANSITION` | State hiện tại không cho phép hành động |
-| 409 | `DEVICE_BUSY` | Thiết bị được operation khác giữ |
-| 409 | `DEVICE_LOCKED` | Thiết bị Locked |
-| 409 | `DEVICE_NOT_AVAILABLE` | Condition không cho phép mượn |
-| 409 | `LOAN_EMPTY` | Phiếu không có item |
-| 409 | `DEVICE_OPERATION_CONFLICT` / `DEVICE_REFERENCE_CHANGED` | Unique/FK conflict khác |
+## Giữ chỗ
 
-Audit actions: `LOAN_CREATED`, `LOAN_UPDATED`, `LOAN_CANCELLED`, `LOAN_APPROVED`, `LOAN_REJECTED`, `LOAN_HANDED_OVER`, `LOAN_RETURNED`. Audit, device condition, loan items/status và hold được lưu nguyên tử trong inventory transaction. Department Staff chỉ xem history metadata cơ bản; snapshot chỉ dành cho QTTB.
-# Mượn thiết bị có thành phần
+Create/update và lender approve kiểm tra cả hai bảng hold. Giao/trả yêu cầu hold của chính phiếu, không có service hold xung đột. Khóa hàng và transaction chung bảo vệ cạnh tranh với BT/SC/điều chuyển. Một item hoặc audit thất bại rollback toàn bộ.
 
-Khi tạo/sửa phiếu mượn, backend mở rộng mỗi device code đã chọn thành thiết bị đó và toàn bộ hậu duệ, loại trùng các nhánh chồng nhau rồi lưu từng item vào phiếu. Giao và trả tiếp tục yêu cầu đầy đủ item của phiếu; tình trạng ghi nhận riêng từng thiết bị.
+Allocation/InterDepartment cũng chặn service hold. Recovery về QTTB cho phép có service hold nhưng không chiếm operation hold khác; không xóa service hold/guard hoặc ghi kết quả BT/SC thay nguồn.
+
+Audit bổ sung `LOAN_RETURN_REQUESTED`, `LOAN_RETURN_REJECTED`, `LOAN_WORKFLOW_MIGRATED`; giữ các action tạo/sửa/hủy/đồng ý/từ chối/giao/nhận lại hiện có. `LOAN_RETURNED` chỉ ghi khi B thực nhận.
+
+Lỗi chính: `LOAN_SAME_DEPARTMENT`, `LOAN_LENDER_MISMATCH`, `LENDER_UNAVAILABLE`, `DEVICE_BUSY`, `DEVICE_NOT_RECEIVED`, `DEVICE_LOCKED`, `DEVICE_NOT_AVAILABLE`, `WORKFLOW_ACTION_FORBIDDEN`, `INVALID_WORKFLOW_TRANSITION`, `VERSION_CONFLICT`, `LOAN_LEGACY_REVIEW_REQUIRED`.
+
+Migration đánh dấu phiếu cũ workflowVersion=1, không tự gán lender hoặc đổi lịch sử QTTB duyệt. Phiếu cũ vẫn đọc được và giữ hold, cần rà soát trước thao tác mới. Xem [hướng dẫn release và legacy](device-loans-release.md).
+
+## Hiển thị thiết bị tại phòng mượn
+
+Trang thiết bị có nhóm “Thiết bị đang mượn”, lấy từ `GET /devices/borrowed` theo borrower department hiện tại. Chỉ hiển thị từ `OnLoan`, giữ trong `PendingReturnConfirmation` và cả khi quá hạn; `Returned` mới hết hiển thị. Phòng quản lý vẫn giữ tài sản và thấy phòng đang mượn/mã phiếu/hạn trả. Quyền quản lý tài sản không chuyển sang bên mượn. Xem [Devices API](devices-api.md).

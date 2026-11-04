@@ -1,4 +1,5 @@
 using CSVC.Core.DeviceLoans;
+using CSVC.Core.ServiceOrders;
 using CSVC.Core.DeviceReceipts;
 using CSVC.Core.DeviceTransfers;
 using CSVC.Core.Devices;
@@ -37,6 +38,8 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
            from hold in holds.DefaultIfEmpty()
            join loan0 in _context.DeviceLoans.AsNoTracking() on hold!.OperationId equals loan0.Id into loans
            from loan in loans.DefaultIfEmpty()
+           join borrower0 in _context.Departments.AsNoTracking() on loan!.BorrowerDepartmentId equals borrower0.Id into borrowers
+           from borrower in borrowers.DefaultIfEmpty()
            select new DeviceReadModel
            {
                Id = device.Id, DeviceCode = device.DeviceCode, Barcode = device.Barcode, Name = device.Name,
@@ -53,33 +56,97 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
                Model = device.Model, SerialNumber = device.SerialNumber, PurchaseDate = device.PurchaseDate,
                PaidInvoiceCode = device.PaidInvoiceCode, PurchasePrice = device.PurchasePrice,
                WarrantyExpiryDate = device.WarrantyExpiryDate, Notes = device.Notes, Version = device.Version,
-               HasHold = hold != null, HoldKind = hold == null ? null : (DeviceOperationKind?)hold.OperationKind,
-               IsOnLoan = hold != null && hold.OperationKind == DeviceOperationKind.Loan && loan != null && loan.Status == DeviceLoanStatus.OnLoan
+               HasHold = hold != null || _context.Set<ServiceOrderDeviceHold>().Any(h => h.DeviceId == device.Id), HoldKind = hold == null ? null : (DeviceOperationKind?)hold.OperationKind,
+               IsOnLoan = hold != null && hold.OperationKind == DeviceOperationKind.Loan && loan != null && (loan.Status == DeviceLoanStatus.OnLoan || loan.Status == DeviceLoanStatus.PendingReturnConfirmation),
+               ActiveLoanCode = hold != null && hold.OperationKind == DeviceOperationKind.Loan && loan != null && (loan.Status == DeviceLoanStatus.OnLoan || loan.Status == DeviceLoanStatus.PendingReturnConfirmation) ? loan.LoanCode : null,
+               BorrowerDepartmentCode = hold != null && hold.OperationKind == DeviceOperationKind.Loan && loan != null && borrower != null && (loan.Status == DeviceLoanStatus.OnLoan || loan.Status == DeviceLoanStatus.PendingReturnConfirmation) ? borrower.Code : null,
+               BorrowerDepartmentName = hold != null && hold.OperationKind == DeviceOperationKind.Loan && loan != null && borrower != null && (loan.Status == DeviceLoanStatus.OnLoan || loan.Status == DeviceLoanStatus.PendingReturnConfirmation) ? borrower.Name : null,
+               LoanDueAt = hold != null && hold.OperationKind == DeviceOperationKind.Loan && loan != null && (loan.Status == DeviceLoanStatus.OnLoan || loan.Status == DeviceLoanStatus.PendingReturnConfirmation) ? loan.DueAt : null
            };
+
+    public async Task<PagedResult<BorrowedDeviceDto>> BorrowedAsync(BorrowedDeviceListQuery query, Guid borrowerDepartmentId, DateTimeOffset now, CancellationToken ct = default)
+    {
+        // Read physical custody from the loan, independently of management ownership and holds.
+        // Never let a caller choose another borrower's department, even for global management roles.
+        var source = from loan in _context.DeviceLoans.AsNoTracking()
+                     join item in _context.DeviceLoanItems.AsNoTracking() on loan.Id equals item.LoanId
+                     join device in _context.Devices.AsNoTracking() on item.DeviceId equals device.Id
+                     join category in _context.DeviceCategories.AsNoTracking() on device.CategoryId equals category.Id
+                     join owner in _context.Departments.AsNoTracking() on device.DepartmentId equals owner.Id
+                     join lender0 in _context.Departments.AsNoTracking() on loan.LenderDepartmentId equals lender0.Id into lenders
+                     from lender in lenders.DefaultIfEmpty()
+                     where loan.BorrowerDepartmentId == borrowerDepartmentId
+                         && (loan.Status == DeviceLoanStatus.OnLoan || loan.Status == DeviceLoanStatus.PendingReturnConfirmation)
+                     select new { device.DeviceCode, device.Name, category.DisplayCode, CategoryName = category.Name,
+                         device.SerialNumber, device.Condition, OwnerCode = owner.Code, OwnerName = owner.Name,
+                         LenderCode = lender == null ? null : lender.Code, LenderName = lender == null ? null : lender.Name,
+                         loan.LoanCode, loan.DueAt, loan.HandedOverAt, loan.ReturnRequestedAt, loan.Status, loan.WorkflowVersion };
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var term = TextNormalization.Name(query.Search).ToLowerInvariant();
+            source = source.Where(x => x.DeviceCode.ToLower().Contains(term) || x.Name.ToLower().Contains(term)
+                || (x.SerialNumber != null && x.SerialNumber.ToLower().Contains(term)) || x.LoanCode.ToLower().Contains(term)
+                || (x.LenderName != null && x.LenderName.ToLower().Contains(term)));
+        }
+        if (!string.IsNullOrWhiteSpace(query.LoanCode)) source = source.Where(x => x.LoanCode == query.LoanCode.Trim().ToUpper());
+        if (query.Status is { } state)
+        {
+            var status = state == BorrowedDeviceStatus.OnLoan ? DeviceLoanStatus.OnLoan : DeviceLoanStatus.PendingReturnConfirmation;
+            source = source.Where(x => x.Status == status);
+        }
+        if (query.Overdue is { } overdue) source = source.Where(x => (x.DueAt < now) == overdue);
+        var count = await source.CountAsync(ct);
+        var items = await source.OrderBy(x => x.DueAt).ThenBy(x => x.LoanCode).ThenBy(x => x.DeviceCode)
+            .Skip((query.Page - 1) * query.PageSize).Take(query.PageSize)
+            .Select(x => new BorrowedDeviceDto(x.DeviceCode, x.Name, x.DisplayCode, x.CategoryName, x.SerialNumber, x.Condition,
+                x.OwnerCode, x.OwnerName, x.LenderCode, x.LenderName, x.LoanCode, x.DueAt, x.HandedOverAt, x.ReturnRequestedAt,
+                x.Status == DeviceLoanStatus.OnLoan ? BorrowedDeviceStatus.OnLoan : BorrowedDeviceStatus.PendingReturnConfirmation,
+                x.DueAt < now, x.WorkflowVersion)).ToListAsync(ct);
+        return new(items, count, query.Page, query.PageSize);
+    }
+
+    private IQueryable<Guid> Unavailable(bool recovering, bool sameDepartment)
+        => _context.Database.SqlQuery<Guid>($"""
+            WITH RECURSIVE unavailable AS (
+                SELECT d.id FROM devices d
+                WHERE d.quantity <> 1 OR d.status <> 'ACTIVE'
+                  OR (d.condition <> 'GOOD' AND (NOT {recovering} OR d.condition <> 'DAMAGED'))
+                  OR EXISTS (SELECT 1 FROM device_operation_holds h WHERE h.device_id = d.id)
+                  OR (NOT {recovering} AND EXISTS (SELECT 1 FROM service_order_device_holds h WHERE h.device_id = d.id))
+                  OR ({sameDepartment} AND EXISTS (SELECT 1 FROM devices c WHERE c.parent_device_id = d.id AND c.department_id <> d.department_id))
+                UNION
+                SELECT d.parent_device_id FROM devices d JOIN unavailable u ON u.id = d.id WHERE d.parent_device_id IS NOT NULL
+            ) SELECT id AS "Value" FROM unavailable
+            """);
+
+    public async Task<PagedResult<LoanDeviceOptionDto>> LoanOptionsAsync(LoanDeviceOptionsQuery query, Guid borrowerDepartmentId, CancellationToken ct = default)
+    {
+        var unavailable = Unavailable(false, true);
+        var source = ReadModels().Where(x => !unavailable.Contains(x.Id)
+            && _context.Devices.Any(d => d.Id == x.Id && d.DepartmentId != borrowerDepartmentId
+                && _context.Departments.Any(p => p.Id == d.DepartmentId && p.Status == EntityStatus.Active)
+                && _context.Accounts.Any(a => !a.IsLock && _context.UserProfiles.Any(p => p.Id == a.UserProfileId && p.DepartmentId == d.DepartmentId)
+                    && (a.RoleId == 3 || (a.RoleId == 2 && _context.EquipmentSettings.Any(s => s.EquipmentDepartmentId == d.DepartmentId))))));
+        if (!string.IsNullOrWhiteSpace(query.LenderDepartmentCode)) source = source.Where(x => x.DepartmentCode == query.LenderDepartmentCode.Trim().ToUpper());
+        if (!string.IsNullOrWhiteSpace(query.CategoryCode)) source = source.Where(x => x.CategoryCode.ToLower() == query.CategoryCode.Trim().ToLower());
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var term = TextNormalization.Name(query.Search).ToLowerInvariant();
+            source = source.Where(x => x.Name.ToLower().Contains(term) || x.DeviceCode.ToLower().Contains(term) || (x.SerialNumber != null && x.SerialNumber.ToLower().Contains(term)));
+        }
+        var count = await source.CountAsync(ct);
+        var items = await source.OrderBy(x => x.Name).ThenBy(x => x.DeviceCode).Skip((query.Page - 1) * query.PageSize).Take(query.PageSize)
+            .Select(x => new LoanDeviceOptionDto(x.DeviceCode, x.Name, x.CategoryCode, x.CategoryName, x.DepartmentCode, x.DepartmentName,
+                x.SerialNumber, x.ParentDeviceCode, x.ParentDeviceName, x.Condition, x.HasParent)).ToListAsync(ct);
+        return new(items, count, query.Page, query.PageSize);
+    }
 
     public async Task<PagedResult<DeviceReadModel>> ListAsync(DeviceListQuery query, Guid? departmentScope, CancellationToken ct = default)
     {
         var source = ReadModels();
         if (query.EligibleFor is { } workflow)
         {
-            var transferring = workflow is DeviceWorkflowEligibility.Transfer or DeviceWorkflowEligibility.Recovery;
-            var recovering = workflow == DeviceWorkflowEligibility.Recovery;
-            // An operation includes the entire subtree. Reject every ancestor of an
-            // unavailable member; UNION also terminates safely on malformed cycles.
-            var unavailable = _context.Database.SqlQuery<Guid>($"""
-                WITH RECURSIVE unavailable AS (
-                    SELECT d.id FROM devices d
-                    WHERE d.quantity <> 1 OR d.status <> 'ACTIVE'
-                       OR (d.condition <> 'GOOD' AND (NOT {recovering} OR d.condition <> 'DAMAGED'))
-                       OR EXISTS (SELECT 1 FROM device_operation_holds h WHERE h.device_id = d.id)
-                       OR ({transferring} AND EXISTS (
-                           SELECT 1 FROM devices child
-                           WHERE child.parent_device_id = d.id AND child.department_id <> d.department_id))
-                    UNION
-                    SELECT d.parent_device_id FROM devices d JOIN unavailable u ON u.id = d.id
-                    WHERE d.parent_device_id IS NOT NULL
-                ) SELECT id AS "Value" FROM unavailable
-                """);
+            var unavailable = Unavailable(workflow == DeviceWorkflowEligibility.Recovery, true);
             source = source.Where(x => !unavailable.Contains(x.Id));
         }
         if (!string.IsNullOrWhiteSpace(query.ParentDeviceCode))
@@ -375,6 +442,10 @@ public sealed class DeviceLoanRepository(CsvcDbContext context) : GenericReposit
            join borrower in _context.Accounts.AsNoTracking() on loan.BorrowerAccountId equals borrower.Id
            join borrowerProfile in _context.UserProfiles.AsNoTracking() on borrower.UserProfileId equals borrowerProfile.Id
            join department in _context.Departments.AsNoTracking() on loan.BorrowerDepartmentId equals department.Id
+           join lender0 in _context.Departments.AsNoTracking() on loan.LenderDepartmentId equals lender0.Id into lenders
+           from lender in lenders.DefaultIfEmpty()
+           join requested0 in _context.Accounts.AsNoTracking() on loan.ReturnRequestedByAccountId equals requested0.Id into requesters
+           from requester in requesters.DefaultIfEmpty()
            join creator in _context.Accounts.AsNoTracking() on loan.CreatorAccountId equals creator.Id
            join decision0 in _context.Accounts.AsNoTracking() on loan.DecisionAccountId equals decision0.Id into decisions
            from decision in decisions.DefaultIfEmpty()
@@ -385,6 +456,9 @@ public sealed class DeviceLoanRepository(CsvcDbContext context) : GenericReposit
            select new DeviceLoanReadModel
            {
                Id = loan.Id, LoanCode = loan.LoanCode, BorrowerAccountCode = borrower.AccountCode,
+               LenderDepartmentCode = lender == null ? null : lender.Code, LenderDepartmentName = lender == null ? null : lender.Name,
+               WorkflowVersion = loan.WorkflowVersion, ReturnRequestedAt = loan.ReturnRequestedAt,
+               ReturnRequestedByAccountCode = requester == null ? null : requester.AccountCode,
                BorrowerFullName = borrowerProfile.FullName, DepartmentCode = department.Code, DepartmentName = department.Name,
                Purpose = loan.Purpose, DueAt = loan.DueAt, Status = loan.Status, CreatorAccountCode = creator.AccountCode,
                CreatedAt = loan.CreatedAt, DecisionAccountCode = decision == null ? null : decision.AccountCode,
@@ -392,7 +466,7 @@ public sealed class DeviceLoanRepository(CsvcDbContext context) : GenericReposit
                HandoverAccountCode = handover == null ? null : handover.AccountCode, ReturnedAt = loan.ReturnedAt,
                ReturnAccountCode = returnAccount == null ? null : returnAccount.AccountCode, Notes = loan.Notes,
                ItemCount = _context.DeviceLoanItems.Count(x => x.LoanId == loan.Id), Version = loan.Version,
-               IsOverdue = loan.Status == DeviceLoanStatus.OnLoan && loan.DueAt < now
+               IsOverdue = (loan.Status == DeviceLoanStatus.OnLoan || loan.Status == DeviceLoanStatus.PendingReturnConfirmation) && loan.DueAt < now
            };
 
     public async Task<PagedResult<DeviceLoanReadModel>> ListAsync(DeviceLoanListQuery query, Guid? departmentScope, Guid actorAccountId, DateTimeOffset now, CancellationToken ct = default)
@@ -400,11 +474,12 @@ public sealed class DeviceLoanRepository(CsvcDbContext context) : GenericReposit
         var source = ReadModels(now);
         if (departmentScope is { } departmentId)
             source = source.Where(x => _context.DeviceLoans.Any(l => l.Id == x.Id &&
-                (l.BorrowerDepartmentId == departmentId || l.BorrowerAccountId == actorAccountId || l.CreatorAccountId == actorAccountId)));
+                (l.BorrowerDepartmentId == departmentId || l.LenderDepartmentId == departmentId)));
         if (!string.IsNullOrWhiteSpace(query.LoanCode)) source = source.Where(x => x.LoanCode.ToLower().Contains(query.LoanCode.Trim().ToLower()));
         if (!string.IsNullOrWhiteSpace(query.BorrowerAccountCode)) source = source.Where(x => x.BorrowerAccountCode.ToLower() == query.BorrowerAccountCode.Trim().ToLower());
         if (!string.IsNullOrWhiteSpace(query.DepartmentCode)) source = source.Where(x => x.DepartmentCode.ToLower() == query.DepartmentCode.Trim().ToLower());
         if (query.Status is { } status) source = source.Where(x => x.Status == status);
+        if (!string.IsNullOrWhiteSpace(query.LenderDepartmentCode)) source = source.Where(x => x.LenderDepartmentCode == query.LenderDepartmentCode.Trim().ToUpper());
         if (query.Overdue == true) source = source.Where(x => x.IsOverdue);
         if (query.Overdue == false) source = source.Where(x => !x.IsOverdue);
         var total = await source.CountAsync(ct);
@@ -418,7 +493,7 @@ public sealed class DeviceLoanRepository(CsvcDbContext context) : GenericReposit
         var source = ReadModels(now).Where(x => x.LoanCode == loanCode.Trim().ToUpperInvariant());
         if (departmentScope is { } departmentId)
             source = source.Where(x => _context.DeviceLoans.Any(l => l.Id == x.Id &&
-                (l.BorrowerDepartmentId == departmentId || l.BorrowerAccountId == actorAccountId || l.CreatorAccountId == actorAccountId)));
+                (l.BorrowerDepartmentId == departmentId || l.LenderDepartmentId == departmentId)));
         return source.FirstOrDefaultAsync(ct);
     }
 }
@@ -437,7 +512,7 @@ public sealed class DeviceLoanItemRepository(CsvcDbContext context) : GenericRep
                   {
                       DeviceCode = device.DeviceCode, Name = device.Name, CategoryCode = category.DisplayCode, CategoryName = category.Name,
                       ConditionAtHandover = item.ConditionAtHandover, HandoverNote = item.HandoverNote,
-                      ConditionAtReturn = item.ConditionAtReturn, ReturnNote = item.ReturnNote
+                      ConditionAtReturn = item.ConditionAtReturn, ReturnNote = item.ReturnNote, DeclaredReturnCondition = item.DeclaredReturnCondition, DeclaredReturnNote = item.DeclaredReturnNote
                   }).ToListAsync(ct);
 }
 public sealed class DeviceLoanHistoryRepository(CsvcDbContext context) : GenericRepository<DeviceLoanHistory>(context), IDeviceLoanHistoryRepository

@@ -117,9 +117,13 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         public string? FailNextReturnAction { get; set; }
         public bool FailNextSettingsChange { get; set; }
         public string? FailNextTransferAction { get; set; }
+        public string? FailNextLoanAction { get; set; }
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
+            if (FailNextLoanAction is { } loanAction && eventData.Context!.ChangeTracker.Entries<CSVC.Core.DeviceLoans.DeviceLoanHistory>()
+                .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == loanAction))
+            { FailNextLoanAction = null; throw new DbUpdateException("Simulated loan audit failure."); }
             if (FailNextSettingsChange && eventData.Context!.ChangeTracker.Entries<CSVC.Core.Settings.EquipmentSettingsHistory>()
                 .Any(entry => entry.State == EntityState.Added))
             {

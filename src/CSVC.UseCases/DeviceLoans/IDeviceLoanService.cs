@@ -12,6 +12,10 @@ public interface IDeviceLoanService
     Task DecideAsync(string loanCode, bool approve, LoanDecisionRequest request, CancellationToken cancellationToken);
     Task HandoverCompleteAsync(string loanCode, LoanHandoverRequest request, CancellationToken cancellationToken);
     Task ReturnAsync(string loanCode, LoanReturnRequest request, CancellationToken cancellationToken);
-    Task CancelAsync(string loanCode, CancellationToken cancellationToken);
+    Task CancelAsync(string loanCode, LoanDecisionRequest request, CancellationToken cancellationToken);
+    Task ConfirmReturnAsync(string loanCode, LoanReturnRequest request, CancellationToken cancellationToken);
+    Task RejectReturnAsync(string loanCode, LoanDecisionRequest request, CancellationToken cancellationToken);
+    Task AdoptLegacyAsync(string loanCode, AdoptLegacyLoanRequest request, CancellationToken cancellationToken);
+    Task<PagedResult<LoanDeviceOptionDto>> EligibleDevicesAsync(LoanDeviceOptionsQuery query, CancellationToken cancellationToken);
     Task<PagedResult<DeviceLoanHistoryDto>> HistoryAsync(string loanCode, DeviceLoanHistoryQuery query, CancellationToken cancellationToken);
 }

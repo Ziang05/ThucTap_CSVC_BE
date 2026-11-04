@@ -9,7 +9,8 @@ public enum DeviceLoanStatus
     Approved,
     OnLoan,
     Returned,
-    Cancelled
+    Cancelled,
+    PendingReturnConfirmation
 }
 
 public sealed class DeviceLoan
@@ -18,6 +19,10 @@ public sealed class DeviceLoan
     public required string LoanCode { get; set; }
     public Guid BorrowerAccountId { get; set; }
     public Guid BorrowerDepartmentId { get; set; }
+    public Guid? LenderDepartmentId { get; set; }
+    public int WorkflowVersion { get; set; } = 2;
+    public DateTimeOffset? ReturnRequestedAt { get; set; }
+    public Guid? ReturnRequestedByAccountId { get; set; }
     public required string Purpose { get; set; }
     public DateTimeOffset DueAt { get; set; }
     public Guid CreatorAccountId { get; set; }
@@ -44,4 +49,6 @@ public sealed class DeviceLoanItem
     public string? HandoverNote { get; set; }
     public DeviceCondition? ConditionAtReturn { get; set; }
     public string? ReturnNote { get; set; }
+    public DeviceCondition? DeclaredReturnCondition { get; set; }
+    public string? DeclaredReturnNote { get; set; }
 }

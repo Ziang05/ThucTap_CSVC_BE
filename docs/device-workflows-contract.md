@@ -73,18 +73,20 @@ Receipt tạo trực tiếp ở `PendingApproval`; không có draft riêng ở A
 
 Completion retry sau khi hoàn tất trả 409 `RECEIPT_ALREADY_COMPLETED`; bảo vệ unique `receipt_item.device_id`/quan hệ tương đương. Không tạo device mới lần hai.
 
-### 3.3. Loan
+### 3.3. Loan — cập nhật 04/11/2026
 
-| Hiện tại | Lệnh | Vai trò | Tiếp theo | Ghi chú |
-|---|---|---|---|---|
-| `PendingApproval` | Edit/Cancel | Creator trong department của borrower | PendingApproval/`Cancelled` | Trước duyệt. |
-| `PendingApproval` | Approve/Reject | QTTB Manager hoặc QTTB Staff được phân quyền | `Approved`/`Rejected` | Quyết định cho cả phiếu. Approve giữ mọi device. |
-| `Approved` | HandoverComplete | Department Staff trong borrower department | `OnLoan` | Xác nhận nhận đủ toàn bộ; ghi condition/time/actor per device. |
-| `OnLoan` | Return | Borrower hoặc Department Staff cùng department được phân công | `Returned` | Trả đủ tất cả items trong một lần; ghi condition/time/actor per item; giải phóng hold. |
-| `OnLoan` sau due date | Read | Reader có scope | `Overdue` projection | Không persisted transition/worker; `dueAt < now` và chưa returned. |
-| Terminal state | Any mutation | Any | Không đổi | Trả 409. |
+Contract chi tiết hiện hành: [Mượn trả hai phòng](device-loans-api.md). Một lender B khác borrower A; mọi item/cây cùng B. Options dùng `/device-loans/eligible-devices`, không mở scope thiết bị quản lý.
 
-Loan có một borrower nội bộ; không gia hạn và không trả từng phần. Người chịu trách nhiệm tài sản trên device không đổi khi giao/trả loan. Nếu condition lúc trả là `Damaged` hoặc `Missing`, device vẫn được ghi nhận nhưng hold kết thúc và condition ngăn dùng lại cho đến khi QTTB cập nhật qua nghiệp vụ được cấp phép.
+| Hiện tại | Lệnh | Bên thực hiện | Tiếp theo |
+| --- | --- | --- | --- |
+| PendingApproval | Edit/Cancel | Creator tại A | PendingApproval/Cancelled |
+| PendingApproval | Approve/Reject | Nhân viên B | Approved/Rejected |
+| Approved | HandoverComplete | Nhân viên A thực nhận | OnLoan |
+| OnLoan | Return | Nhân viên A báo trả | PendingReturnConfirmation |
+| PendingReturnConfirmation | ConfirmReturn | Nhân viên B thực nhận lại | Returned |
+| PendingReturnConfirmation | RejectReturn | Nhân viên B, lý do bắt buộc | OnLoan |
+
+Không có QTTB duyệt độc lập. Tất cả mutation có version; không đổi department/area/responsible của device. Giữ operation hold từ lender đồng ý đến khi B thực nhận lại. Báo trả không đổi condition; tách tình trạng A khai báo và B thực nhận. Overdue tính cả PendingReturnConfirmation. Không gia hạn/trả từng phần. Legacy không tự backfill lender, xem release guide.
 
 ### 3.4. Transfer
 
@@ -104,7 +106,7 @@ Phòng QTTB được chọn bằng `EquipmentDepartmentId` tại trang Cấu hì
 
 ## 4. Role và phạm vi dữ liệu
 
-Bổ sung: `QTTB_STAFF` giữ quyền QTTB và quyền tham gia workflow theo phòng ban hiện tại (tạo/sửa/hủy phiếu mượn và điều chuyển, nhận/trả). Điều chuyển chỉ bên giao lập và chỉ bên nhận xác nhận thực nhận. Các thao tác ghi mượn/trả và điều chuyển kiểm tra cấu hình phòng QTTB; tài khoản QTTB phải khớp phòng được chọn. Quyền đọc/duyệt toàn cục không thay thế kiểm tra creator, phòng ban hoặc trạng thái. `QTTB_MANAGER` không được mở rộng quyền tham gia của nhân viên. Quy tắc này và phần 3.4 ưu tiên các ô quyền cũ trong bảng bên dưới.
+Bổ sung: `QTTB_STAFF` giữ quyền QTTB và quyền tham gia workflow theo phòng ban hiện tại (tạo/sửa/hủy phiếu mượn và điều chuyển, nhận/trả). Điều chuyển chỉ bên giao lập và chỉ bên nhận xác nhận thực nhận. Điều chuyển kiểm tra cấu hình QTTB; loan chỉ yêu cầu cấu hình khi actor thuộc role QTTB, hai phòng thường được mượn trực tiếp. Tài khoản QTTB phải khớp phòng đã chọn. Quyền đọc/duyệt toàn cục không thay thế kiểm tra creator, phòng ban hoặc trạng thái. `QTTB_MANAGER` không được mở rộng quyền tham gia của nhân viên. Quy tắc này và phần 3.4 ưu tiên các ô quyền cũ trong bảng bên dưới.
 
 | Hành động | QTTB Manager | QTTB Staff | Department Staff |
 |---|---:|---:|---:|
@@ -112,16 +114,17 @@ Bổ sung: `QTTB_STAFF` giữ quyền QTTB và quyền tham gia workflow theo ph
 | Device create ngoài nhập, edit metadata, lock/unlock | Có | Có | Không |
 | Receipt create/edit/cancel khi pending/complete | Không tạo theo mặc định | Có; edit/cancel creator only | Không |
 | Receipt approve/reject | Có | Không | Không |
-| Loan create | Có thể tạo hộ không; v1 không expose | Không | Có, borrower là account hiện tại |
-| Loan approve/reject | Có | Có nếu role được cấp quyền duyệt QTTB | Không |
-| Loan handover/return | Không | Không | Borrower hoặc nhân viên được phân công trong borrower department |
+| Loan create | Không | Có, borrower là chính actor tại QTTB | Có, borrower là account hiện tại |
+| Loan approve/reject | Không | Chỉ khi QTTB là lender | Chỉ phòng lender |
+| Loan handover/báo trả | Không | Khi QTTB là borrower | Nhân viên borrower |
+| Loan xác nhận/từ chối nhận trả | Không | Khi QTTB là lender | Nhân viên lender |
 | Transfer create/cancel pending | Không tạo hộ theo mặc định | Không | Có nếu account thuộc source hoặc target department |
 | Transfer approve/reject | Có | Có nếu role được cấp quyền duyệt QTTB | Không |
 | Transfer handover complete | Không | Không | Nhân viên source hoặc target department |
 | Read phiếu loan/transfer | Toàn cục | Toàn cục | Cùng department liên quan hoặc là creator/borrower |
 | Read receipt/history | Toàn cục | Toàn cục | Không |
 
-V1 mặc định cho phép cả QTTB Manager và QTTB Staff duyệt loan/transfer; riêng receipt chỉ Manager duyệt theo quyết định đã chốt. Kiểm tra account/session/role từ database trong transaction ghi. Department Staff bị giới hạn theo `departmentId` hiện tại trong account profile; không nhận department scope từ client.
+Loan theo quyền hai phòng ở trên; chỉ InterDepartment transfer có bước QTTB duyệt; riêng receipt chỉ Manager duyệt theo quyết định đã chốt. Kiểm tra account/session/role từ database trong transaction ghi. Department Staff bị giới hạn theo `departmentId` hiện tại trong account profile; không nhận department scope từ client.
 
 Áp dụng scope trong query trước search/count/paging. Record ngoài scope trả 404 để không cho dò code; record nhìn thấy nhưng action không được phép trả 403. Tất cả query theo mã route phải xác nhận record nằm trong scope trước khi trả detail/history.
 
@@ -210,10 +213,13 @@ Approve/reject request có `{ "reason": "..." }` tùy chọn, reason tối đa 1
 | GET/POST `/device-loans` | QTTB đọc toàn cục; Department Staff trong scope tạo/đọc | 200 paged / 201 |
 | GET `/device-loans/{loanCode}` | QTTB hoặc department scope | 200 |
 | PUT `/device-loans/{loanCode}` | Creator, PendingApproval | 204 |
-| POST `/device-loans/{loanCode}/approve` | QTTB Manager/Staff được cấp quyền | 204 |
-| POST `/device-loans/{loanCode}/reject` | QTTB Manager/Staff được cấp quyền | 204 |
+| POST `/device-loans/{loanCode}/approve` | Nhân viên lender B (không có QTTB duyệt riêng) | 204 |
+| POST `/device-loans/{loanCode}/reject` | Nhân viên lender B (không có QTTB duyệt riêng) | 204 |
 | POST `/device-loans/{loanCode}/handover-complete` | Department Staff borrower department | 204 |
-| POST `/device-loans/{loanCode}/return` | Borrower/designated department staff | 204 |
+| POST `/device-loans/{loanCode}/return` | Nhân viên A báo trả, chưa release | 204 |
+| POST `/device-loans/{loanCode}/confirm-return` | Nhân viên B thực nhận/release | 204 |
+| POST `/device-loans/{loanCode}/reject-return` | Nhân viên B từ chối nhận trả, giữ hold | 204 |
+| GET `/device-loans/eligible-devices` | Nhân viên lấy options phòng khác | 200 paged |
 | POST `/device-loans/{loanCode}/cancel` | Creator, PendingApproval | 204 |
 | GET `/device-loans/{loanCode}/history` | Theo loan scope | 200 paged |
 
@@ -237,8 +243,8 @@ Borrower account/department lấy từ session; client không được chọn bo
 | GET/POST `/device-transfers` | QTTB đọc toàn cục; Department Staff source/target tạo/đọc | 200 paged / 201 |
 | GET `/device-transfers/{transferCode}` | QTTB hoặc source/target department | 200 |
 | PUT `/device-transfers/{transferCode}` | Creator, PendingApproval | 204 |
-| POST `/device-transfers/{transferCode}/approve` | QTTB Manager/Staff được cấp quyền | 204 |
-| POST `/device-transfers/{transferCode}/reject` | QTTB Manager/Staff được cấp quyền | 204 |
+| POST `/device-transfers/{transferCode}/approve` | QTTB Manager/Staff, chỉ InterDepartment sau bên nhận đồng ý | 204 |
+| POST `/device-transfers/{transferCode}/reject` | QTTB Manager/Staff, chỉ InterDepartment sau bên nhận đồng ý | 204 |
 | POST `/device-transfers/{transferCode}/handover-complete` | Department Staff source/target | 204 |
 | POST `/device-transfers/{transferCode}/cancel` | Creator, PendingApproval | 204 |
 | GET `/device-transfers/{transferCode}/history` | Theo transfer scope | 200 paged |
@@ -301,4 +307,8 @@ Snapshots:
 
 ## 9. Handoff sang Phase 1
 
-Phase 1 có thể implement dựa trên contract này. State hold dùng một open-operation invariant; các endpoint đề cập `QTTB Staff được cấp quyền` nên policy mặc định v1 là cả Manager và Staff được duyệt loan/transfer. Receipt approval giữ riêng cho Manager. Các trạng thái/count projection không được tạo schema dư nếu có thể suy ra an toàn từ operation/workflow state.
+Phase 1 có thể implement dựa trên contract này. State hold dùng một open-operation invariant; các endpoint đề cập `QTTB Staff được cấp quyền` nên loan dùng quyền hai phòng; chỉ InterDepartment transfer cần QTTB duyệt. Receipt approval giữ riêng cho Manager. Các trạng thái/count projection không được tạo schema dư nếu có thể suy ra an toàn từ operation/workflow state.
+
+## Quy tắc giữ chỗ cập nhật 04/11/2026
+
+Loan/Allocation/InterDepartment yêu cầu không có operation hold hoặc service hold khi bắt đầu; nhận/hoàn tất yêu cầu operation hold của đúng phiếu. Recovery cho phép service hold nhưng không chiếm operation hold khác, không xóa service hold/guard. List eligibility và các điểm ghi phải cùng policy.

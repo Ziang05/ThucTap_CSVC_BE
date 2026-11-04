@@ -48,7 +48,7 @@ public sealed class DeviceTimelineTests
                 receipt.Items.Add(new DeviceReceiptItem { Name = device.Name, DeviceCode = device.DeviceCode, Barcode = device.Barcode, CategoryId = category.Id, DeviceId = device.Id });
                 var loan = new DeviceLoan
                 {
-                    LoanCode = "MT-TIMELINE", BorrowerAccountId = seed.Staff, BorrowerDepartmentId = seed.Department,
+                    WorkflowVersion = 1, LoanCode = "MT-TIMELINE", BorrowerAccountId = seed.Staff, BorrowerDepartmentId = seed.Department,
                     Purpose = "Timeline loan", DueAt = now.AddDays(7), CreatorAccountId = seed.Staff, CreatedAt = now
                 };
                 loan.Items.Add(new DeviceLoanItem { DeviceId = device.Id });

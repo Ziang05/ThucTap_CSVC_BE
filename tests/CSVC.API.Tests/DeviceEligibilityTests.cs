@@ -66,7 +66,9 @@ public sealed class DeviceEligibilityTests
         }
         static string[] Codes(JsonElement page) => page.GetProperty("items").EnumerateArray()
             .Select(x => x.GetProperty("deviceCode").GetString()!).Order().ToArray();
-        Assert.Equal(new[] { "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "MIXED-PARENT", "READY" }, Codes(await List(staff, "eligibleFor=Loan")));
+        using var retiredLoanOptions = await staff.GetAsync("/api/v1/devices?eligibleFor=Loan");
+        Assert.Equal(HttpStatusCode.BadRequest, retiredLoanOptions.StatusCode);
+        Assert.Contains("LOAN_ELIGIBILITY_ENDPOINT_CHANGED", await retiredLoanOptions.Content.ReadAsStringAsync());
         Assert.Equal(new[] { "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "READY" }, Codes(await List(staff, "eligibleFor=Transfer")));
         Assert.Equal(new[] { "GOOD-CHILD", "GOOD-PARENT", "READY" }, Codes(await List(departmentStaff, "eligibleFor=Transfer")));
         Assert.Empty(Codes(await List(departmentStaff, "eligibleFor=Transfer&departmentCode=OTHER")));

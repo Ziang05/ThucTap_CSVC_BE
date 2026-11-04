@@ -36,6 +36,10 @@ public sealed class DeviceReadModel
     public bool HasHold { get; init; }
     public DeviceOperationKind? HoldKind { get; init; }
     public bool IsOnLoan { get; init; }
+    public string? ActiveLoanCode { get; init; }
+    public string? BorrowerDepartmentCode { get; init; }
+    public string? BorrowerDepartmentName { get; init; }
+    public DateTimeOffset? LoanDueAt { get; init; }
 }
 
 public sealed class DeviceHistoryReadModel

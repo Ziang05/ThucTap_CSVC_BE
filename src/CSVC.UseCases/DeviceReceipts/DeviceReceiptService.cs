@@ -20,7 +20,7 @@ namespace CSVC.UseCases.DeviceReceipts;
 
 public sealed class DeviceReceiptService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock) : IDeviceReceiptService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations) : IDeviceReceiptService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -112,7 +112,12 @@ public sealed class DeviceReceiptService(
                 foreach (var item in items)
                 {
                     var device = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == item.DeviceCode, token);
-                    if (device is not null) RequireReceivable(device, receipt.RequestingDepartmentId);
+                    if (device is not null)
+                    {
+                        await transaction.LockDevicesAsync([device.Id], token);
+                        RequireReceivable(device, receipt.RequestingDepartmentId);
+                        await reservations.RequireAsync(device, false, ct: token);
+                    }
                     var acquired = await unitOfWork.DeviceOperationHolds.TryAcquireAsync(new DeviceOperationHold
                     {
                         DeviceCode = item.DeviceCode, DeviceId = device?.Id, OperationKind = DeviceOperationKind.Receipt,
@@ -158,6 +163,7 @@ public sealed class DeviceReceiptService(
                 {
                     await transaction.LockDevicesAsync([device.Id], token);
                     RequireReceivable(device, receipt.RequestingDepartmentId);
+                    await reservations.RequireAsync(device, false, DeviceOperationKind.Receipt, receipt.Id, token);
                     linkedCodes.Add(device.DeviceCode);
                     device.Quantity = 1;
                     unitOfWork.Devices.Update(device);
@@ -267,7 +273,7 @@ public sealed class DeviceReceiptService(
             var device = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == code, ct);
             if (!string.IsNullOrWhiteSpace(input.ExistingDeviceCode) && device is null)
                 throw new UseCaseException(FailureKind.NotFound, "DEVICE_NOT_FOUND", "The selected device was not found.");
-            if (device is not null) RequireReceivable(device, department.Id);
+            if (device is not null) { RequireReceivable(device, department.Id); await reservations.RequireAsync(device, false, ct: ct); }
             if (existing is null && device is null && await unitOfWork.DeviceIdentities.ExistsAsync(x => x.DeviceCode == code, ct))
                 throw Conflict("DEVICE_CODE_CONFLICT", "The device code has already been reserved.");
             if (device is null && (string.IsNullOrWhiteSpace(input.CategoryCode) || string.IsNullOrWhiteSpace(input.Name)))

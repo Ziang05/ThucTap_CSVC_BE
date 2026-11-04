@@ -11,7 +11,13 @@ public sealed record DeviceDto(
     string? ResponsibleFullName, string? ManufacturerCode, string? ManufacturerName,
     string? Model, string? SerialNumber, DateOnly? PurchaseDate, string? PaidInvoiceCode,
     decimal? PurchasePrice, DateOnly? WarrantyExpiryDate, string? Notes, string Version,
-    string? ParentDeviceCode = null, string? ParentDeviceName = null, bool IsComponent = false, int Quantity = 0);
+    string? ParentDeviceCode = null, string? ParentDeviceName = null, bool IsComponent = false, int Quantity = 0)
+{
+    public string? ActiveLoanCode { get; init; }
+    public string? BorrowerDepartmentCode { get; init; }
+    public string? BorrowerDepartmentName { get; init; }
+    public DateTimeOffset? LoanDueAt { get; init; }
+}
 
 public sealed record DeviceParentUpdateRequest(string? ParentDeviceCode);
 

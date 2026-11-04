@@ -31,7 +31,7 @@ namespace CSVC.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "damage_report_incident_type", new[] { "ABNORMAL", "DAMAGE", "MISSING" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_code_source", new[] { "GENERATED", "MANUAL" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_condition", new[] { "DAMAGED", "GOOD", "MISSING" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_loan_status", new[] { "APPROVED", "CANCELLED", "ON_LOAN", "PENDING_APPROVAL", "REJECTED", "RETURNED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_loan_status", new[] { "APPROVED", "CANCELLED", "ON_LOAN", "PENDING_APPROVAL", "PENDING_RETURN_CONFIRMATION", "REJECTED", "RETURNED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_receipt_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "REJECTED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "device_transfer_status", new[] { "APPROVED", "CANCELLED", "COMPLETED", "PENDING_APPROVAL", "PENDING_CONFIRMATION", "REJECTED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "entity_status", new[] { "ACTIVE", "LOCKED" });
@@ -1294,6 +1294,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("handover_account_id");
 
+                    b.Property<Guid?>("LenderDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lender_department_id");
+
                     b.Property<string>("LoanCode")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -1314,6 +1318,14 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("return_account_id");
 
+                    b.Property<DateTimeOffset?>("ReturnRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("return_requested_at");
+
+                    b.Property<Guid?>("ReturnRequestedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("return_requested_by_account_id");
+
                     b.Property<DateTimeOffset?>("ReturnedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("returned_at");
@@ -1328,6 +1340,12 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("version");
+
+                    b.Property<int>("WorkflowVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2)
+                        .HasColumnName("workflow_version");
 
                     b.HasKey("Id");
 
@@ -1347,12 +1365,18 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ReturnAccountId");
 
+                    b.HasIndex("ReturnRequestedByAccountId");
+
+                    b.HasIndex("LenderDepartmentId", "Status");
+
                     b.HasIndex("Status", "DueAt")
                         .HasDatabaseName("ix_device_loans_status_due");
 
                     b.ToTable("device_loans", null, t =>
                         {
                             t.HasCheckConstraint("ck_device_loans_due_at", "due_at > created_at");
+
+                            t.HasCheckConstraint("ck_device_loans_two_parties", "workflow_version IN (1,2) AND (workflow_version = 1 OR (lender_department_id IS NOT NULL AND lender_department_id <> borrower_department_id))");
                         });
                 });
 
@@ -1435,6 +1459,15 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.Property<DeviceCondition?>("ConditionAtReturn")
                         .HasColumnType("device_condition")
                         .HasColumnName("condition_at_return");
+
+                    b.Property<DeviceCondition?>("DeclaredReturnCondition")
+                        .HasColumnType("device_condition")
+                        .HasColumnName("declared_return_condition");
+
+                    b.Property<string>("DeclaredReturnNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("declared_return_note");
 
                     b.Property<Guid>("DeviceId")
                         .HasColumnType("uuid")
@@ -3899,9 +3932,19 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("HandoverAccountId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("LenderDepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CSVC.Core.Accounts.Account", null)
                         .WithMany()
                         .HasForeignKey("ReturnAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ReturnRequestedByAccountId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

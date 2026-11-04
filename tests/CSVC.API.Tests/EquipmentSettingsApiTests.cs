@@ -63,7 +63,7 @@ public sealed class EquipmentSettingsApiTests
         Assert.Equal(2, settings!.MismatchedAccounts.Count);
         var workflow = await staff.GetFromJsonAsync<EquipmentWorkflowContextDto>("/api/v1/settings/workflow-context");
         Assert.False(workflow!.EquipmentAccountMatchesDepartment);
-        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync("/api/v1/device-loans", new { purpose = "Test", dueAt = host.Clock.GetUtcNow().AddDays(1), items = new[] { new { deviceCode = "TB001" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await staff.PostAsJsonAsync("/api/v1/device-loans", new { lenderDepartmentCode = "OTHER", purpose = "Test", dueAt = host.Clock.GetUtcNow().AddDays(1), items = new[] { new { deviceCode = "TB001" } } })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await manager.PostAsJsonAsync("/api/v1/accounts", new CreateAccountRequest { FullName = "Wrong", Email = "wrong@example.com", RoleId = 2, DepartmentId = seed.Department })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await manager.PutAsJsonAsync($"/api/v1/accounts/{seed.Staff}/profile", new UpdateAccountProfileRequest { FullName = "Test Staff", DepartmentId = equipmentId })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await manager.PutAsJsonAsync($"/api/v1/accounts/{seed.Manager}/profile", new UpdateAccountProfileRequest { FullName = "Test Manager", DepartmentId = equipmentId })).StatusCode);
@@ -98,7 +98,7 @@ public sealed class EquipmentSettingsApiTests
         var seed = await host.SeedAsync();
         using var manager = Client(host, seed.ManagerToken);
         using var staff = Client(host, seed.StaffToken);
-        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync("/api/v1/device-loans", new { purpose = "Test", dueAt = host.Clock.GetUtcNow().AddDays(1), items = new[] { new { deviceCode = "TB001" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await staff.PostAsJsonAsync("/api/v1/device-loans", new { lenderDepartmentCode = "OTHER", purpose = "Test", dueAt = host.Clock.GetUtcNow().AddDays(1), items = new[] { new { deviceCode = "TB001" } } })).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await manager.PostAsJsonAsync("/api/v1/accounts", new CreateAccountRequest { FullName = "Bootstrap Staff", Email = "bootstrap@example.com", RoleId = 2, DepartmentId = seed.Department })).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await manager.PutAsJsonAsync(Route, new { departmentCode = "UNKNOWN", version = 0 })).StatusCode);
     }

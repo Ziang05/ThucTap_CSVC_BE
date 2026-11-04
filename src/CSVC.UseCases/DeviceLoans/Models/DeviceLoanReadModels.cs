@@ -28,6 +28,11 @@ public sealed class DeviceLoanReadModel
     public int ItemCount { get; init; }
     public int Version { get; init; }
     public bool IsOverdue { get; init; }
+    public string? LenderDepartmentCode { get; init; }
+    public string? LenderDepartmentName { get; init; }
+    public int WorkflowVersion { get; init; }
+    public DateTimeOffset? ReturnRequestedAt { get; init; }
+    public string? ReturnRequestedByAccountCode { get; init; }
 }
 
 public sealed class DeviceLoanItemReadModel
@@ -40,6 +45,8 @@ public sealed class DeviceLoanItemReadModel
     public string? HandoverNote { get; init; }
     public DeviceCondition? ConditionAtReturn { get; init; }
     public string? ReturnNote { get; init; }
+    public DeviceCondition? DeclaredReturnCondition { get; init; }
+    public string? DeclaredReturnNote { get; init; }
 }
 
 public sealed class DeviceLoanHistoryReadModel

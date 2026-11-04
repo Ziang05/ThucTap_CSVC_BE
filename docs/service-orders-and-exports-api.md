@@ -175,7 +175,7 @@ Các mutation dùng `IInventoryTransaction` hiện có: khóa advisory account/s
 
 ## 7. Giới hạn tích hợp cần xử lý riêng
 
-Đọc [báo cáo triển khai v9](service-export-return-v9-report.md). Các module cũ chưa tự có kiểm tra service hold/guard mới; một module cũ có thể tạo operation hold sau khi BT/SC đã giữ thiết bị. BT/SC/PX có kiểm tra operation hold chiều ngược lại, nhưng không thể bảo đảm loại trừ hai chiều toàn hệ thống nếu không sửa các điểm ghi ngoài phạm vi. Không triển khai đồng thời các luồng xung đột như thể cơ chế hold toàn hệ thống đã hoàn chỉnh.
+Đọc [báo cáo triển khai v9](service-export-return-v9-report.md). Luồng loan/Allocation/InterDepartment đã bổ sung kiểm tra service hold ở options và các điểm ghi; khóa thiết bị/sửa cây/nhận kho hồ sơ có sẵn cũng kiểm tra. Recovery được phép có service hold và không tự sửa nguồn/guard/chứng từ nhập lại. Writer SQL trực tiếp vẫn có thể bỏ qua policy; không coi test ứng dụng là ràng buộc DB tuyệt đối. Xem [release mượn hai phòng](device-loans-release.md).
 
 ## 8. Liên kết cơ sở nhận xuất với Nhà cung cấp
 

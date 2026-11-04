@@ -5,6 +5,7 @@ namespace CSVC.UseCases.Devices;
 
 public interface IDeviceService
 {
+    Task<PagedResult<BorrowedDeviceDto>> BorrowedAsync(BorrowedDeviceListQuery query, CancellationToken cancellationToken);
     Task<PagedResult<DeviceDto>> ListAsync(DeviceListQuery query, CancellationToken cancellationToken);
     Task<DeviceDto> GetAsync(string deviceCode, CancellationToken cancellationToken);
     Task<DeviceDto> GetByBarcodeAsync(string barcode, CancellationToken cancellationToken);

@@ -26,8 +26,8 @@ public sealed class EquipmentStaffWorkflowTests
         Assert.Equal("PB_TEST", loan.GetProperty("departmentCode").GetString());
         var loanRoute = Loans + "/" + loan.GetProperty("loanCode").GetString();
         await Expect(await f.Staff.PutAsJsonAsync(loanRoute, f.LoanBody()), HttpStatusCode.NoContent);
-        await Expect(await f.Department.PostAsync(loanRoute + "/cancel", null), HttpStatusCode.Forbidden);
-        await Expect(await f.Staff.PostAsync(loanRoute + "/cancel", null), HttpStatusCode.NoContent);
+        await Expect(await f.Department.PostAsJsonAsync(loanRoute + "/cancel", new { version = 2 }), HttpStatusCode.Forbidden);
+        await Expect(await f.Staff.PostAsJsonAsync(loanRoute + "/cancel", new { version = 2 }), HttpStatusCode.NoContent);
         var transfer = await f.CreateTransfer();
         var transferRoute = Transfers + "/" + transfer.GetProperty("transferCode").GetString();
         await Expect(await f.Staff.PutAsJsonAsync(transferRoute, f.TransferBody()), HttpStatusCode.NoContent);
@@ -42,34 +42,24 @@ public sealed class EquipmentStaffWorkflowTests
     }
 
     [PostgreSqlFact]
-    public async Task Equipment_staff_retains_global_management_and_can_receive_and_return_only_for_own_department()
+    public async Task Equipment_staff_acts_only_for_its_department_in_two_party_loans()
     {
         await using var f = await Fixture.CreateAsync();
-        var ownLoan = await f.CreateLoan(f.Staff);
-        var ownRoute = Loans + "/" + ownLoan.GetProperty("loanCode").GetString();
-        await Expect(await f.Manager.PostAsJsonAsync(ownRoute + "/approve", new { }), HttpStatusCode.NoContent);
-        await Expect(await f.ForeignStaff.PostAsJsonAsync(ownRoute + "/handover-complete", f.Conditions()), HttpStatusCode.Forbidden);
-        await Expect(await f.Department.PostAsJsonAsync(ownRoute + "/handover-complete", f.Conditions()), HttpStatusCode.NotFound);
-        await Expect(await f.Staff.PostAsJsonAsync(ownRoute + "/handover-complete", f.Conditions()), HttpStatusCode.NoContent);
-        await Expect(await f.Staff.PostAsJsonAsync(ownRoute + "/return", f.Conditions()), HttpStatusCode.NoContent);
-        var returned = await Get(f.Staff, ownRoute);
-        Assert.Equal("Returned", returned.GetProperty("status").GetString());
-
-        var otherLoan = await f.CreateLoan(f.Department, "TB-ROLE-002");
-        var otherRoute = Loans + "/" + otherLoan.GetProperty("loanCode").GetString();
-        var list = await Get(f.Staff, Loans);
-        Assert.Equal(2, list.GetProperty("totalCount").GetInt32());
-        await Get(f.Staff, otherRoute);
-        var history = await Get(f.Staff, otherRoute + "/history");
-        Assert.Equal(JsonValueKind.String, history.GetProperty("items")[0].GetProperty("afterData").ValueKind);
-        await Expect(await f.Staff.PutAsJsonAsync(otherRoute, f.LoanBody("TB-ROLE-002")), HttpStatusCode.Forbidden);
-        await Expect(await f.Staff.PostAsync(otherRoute + "/cancel", null), HttpStatusCode.Forbidden);
-        await Expect(await f.Staff.PostAsJsonAsync(otherRoute + "/approve", new { }), HttpStatusCode.NoContent);
-        await Expect(await f.Staff.PostAsJsonAsync(otherRoute + "/handover-complete", f.Conditions("TB-ROLE-002")), HttpStatusCode.NotFound);
-        await Expect(await f.Department.PostAsJsonAsync(otherRoute + "/handover-complete", f.Conditions("TB-ROLE-002")), HttpStatusCode.NoContent);
-        await Expect(await f.Staff.PostAsJsonAsync(otherRoute + "/return", f.Conditions("TB-ROLE-002")), HttpStatusCode.NotFound);
-        await Expect(await f.Department.PostAsJsonAsync(otherRoute + "/return", f.Conditions("TB-ROLE-002")), HttpStatusCode.NoContent);
+        var loan = await f.CreateLoan(f.Staff);
+        var route = Loans + "/" + loan.GetProperty("loanCode").GetString();
+        await Expect(await f.Manager.PostAsJsonAsync(route + "/approve", new { version = 1 }), HttpStatusCode.Forbidden);
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/approve", new { version = 1 }), HttpStatusCode.Forbidden);
+        await Expect(await f.Department.PostAsJsonAsync(route + "/approve", new { version = 1 }), HttpStatusCode.NoContent);
+        await Expect(await f.ForeignStaff.PostAsJsonAsync(route + "/handover-complete", f.LoanConditions(2)), HttpStatusCode.Forbidden);
+        await Expect(await f.Department.PostAsJsonAsync(route + "/handover-complete", f.LoanConditions(2)), HttpStatusCode.NotFound);
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/handover-complete", f.LoanConditions(2)), HttpStatusCode.NoContent);
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/return", f.LoanConditions(3)), HttpStatusCode.NoContent);
+        Assert.Equal("PendingReturnConfirmation", (await Get(f.Staff, route)).GetProperty("status").GetString());
+        await f.InDb(async db => Assert.Single(await db.DeviceOperationHolds.ToListAsync()));
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/confirm-return", f.LoanConditions(4)), HttpStatusCode.Forbidden);
+        await Expect(await f.Department.PostAsJsonAsync(route + "/confirm-return", f.LoanConditions(4)), HttpStatusCode.NoContent);
         await f.InDb(async db => Assert.Empty(await db.DeviceOperationHolds.ToListAsync()));
+        Assert.Equal("Returned", (await Get(f.Staff, route)).GetProperty("status").GetString());
     }
 
     [PostgreSqlFact]
@@ -159,15 +149,17 @@ public sealed class EquipmentStaffWorkflowTests
     }
 
     [PostgreSqlFact]
-    public async Task Equipment_staff_may_still_approve_own_loan_but_mismatched_equipment_accounts_cannot_act()
+    public async Task Equipment_staff_can_lend_to_another_department_but_cannot_approve_own_loan()
     {
         await using var f = await Fixture.CreateAsync();
-        var loan = await f.CreateLoan(f.Staff);
+        var loan = await f.CreateLoan(f.Department, "TB-ROLE-002");
         var route = Loans + "/" + loan.GetProperty("loanCode").GetString();
-        await Expect(await f.ForeignStaff.PostAsJsonAsync(route + "/approve", new { }), HttpStatusCode.Forbidden);
-        await Expect(await f.Staff.PostAsJsonAsync(route + "/approve", new { }), HttpStatusCode.NoContent);
-        await Expect(await f.Staff.PostAsJsonAsync(route + "/handover-complete", f.Conditions()), HttpStatusCode.NoContent);
-        await Expect(await f.Staff.PostAsJsonAsync(route + "/return", f.Conditions()), HttpStatusCode.NoContent);
+        await Expect(await f.ForeignStaff.PostAsJsonAsync(route + "/approve", new { version = 1 }), HttpStatusCode.Forbidden);
+        await Expect(await f.Department.PostAsJsonAsync(route + "/approve", new { version = 1 }), HttpStatusCode.Forbidden);
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/approve", new { version = 1 }), HttpStatusCode.NoContent);
+        await Expect(await f.Department.PostAsJsonAsync(route + "/handover-complete", f.LoanConditions(2, "TB-ROLE-002")), HttpStatusCode.NoContent);
+        await Expect(await f.Department.PostAsJsonAsync(route + "/return", f.LoanConditions(3, "TB-ROLE-002")), HttpStatusCode.NoContent);
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/confirm-return", f.LoanConditions(4, "TB-ROLE-002")), HttpStatusCode.NoContent);
     }
 
     [PostgreSqlFact]
@@ -355,7 +347,7 @@ public sealed class EquipmentStaffWorkflowTests
         await f.InDb(async db => { (await db.Devices.SingleAsync(x => x.DeviceCode == "TB-ROLE-001")).Condition = DeviceCondition.Damaged; await db.SaveChangesAsync(); });
         await Expect(await f.Department.PutAsJsonAsync(route, f.TransferBody(false)), HttpStatusCode.Conflict);
         Assert.Equal("Recovery", (await Get(f.Staff, route)).GetProperty("transferType").GetString());
-        await Expect(await f.Department.PostAsJsonAsync(Loans, f.LoanBody()), HttpStatusCode.Conflict);
+        await Expect(await f.Department.PostAsJsonAsync(Loans, new { lenderDepartmentCode = "PB_TARGET", purpose = "Invalid self loan", dueAt = DateTimeOffset.UtcNow.AddDays(7), items = new[] { new { deviceCode = "TB-ROLE-001" } } }), HttpStatusCode.Conflict);
         await Expect(await f.Department.PostAsync(route + "/cancel", null), HttpStatusCode.NoContent);
         await f.InDb(async db => { (await db.Devices.SingleAsync(x => x.DeviceCode == "TB-ROLE-001")).DepartmentId = (await db.Departments.SingleAsync(x => x.Code == "PB_TEST")).Id; await db.SaveChangesAsync(); });
         await Expect(await f.Staff.PostAsJsonAsync(Transfers, f.TransferBody()), HttpStatusCode.Conflict);
@@ -455,13 +447,13 @@ public sealed class EquipmentStaffWorkflowTests
                 config.Version = 1;
                 var category = new DeviceCategory { DisplayCode = "CAT_ROLE", Name = "Role test" };
                 db.Add(category);
-                foreach (var number in Enumerable.Range(1, 2))
+                foreach (var number in Enumerable.Range(1, 3))
                 {
                     var code = "TB-ROLE-00" + number;
                     var barcode = "BC" + new string((char)('D' + number), 30);
                     db.Add(new DeviceIdentity { DeviceCode = code, Barcode = barcode, ReservedAt = host.Clock.GetUtcNow() });
                     db.Add(new Device { DeviceCode = code, Barcode = barcode, Name = "Device " + number, CategoryId = category.Id,
-                        DepartmentId = seed.Department, ResponsibleAccountId = seed.Staff, Quantity = 1 });
+                        DepartmentId = number == 3 ? target.Id : seed.Department, ResponsibleAccountId = number == 3 ? account.Id : seed.Staff, Quantity = 1 });
                 }
                 await db.SaveChangesAsync();
                 HttpClient Client(string token)
@@ -498,10 +490,11 @@ public sealed class EquipmentStaffWorkflowTests
             Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
             return await response.Content.ReadFromJsonAsync<JsonElement>();
         }
-        public object LoanBody(string deviceCode = "TB-ROLE-001") => new
+        public object LoanBody(string deviceCode = "TB-ROLE-003") => new
         {
-            purpose = "Loan for own department", dueAt = host.Clock.GetUtcNow().AddDays(7), items = new[] { new { deviceCode } }
+            version = 1, lenderDepartmentCode = deviceCode == "TB-ROLE-003" ? "PB_TARGET" : "PB_TEST", purpose = "Borrow from another department", dueAt = host.Clock.GetUtcNow().AddDays(7), items = new[] { new { deviceCode } }
         };
+        public object LoanConditions(int version, string deviceCode = "TB-ROLE-003") => new { version, items = new[] { new { deviceCode, condition = "Good" } } };
         public object Conditions(string deviceCode = "TB-ROLE-001") => new { items = new[] { new { deviceCode, condition = "Good" } } };
         public object TransferBody(bool equipmentIsSource = true) => new
         {
@@ -509,9 +502,9 @@ public sealed class EquipmentStaffWorkflowTests
             targetResponsibleAccountCode = equipmentIsSource ? "TK_DEPARTMENT" : "TK_RECEIVER", reason = "Transfer between departments",
             items = new[] { new { deviceCode = "TB-ROLE-001" } }
         };
-        public async Task<JsonElement> CreateLoan(HttpClient actor, string code = "TB-ROLE-001")
+        public async Task<JsonElement> CreateLoan(HttpClient actor, string code = "TB-ROLE-003")
         {
-            using var response = await actor.PostAsJsonAsync(Loans, LoanBody(code));
+            using var response = await actor.PostAsJsonAsync(Loans, new { lenderDepartmentCode = code == "TB-ROLE-003" ? "PB_TARGET" : "PB_TEST", purpose = "Borrow", dueAt = host.Clock.GetUtcNow().AddDays(7), items = new[] { new { deviceCode = code } } });
             Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
             return await response.Content.ReadFromJsonAsync<JsonElement>();
         }
