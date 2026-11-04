@@ -11,6 +11,7 @@ public sealed class ServiceOrderRepository(CsvcDbContext context) : GenericRepos
     private IQueryable<ServiceOrder> Aggregate(bool tracked)
     {
         var query = _context.ServiceOrders.Include(x => x.Items).ThenInclude(x => x.RepairDetail)!.ThenInclude(x => x!.DamageReport)
+            .Include(x => x.ExportSlips).ThenInclude(x => x.Facility)
             .Include(x => x.ExportSlips).ThenInclude(x => x.Items).ThenInclude(x => x.ReturnItem)!.ThenInclude(x => x!.ReturnSlip).AsSplitQuery();
         return tracked ? query : query.AsNoTracking();
     }

@@ -1,3 +1,5 @@
+using CSVC.Core.Suppliers;
+
 namespace CSVC.Core.ServiceOrders;
 
 public enum ServiceOrderType { Maintenance, Repair }
@@ -66,8 +68,9 @@ public sealed class ExportSlip
     public int SequenceNo { get; set; }
     public required string DisplayCode { get; set; }
     public ServiceWorkflowStatus Status { get; set; }
-    // External dependency; creation currently uses the facility snapshots below.
+    // Nullable only for historical exports created before supplier selection was introduced.
     public Guid? FacilityId { get; set; }
+    public Supplier? Facility { get; set; }
     public required string FacilityNameSnapshot { get; set; }
     public string? FacilityAddressSnapshot { get; set; }
     public string? FacilityContactSnapshot { get; set; }

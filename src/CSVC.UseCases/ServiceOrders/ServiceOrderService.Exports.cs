@@ -6,6 +6,7 @@ using CSVC.Core.Common;
 using CSVC.Core.Devices;
 using CSVC.Core.ServiceOrders;
 using CSVC.UseCases.Common;
+using CSVC.UseCases.Exceptions;
 using CSVC.UseCases.ServiceOrders.DTOs;
 
 namespace CSVC.UseCases.ServiceOrders;
@@ -38,9 +39,8 @@ public sealed partial class ServiceOrderService
         {
             var actor = await RequireActorAsync(null, token);
             Validate(request); RequireRequest(request.RequestId);
-            ValidateSelection(request.ItemNos); RequireFacility(request.FacilityName);
-            var hash = Hash(new { source = Code(request.ServiceOrderCode), facility = Clean(request.FacilityName),
-                address = Clean(request.FacilityAddress), contact = Clean(request.FacilityContact),
+            ValidateSelection(request.ItemNos);
+            var hash = Hash(new { source = Code(request.ServiceOrderCode), facilityCode = Code(request.FacilityCode),
                 planned = request.PlannedExportAt?.ToUniversalTime(), notes = Clean(request.Notes), items = request.ItemNos.Order() });
             var prior = await exportHistory.FirstOrDefaultAsync(h => h.RequestId == request.RequestId && h.ActionCode == "CREATE", token);
             if (prior is not null)
@@ -51,6 +51,7 @@ public sealed partial class ServiceOrderService
             }
             var order = await LoadAsync(request.ServiceOrderCode, true, token);
             RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
+            var facility = await RequireFacilityAsync(request.FacilityCode, token);
             var selected = SelectItems(order, request.ItemNos);
             await transaction.LockDevicesAsync(selected.Select(i => i.DeviceId), token);
             foreach (var item in selected) await ValidateExportItemAsync(order, item, null, token);
@@ -58,8 +59,8 @@ public sealed partial class ServiceOrderService
             var slip = new ExportSlip { ServiceOrderId = order.Id, DisplayCode = BusinessCode.NewRandom("PX"),
                 SequenceNo = order.ExportSlips.Select(e => e.SequenceNo).DefaultIfEmpty(0).Max() + 1,
                 CreateRequestId = request.RequestId, CreateRequestHash = hash, CreatedByAccountId = actor, CreatedAt = now,
-                FacilityNameSnapshot = Clean(request.FacilityName)!, FacilityAddressSnapshot = Clean(request.FacilityAddress),
-                FacilityContactSnapshot = Clean(request.FacilityContact), PlannedExportAt = request.PlannedExportAt?.ToUniversalTime(), Notes = Clean(request.Notes) };
+                FacilityId = facility.Id, Facility = facility, FacilityNameSnapshot = facility.Name, FacilityAddressSnapshot = Clean(facility.Address),
+                FacilityContactSnapshot = FacilityContact(facility), PlannedExportAt = request.PlannedExportAt?.ToUniversalTime(), Notes = Clean(request.Notes) };
             foreach (var item in selected) await AddExportLineAsync(slip, item, token);
             order.ExportSlips.Add(slip);
             await AuditExportAsync(slip, request.RequestId, hash, actor, "CREATE", null, null, token);
@@ -90,22 +91,22 @@ public sealed partial class ServiceOrderService
         => transaction.ExecuteAsync(async token =>
         {
             var actor = await RequireActorAsync(null, token);
-            Validate(request); RequireRequest(request.RequestId); ValidateSelection(request.ItemNos); RequireFacility(request.FacilityName);
+            Validate(request); RequireRequest(request.RequestId); ValidateSelection(request.ItemNos);
             var order = await LoadExportAsync(code, true, token); var slip = Export(order, code);
             await RequireExportEditorAsync(slip, actor, token);
-            var hash = Hash(new { request.Version, facility = Clean(request.FacilityName), address = Clean(request.FacilityAddress),
-                contact = Clean(request.FacilityContact), planned = request.PlannedExportAt?.ToUniversalTime(), notes = Clean(request.Notes), items = request.ItemNos.Order() });
+            var hash = Hash(new { request.Version, facilityCode = Code(request.FacilityCode), planned = request.PlannedExportAt?.ToUniversalTime(), notes = Clean(request.Notes), items = request.ItemNos.Order() });
             if (await ExportRetryAsync(slip, request.RequestId, hash, actor, "EDIT", token)) return true;
             RequireVersion(slip.Version, request.Version); RequireStatus(slip.Status, ServiceWorkflowStatus.PendingApproval);
             RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
+            var facility = await RequireFacilityAsync(request.FacilityCode, token);
             var selected = SelectItems(order, request.ItemNos);
             var oldItems = order.Items.Where(i => slip.Items.Any(l => l.ServiceOrderItemId == i.Id)).ToArray();
             await transaction.LockDevicesAsync(selected.Concat(oldItems).Select(i => i.DeviceId), token);
             foreach (var item in selected)
                 await ValidateExportItemAsync(order, item, slip.Items.SingleOrDefault(l => l.ServiceOrderItemId == item.Id)?.Id, token);
             var before = ExportSnapshot(slip);
-            var changed = slip.FacilityNameSnapshot != Clean(request.FacilityName) || slip.FacilityAddressSnapshot != Clean(request.FacilityAddress)
-                || slip.FacilityContactSnapshot != Clean(request.FacilityContact) || slip.PlannedExportAt != request.PlannedExportAt?.ToUniversalTime()
+            var changed = slip.FacilityId != facility.Id || slip.FacilityNameSnapshot != facility.Name || slip.FacilityAddressSnapshot != Clean(facility.Address)
+                || slip.FacilityContactSnapshot != FacilityContact(facility) || slip.PlannedExportAt != request.PlannedExportAt?.ToUniversalTime()
                 || slip.Notes != Clean(request.Notes) || !oldItems.Select(i => i.ItemNo).Order().SequenceEqual(request.ItemNos.Order());
             if (changed)
             {
@@ -116,8 +117,9 @@ public sealed partial class ServiceOrderService
                     slip.Items.Remove(line); await exportItems.DeleteAsync(line, token);
                 }
                 foreach (var item in selected.Where(i => !slip.Items.Any(l => l.ServiceOrderItemId == i.Id))) await AddExportLineAsync(slip, item, token);
-                slip.FacilityNameSnapshot = Clean(request.FacilityName)!; slip.FacilityAddressSnapshot = Clean(request.FacilityAddress);
-                slip.FacilityContactSnapshot = Clean(request.FacilityContact); slip.PlannedExportAt = request.PlannedExportAt?.ToUniversalTime();
+                slip.FacilityId = facility.Id; slip.Facility = facility;
+                slip.FacilityNameSnapshot = facility.Name; slip.FacilityAddressSnapshot = Clean(facility.Address);
+                slip.FacilityContactSnapshot = FacilityContact(facility); slip.PlannedExportAt = request.PlannedExportAt?.ToUniversalTime();
                 slip.Notes = Clean(request.Notes); slip.LastEditedAt = clock.GetUtcNow(); slip.LastEditedByAccountId = actor;
                 slip.EditRequestId = request.RequestId; slip.Version++;
             }
@@ -238,7 +240,9 @@ public sealed partial class ServiceOrderService
             AfterData = line is null ? JsonSerializer.Serialize(ExportSnapshot(slip)) : JsonSerializer.Serialize(new {
                 exportCode = slip.DisplayCode, lineId = line.Id, deviceCode = line.DeviceCodeSnapshot, result = line.Result.ToString(), failureReason = line.FailureReason }) }, ct);
     private static object ExportSnapshot(ExportSlip e) => new { exportCode = e.DisplayCode, status = e.Status.ToString(), e.Version,
-        facility = e.FacilityNameSnapshot, plannedAt = e.PlannedExportAt, e.Notes, e.CancelReason,
+        facilityId = e.FacilityId, facilityCode = e.Facility?.DisplayCode, facility = e.FacilityNameSnapshot,
+        facilityAddress = e.FacilityAddressSnapshot, facilityContact = e.FacilityContactSnapshot,
+        plannedAt = e.PlannedExportAt, e.Notes, e.CancelReason,
         items = e.Items.OrderBy(i => i.Id).Select(i => new { lineId = i.Id, sourceItemId = i.ServiceOrderItemId, deviceCode = i.DeviceCodeSnapshot }).ToArray() };
     private static ExportSlip Export(ServiceOrder order, string code) => order.ExportSlips.Single(e => e.DisplayCode == Code(code));
     private static ServiceOrderItem[] SelectItems(ServiceOrder order, IEnumerable<int> numbers)
@@ -249,7 +253,16 @@ public sealed partial class ServiceOrderService
         if (values is null || values.Length is < 1 or > 100 || values.Any(n => n is < 1 or > 100) || values.Distinct().Count() != values.Length)
             throw Validation("Select 1 to 100 distinct item numbers.");
     }
-    private static void RequireFacility(string? value) { if (Clean(value) is null) throw Validation("Facility name is required."); }
+    private async Task<CSVC.Core.Suppliers.Supplier> RequireFacilityAsync(string code, CancellationToken ct)
+    {
+        var selected = await unitOfWork.Suppliers.GetByDisplayCodeAsync(code, ct) ?? throw Missing("SUPPLIER_NOT_FOUND");
+        var supplier = await unitOfWork.Suppliers.GetByIdAsync(selected.Id, ct) ?? throw Missing("SUPPLIER_NOT_FOUND");
+        if (supplier.Status != EntityStatus.Active)
+            throw new UseCaseException(FailureKind.Conflict, "SUPPLIER_UNAVAILABLE", "The selected supplier is locked.");
+        return supplier;
+    }
+    private static string? FacilityContact(CSVC.Core.Suppliers.Supplier supplier)
+        => Clean(string.Join(" | ", new[] { Clean(supplier.Phone), Clean(supplier.Email) }.Where(x => x is not null)));
     private static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value))));
     private static ExportSlipDto ToExportDto(ExportSlip e, ServiceOrder o, IReadOnlyDictionary<Guid, string> codes)
         => new(e.DisplayCode, o.DisplayCode, o.OrderType, e.SequenceNo, e.Status, e.FacilityNameSnapshot,
@@ -268,5 +281,5 @@ public sealed partial class ServiceOrderService
                     ReturnNote = l.ReturnItem?.ReturnNote,
                     GuardState = l.ReturnItem is not null || l.Result == ExportResult.Failed || e.Status == ServiceWorkflowStatus.Canceled ? null
                         : l.Result == ExportResult.Success ? ExportGuardState.AwaitingReturn : ExportGuardState.HeldForExport
-                }).OrderBy(i => i.ItemNo).ToArray());
+                }).OrderBy(i => i.ItemNo).ToArray()) { FacilityCode = e.Facility?.DisplayCode };
 }

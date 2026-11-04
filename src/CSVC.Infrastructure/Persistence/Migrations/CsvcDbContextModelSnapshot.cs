@@ -2902,6 +2902,8 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasIndex("DisplayCode")
                         .IsUnique();
 
+                    b.HasIndex("FacilityId");
+
                     b.HasIndex("LastEditedByAccountId");
 
                     b.HasIndex("ServiceOrderId", "SequenceNo")
@@ -4277,6 +4279,11 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("CSVC.Core.Suppliers.Supplier", "Facility")
+                        .WithMany()
+                        .HasForeignKey("FacilityId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CSVC.Core.Accounts.Account", null)
                         .WithMany()
                         .HasForeignKey("LastEditedByAccountId")
@@ -4287,6 +4294,8 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ServiceOrderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Facility");
                 });
 
             modelBuilder.Entity("CSVC.Core.ServiceOrders.ExportSlipItem", b =>

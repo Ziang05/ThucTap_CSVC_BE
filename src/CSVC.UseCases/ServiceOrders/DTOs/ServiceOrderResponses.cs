@@ -20,7 +20,10 @@ public sealed record ExportSlipDto(string DisplayCode, string ServiceOrderCode, 
     string? ApprovedByAccountCode, DateTimeOffset? ApprovedAt,
     string? LastEditedByAccountCode, DateTimeOffset? LastEditedAt,
     string? CanceledByAccountCode, DateTimeOffset? CanceledAt, string? CancelReason,
-    DateTimeOffset? CompletedAt, int Version, IReadOnlyList<ExportSlipItemDto> Items);
+    DateTimeOffset? CompletedAt, int Version, IReadOnlyList<ExportSlipItemDto> Items)
+{
+    public string? FacilityCode { get; init; }
+}
 
 public sealed record ExportSlipItemDto(int ItemNo, string DeviceCode, string DeviceName, string? Serial,
     ExportResult? Result, string? ResultRecordedByAccountCode, DateTimeOffset? ResultRecordedAt,

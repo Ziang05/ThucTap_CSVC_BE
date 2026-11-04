@@ -113,6 +113,7 @@ public sealed class ExportSlipConfiguration : IEntityTypeConfiguration<ExportSli
         b.Property(x => x.DisplayCode).HasMaxLength(64);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(24);
         b.Property(x => x.FacilityNameSnapshot).HasMaxLength(255);
+        b.HasOne(x => x.Facility).WithMany().HasForeignKey(x => x.FacilityId).OnDelete(DeleteBehavior.Restrict);
         b.Property(x => x.Version).IsConcurrencyToken();
         b.HasIndex(x => x.DisplayCode).IsUnique();
         b.Property(x => x.CreateRequestHash).HasMaxLength(64);

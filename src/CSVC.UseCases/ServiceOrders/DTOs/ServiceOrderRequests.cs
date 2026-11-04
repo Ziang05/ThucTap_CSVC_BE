@@ -29,9 +29,7 @@ public sealed class CreateExportSlipRequest
 {
     public Guid RequestId { get; init; }
     [Required, StringLength(64)] public string ServiceOrderCode { get; init; } = "";
-    [Required, StringLength(255)] public string FacilityName { get; init; } = "";
-    [StringLength(4000)] public string? FacilityAddress { get; init; }
-    [StringLength(1000)] public string? FacilityContact { get; init; }
+    [Required, StringLength(64)] public string FacilityCode { get; init; } = "";
     public DateTimeOffset? PlannedExportAt { get; init; }
     [Required, MinLength(1), MaxLength(100)] public List<int> ItemNos { get; init; } = [];
     [StringLength(4000)] public string? Notes { get; init; }
@@ -92,9 +90,7 @@ public sealed class EditExportSlipRequest
 {
     public Guid RequestId { get; init; }
     [Required, Range(0, int.MaxValue)] public int? Version { get; init; }
-    [Required, StringLength(255)] public string FacilityName { get; init; } = "";
-    [StringLength(4000)] public string? FacilityAddress { get; init; }
-    [StringLength(1000)] public string? FacilityContact { get; init; }
+    [Required, StringLength(64)] public string FacilityCode { get; init; } = "";
     public DateTimeOffset? PlannedExportAt { get; init; }
     [Required, MinLength(1), MaxLength(100)] public List<int> ItemNos { get; init; } = [];
     [StringLength(4000)] public string? Notes { get; init; }
