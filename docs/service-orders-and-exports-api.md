@@ -16,7 +16,7 @@ Mọi endpoint cần Bearer session đang hoạt động; tài khoản không kh
 
 Manager duyệt toàn nguồn và toàn PX. Cả Manager/Staff được tạo, ghi kết quả, nhập lại và đối soát. Hủy nguồn chỉ người tạo. Sửa/hủy PX chỉ người tạo hoặc Manager, khi PX PendingApproval và nguồn InProgress.
 
-API sử dụng mã công khai và `itemNo` của item nguồn, không yêu cầu người dùng nhập UUID nội bộ. Trong một PX, itemNo vẫn là số của item nguồn; trong một phiếu nhập lại, itemNo tham chiếu item của PX được chọn. Snapshot EDIT trong lịch sử có ID nội bộ của dòng cũ/mới để phục dựng việc thêm/bỏ dòng; ID này không dùng làm tham số chọn thiết bị. JSON lịch sử không lưu contact, token hay mật khẩu.
+API sử dụng mã công khai và `itemNo` của item nguồn, không yêu cầu người dùng nhập UUID nội bộ. Trong một PX, itemNo vẫn là số của item nguồn; trong một phiếu nhập lại, itemNo tham chiếu item của PX được chọn. Snapshot EDIT trong lịch sử có ID nội bộ của dòng cũ/mới để phục dựng việc thêm/bỏ dòng; ID này không dùng làm tham số chọn thiết bị. Lịch sử header PX lưu cả địa chỉ/liên hệ cơ sở trước và sau để phục dựng việc sửa, chỉ được đọc bởi tài khoản QTTB có quyền. Không lưu token hay mật khẩu.
 
 Mutation cần `requestId` UUID khác rỗng. Retry dùng lại đúng key/payload/tài khoản; đổi nội dung trả 409 `IDEMPOTENCY_CONFLICT`. Tạo nguồn/PX/return dùng hash canonical; thao tác PX dùng hash lưu bền trong lịch sử, kể cả EDIT không làm thay đổi dữ liệu. Version cũ trả 409 `VERSION_CONFLICT`; EDIT bắt buộc version. Các transition khác nhận version tùy chọn và vẫn được tuần tự hóa bằng transaction/khóa.
 
@@ -93,18 +93,20 @@ Tạo PX:
 {
   "requestId": "20000000-0000-0000-0000-000000000001",
   "serviceOrderCode": "SC_SOURCE",
-  "facilityName": "Cơ sở sửa chữa A",
-  "facilityAddress": "Địa chỉ",
-  "facilityContact": "Liên hệ",
+  "facilityCode": "NCC_SUA_CHUA_A",
   "plannedExportAt": "2026-11-05T08:00:00+07:00",
   "itemNos": [2],
   "notes": "Giao đợt 1"
 }
 ```
 
+Cơ sở nhận xuất sử dụng danh mục **Nhà cung cấp** hiện có. Giao diện lấy danh sách từ `GET /suppliers?status=Active`, gửi mã `displayCode` được chọn trong `facilityCode`. Backend tra cứu nhà cung cấp, kiểm tra Active trong transaction dùng chung khóa với writer nhà cung cấp, lưu `export_slips.facility_id` tham chiếu `suppliers.id` và tự chụp tên/địa chỉ/liên hệ (điện thoại và email, phân cách ` | `). Không nhận `facilityName`, `facilityAddress`, `facilityContact` hoặc `facilityId` từ client. Không tạo danh mục cơ sở riêng.
+
+DTO PX trả `facilityCode` để khôi phục lựa chọn và các trường `facilityName/address/contact` từ snapshot chứng từ. Sửa danh mục về sau không tự thay snapshot của PX. Nhà cung cấp bị khóa không được chọn khi tạo/sửa; các PX đã liên kết vẫn được đọc và tiếp tục duyệt/ghi kết quả theo luồng hiện có. Retry thành công được xác định trước khi kiểm tra trạng thái hiện tại của danh mục, nên không tạo trùng nếu nhà cung cấp đã bị khóa sau lần gửi đầu.
+
 Item phải External/InProgress, đúng nguồn, có service hold đúng chủ; thiết bị hiện ở phòng QTTB, Quantity=1, Active, không Missing, không operation hold/guard khác. Tạo PX đặt HeldForExport. Duyệt kiểm tra lại; chuyển toàn PX InProgress, không ghi kết quả hộ item.
 
-Sửa PX dùng cùng bộ trường cơ sở/lịch/ghi chú/itemNos và thêm requestId/version, **không có serviceOrderCode**. Nguồn bất biến. Diff trong cùng transaction: giữ guard/dòng còn lại, xóa guard/dòng bỏ, thêm guard/dòng mới; tập item không rỗng. EDIT có snapshot trước/sau và hash, giữ được retry key cũ sau các lần sửa tiếp theo. EDIT không đổi nội dung chỉ ghi NoChange, không tăng version.
+Sửa PX dùng cùng bộ trường facilityCode/lịch/ghi chú/itemNos và thêm requestId/version, **không có serviceOrderCode**. Nguồn bất biến. Diff trong cùng transaction: giữ guard/dòng còn lại, xóa guard/dòng bỏ, thêm guard/dòng mới; tập item không rỗng. Khi sửa, backend lấy lại thông tin Nhà cung cấp đã chọn; thay đổi thông tin trong danh mục chỉ được chụp lại vào PX qua lần sửa Pending hợp lệ. EDIT có snapshot trước/sau đầy đủ: ID/mã/tên/địa chỉ/liên hệ cơ sở, lịch, ghi chú và tập item; hash được lưu cùng sự kiện, giữ được retry key cũ sau các lần sửa tiếp theo. EDIT không đổi nội dung chỉ ghi NoChange, không tăng version.
 
 Hủy PX:
 
@@ -174,3 +176,9 @@ Các mutation dùng `IInventoryTransaction` hiện có: khóa advisory account/s
 ## 7. Giới hạn tích hợp cần xử lý riêng
 
 Đọc [báo cáo triển khai v9](service-export-return-v9-report.md). Các module cũ chưa tự có kiểm tra service hold/guard mới; một module cũ có thể tạo operation hold sau khi BT/SC đã giữ thiết bị. BT/SC/PX có kiểm tra operation hold chiều ngược lại, nhưng không thể bảo đảm loại trừ hai chiều toàn hệ thống nếu không sửa các điểm ghi ngoài phạm vi. Không triển khai đồng thời các luồng xung đột như thể cơ chế hold toàn hệ thống đã hoàn chỉnh.
+
+## 8. Liên kết cơ sở nhận xuất với Nhà cung cấp
+
+Migration bổ sung `20261104042826_ExportFacilitySupplierLink` tạo index và FK Restrict từ `export_slips.facility_id` đến `suppliers.id`; không sửa migration đã áp, không xóa/reset/backfill chứng từ. `facility_id` tiếp tục nullable để giữ PX lịch sử chỉ có snapshot; các lệnh tạo mới luôn yêu cầu chọn Nhà cung cấp, PX Pending cũ có thể gắn qua thao tác sửa. DTO của PX cũ chưa gắn có `facilityCode=null`. Lịch sử cũ được giữ nguyên; snapshot đầy đủ chỉ xuất hiện ở sự kiện mới.
+
+Nếu có `facility_id` cũ khác null không tham chiếu Nhà cung cấp hợp lệ, migration từ chối thay vì xóa hoặc tự đoán đối tượng thay thế. Việc áp migration lên DB ứng dụng là bước triển khai riêng. API mới yêu cầu frontend chuyển từ gửi snapshot tự nhập sang `facilityCode`; không hỗ trợ payload cũ để tránh giả mạo thông tin cơ sở.
