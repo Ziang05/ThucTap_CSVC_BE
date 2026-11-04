@@ -34,7 +34,8 @@ public sealed class UnitOfWork(
     IDeviceLoanHistoryRepository deviceLoanHistories,
     IDeviceTransferRepository deviceTransfers,
     IDeviceTransferItemRepository deviceTransferItems,
-    IDeviceTransferHistoryRepository deviceTransferHistories) : IUnitOfWork
+    IDeviceTransferHistoryRepository deviceTransferHistories,
+    IDamageReportRepository damageReports) : IUnitOfWork
 {
     public IRoleRepository Roles { get; } = roles;
 
@@ -85,6 +86,8 @@ public sealed class UnitOfWork(
     public IDeviceTransferRepository DeviceTransfers { get; } = deviceTransfers;
     public IDeviceTransferItemRepository DeviceTransferItems { get; } = deviceTransferItems;
     public IDeviceTransferHistoryRepository DeviceTransferHistories { get; } = deviceTransferHistories;
+
+    public IDamageReportRepository DamageReports { get; } = damageReports;
 
     public Task<int> CommitAsync(CancellationToken cancellationToken = default)
         => context.SaveChangesAsync(cancellationToken);

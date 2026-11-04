@@ -27,12 +27,15 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Database: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-csvc};Username=${POSTGRES_USER:-csvc};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD};Timeout=5;GSS Encryption Mode=Disable"
+      DamageReports__EvidenceRoot: /var/lib/csvc/damage-report-evidence
       Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:-http://localhost:5173}
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - damage_report_evidence:/var/lib/csvc/damage-report-evidence
     init: true
     read_only: true
     tmpfs:
@@ -61,6 +64,7 @@ services:
     command: [build, CSVC.sln]
 
 volumes:
+  damage_report_evidence:
   postgres_data:
   nuget_cache:
   dotnet_tools:

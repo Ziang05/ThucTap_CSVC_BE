@@ -1,3 +1,5 @@
+using CSVC.Core.Suppliers;
+
 namespace CSVC.Core.ServiceOrders;
 
 public enum ServiceOrderType { Maintenance, Repair }
@@ -54,8 +56,9 @@ public sealed class ServiceOrderItem
 public sealed class RepairItemDetail
 {
     public Guid ServiceOrderItemId { get; set; }
-    // External dependency: no damage-report master exists in this repository yet.
+    // Optional report linkage; database validates the report device and Repair subtype.
     public Guid? DamageReportId { get; set; }
+    public CSVC.Core.DamageReports.DamageReport? DamageReport { get; set; }
 }
 
 public sealed class ExportSlip
@@ -65,8 +68,9 @@ public sealed class ExportSlip
     public int SequenceNo { get; set; }
     public required string DisplayCode { get; set; }
     public ServiceWorkflowStatus Status { get; set; }
-    // External dependency; creation currently uses the facility snapshots below.
+    // Nullable only for historical exports created before supplier selection was introduced.
     public Guid? FacilityId { get; set; }
+    public Supplier? Facility { get; set; }
     public required string FacilityNameSnapshot { get; set; }
     public string? FacilityAddressSnapshot { get; set; }
     public string? FacilityContactSnapshot { get; set; }
@@ -74,6 +78,32 @@ public sealed class ExportSlip
     public string? Notes { get; set; }
     public Guid CreatedByAccountId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public Guid CreateRequestId { get; set; }
+    public required string CreateRequestHash { get; set; }
+    public Guid? ApprovedByAccountId { get; set; }
+    public DateTimeOffset? ApprovedAt { get; set; }
+    public Guid? ApprovalRequestId { get; set; }
+    public Guid? LastEditedByAccountId { get; set; }
+    public DateTimeOffset? LastEditedAt { get; set; }
+    public Guid? EditRequestId { get; set; }
+    public Guid? CanceledByAccountId { get; set; }
+    public DateTimeOffset? CanceledAt { get; set; }
+    public Guid? CancelRequestId { get; set; }
+    public string? CancelReason { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+    public int Version { get; set; }
+    public ICollection<ExportSlipItem> Items { get; set; } = new List<ExportSlipItem>();
+}
+
+public sealed class ExportSlipItem
+{
+    public ExportReturnSlipItem? ReturnItem { get; set; }
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ExportSlipId { get; set; }
+    public Guid ServiceOrderItemId { get; set; }
+    public required string DeviceCodeSnapshot { get; set; }
+    public required string DeviceNameSnapshot { get; set; }
+    public string? SerialSnapshot { get; set; }
     public ExportResult? Result { get; set; }
     public Guid? ResultRecordedByAccountId { get; set; }
     public DateTimeOffset? ResultRecordedAt { get; set; }
@@ -82,18 +112,5 @@ public sealed class ExportSlip
     public string? RecipientContact { get; set; }
     public string? FailureReason { get; set; }
     public string? EvidenceRef { get; set; }
-    public DateTimeOffset? CanceledAt { get; set; }
-    public DateTimeOffset? CompletedAt { get; set; }
-    public int Version { get; set; }
-    public ICollection<ExportSlipItem> Items { get; set; } = new List<ExportSlipItem>();
-}
-
-public sealed class ExportSlipItem
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid ExportSlipId { get; set; }
-    public Guid ServiceOrderItemId { get; set; }
-    public required string DeviceCodeSnapshot { get; set; }
-    public required string DeviceNameSnapshot { get; set; }
-    public string? SerialSnapshot { get; set; }
+    public int Version { get; set; } = 1;
 }

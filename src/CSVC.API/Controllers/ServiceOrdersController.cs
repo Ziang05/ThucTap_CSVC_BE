@@ -51,6 +51,10 @@ public sealed class ServiceOrdersController(IServiceOrderService service) : Auth
         return NoContent();
     }
 
+    [HttpPost("{code}/reconcile-holds")]
+    public async Task<IActionResult> Reconcile(string code, ServiceTransitionRequest request, CancellationToken ct)
+        => Ok(new { released = await service.ReconcileHoldsAsync(code, request, ct) });
+
     [HttpGet("{code}/history")]
     [ProducesResponseType<PagedResult<ServiceHistoryDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ServiceHistoryDto>>> History(string code, [FromQuery] ServiceHistoryQuery query, CancellationToken ct)
