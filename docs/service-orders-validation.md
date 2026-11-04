@@ -1,3 +1,5 @@
+> Tài liệu kiểm thử lịch sử trước v9. Kết quả và giới hạn hiện tại xem [báo cáo v9](service-export-return-v9-report.md).
+
 # Kiểm tra backend bảo trì, sửa chữa và xuất
 
 Ngày: 02/11/2026 (Asia/Ho_Chi_Minh). Branch: `baobui_br`.

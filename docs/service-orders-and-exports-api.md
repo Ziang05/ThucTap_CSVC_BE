@@ -1,122 +1,176 @@
-# Bảo trì, sửa chữa và phiếu xuất
+# Backend BT/SC – Xuất – Nhập lại, v9
 
-Backend triển khai thiết kế `service_orders` / `service_order_items` chung cho bảo trì và sửa chữa. Phiếu xuất thuộc đúng một phiếu nguồn; mỗi item External nằm trong đúng một phiếu xuất. Không có API sửa phiếu, tạo phiếu xuất độc lập hoặc hủy phiếu xuất độc lập.
+Cập nhật ngày 04/11/2026. Tài liệu này thay thế hợp đồng API cũ tạo PX cùng nguồn và ghi kết quả xuất ở header.
 
-## Endpoint và quyền
+## 1. Nguồn và phạm vi
 
-Dùng session Bearer, JSON camelCase và enum PascalCase như các module hiện tại. Mã phiếu BT/SC/PX do server sinh, dài 32 ký tự. Route dùng mã phiếu; kết quả item dùng `itemNo` trong chi tiết phiếu. Không trả UUID/FK của đối tượng nghiệp vụ.
+- Thiết kế dữ liệu: `CSVC_v9.dbml` được người dùng cung cấp.
+- Use case: [Nhóm 13 – Bảo trì](https://docs.google.com/spreadsheets/d/1xQg5ao1fWNIA5qC8qisSoVaUeUuRZ9UFa3_nse2ZHyA/edit#gid=2026103013), [Nhóm 15 – Sửa chữa](https://docs.google.com/spreadsheets/d/1xQg5ao1fWNIA5qC8qisSoVaUeUuRZ9UFa3_nse2ZHyA/edit#gid=2026103015), [Nhóm 18 – Xuất/Nhập lại](https://docs.google.com/spreadsheets/d/1xQg5ao1fWNIA5qC8qisSoVaUeUuRZ9UFa3_nse2ZHyA/edit#gid=2026103018), [Liên kết](https://docs.google.com/spreadsheets/d/1xQg5ao1fWNIA5qC8qisSoVaUeUuRZ9UFa3_nse2ZHyA/edit#gid=2026110419).
+- Ưu tiên yêu cầu triển khai trực tiếp và v9: một số đoạn ở bảng liên kết vẫn nhắc `service_order_device_reservations` của v8; ghi chú v9 có đoạn giới hạn sửa Export của một đợt cũ. Đợt này người dùng yêu cầu sửa cả BT/SC, Export và Return, dùng `service_order_device_holds`.
+- Không sửa nghiệp vụ Thu hồi/Điều chuyển, Mượn, Tiếp nhận độc lập, Thiết bị, Báo cáo sự cố; không sửa bảng/repository `device_operation_holds`. Đọc báo cáo để gắn vào item Repair chỉ là phụ thuộc đọc của BT/SC.
+- Framework thực tế: .NET/ASP.NET Core/EF Core 10; PostgreSQL. Giao dịch dùng cơ chế khóa hiện có của repository.
 
-| Method | Route dưới `/api/v1` | Quyền |
+## 2. Quyền và nguyên tắc API
+
+Mọi endpoint cần Bearer session đang hoạt động; tài khoản không khóa; vai trò QTTB Manager hoặc Staff; phòng ban hiện tại trùng phòng QTTB được chọn trong Settings. Không có cấu hình phòng QTTB thì trả conflict yêu cầu cấu hình trước. Nhân viên phòng ban không được truy cập module này.
+
+Manager duyệt toàn nguồn và toàn PX. Cả Manager/Staff được tạo, ghi kết quả, nhập lại và đối soát. Hủy nguồn chỉ người tạo. Sửa/hủy PX chỉ người tạo hoặc Manager, khi PX PendingApproval và nguồn InProgress.
+
+API sử dụng mã công khai và `itemNo` của item nguồn, không yêu cầu người dùng nhập UUID nội bộ. Trong một PX, itemNo vẫn là số của item nguồn; trong một phiếu nhập lại, itemNo tham chiếu item của PX được chọn. Snapshot EDIT trong lịch sử có ID nội bộ của dòng cũ/mới để phục dựng việc thêm/bỏ dòng; ID này không dùng làm tham số chọn thiết bị. JSON lịch sử không lưu contact, token hay mật khẩu.
+
+Mutation cần `requestId` UUID khác rỗng. Retry dùng lại đúng key/payload/tài khoản; đổi nội dung trả 409 `IDEMPOTENCY_CONFLICT`. Tạo nguồn/PX/return dùng hash canonical; thao tác PX dùng hash lưu bền trong lịch sử, kể cả EDIT không làm thay đổi dữ liệu. Version cũ trả 409 `VERSION_CONFLICT`; EDIT bắt buộc version. Các transition khác nhận version tùy chọn và vẫn được tuần tự hóa bằng transaction/khóa.
+
+Base URL bên dưới: `/api/v1`. Danh sách/lịch sử dùng `page` từ 1 và `pageSize` 1–100. Mutation thành công trả 204, create trả 201; reconcile trả 200 `{ "released": n }`.
+
+## 3. BT/SC
+
+| Method | Đường dẫn | Hành vi |
 |---|---|---|
-| GET | `/service-orders`, `/service-orders/{code}` | QTTB Manager/Staff |
-| POST | `/service-orders` | QTTB Staff |
-| POST | `/service-orders/{code}/approve` | QTTB Manager |
-| POST | `/service-orders/{code}/cancel` | QTTB Staff đã tạo phiếu |
-| POST | `/service-orders/{code}/results` | QTTB Staff |
-| GET | `/service-orders/{code}/history` | QTTB Manager/Staff |
-| GET | `/export-slips`, `/export-slips/{code}` | QTTB Manager/Staff |
-| POST | `/export-slips/{code}/result` | QTTB Staff |
-| GET | `/export-slips/{code}/history` | QTTB Manager/Staff |
+| GET | `/service-orders`, `/service-orders/{code}` | Danh sách/chi tiết; lọc search, orderType, status |
+| POST | `/service-orders` | Tạo header + items + history, PendingApproval |
+| POST | `/service-orders/{code}/approve` | Duyệt cả nguồn; tạo service hold từng thiết bị |
+| POST | `/service-orders/{code}/cancel` | Hủy nguồn PendingApproval, bắt buộc reason |
+| POST | `/service-orders/{code}/results` | Ghi kết quả chuyên môn từng item |
+| POST | `/service-orders/{code}/reconcile-holds` | Đối soát hold của đúng một nguồn |
+| GET | `/service-orders/{code}/history` | Lịch sử nguồn, gồm HOLD_ACQUIRED/HOLD_RELEASED |
 
-Chính sách v1 áp dụng theo các vai trò QTTB hiện có; Department Staff không truy cập nhóm API này. Mỗi mutation đọc lại account, session và role trong inventory transaction, dùng cùng khóa với thay đổi quyền và nghiệp vụ nhập/mượn/điều chuyển.
-
-Danh sách phiếu nguồn lọc bằng `search` (mã phiếu), `orderType`, `status`; danh sách xuất lọc bằng `serviceOrderCode`, `status`. Cả hai hỗ trợ `page` (mặc định 1) và `pageSize` (mặc định 20, tối đa 100), sắp xếp mới nhất rồi mã phiếu. History dùng cùng tham số phân trang. Response phân trang có `items`, `totalCount`, `page`, `pageSize`.
-
-## Tạo phiếu
+Tạo nguồn:
 
 ```json
 {
-  "requestId": "57135411-d8c3-479d-a15f-cd047d52e777",
+  "requestId": "10000000-0000-0000-0000-000000000001",
   "orderType": "Repair",
-  "notes": "Sửa thiết bị đợt 1",
   "items": [
-    { "deviceCode": "TB001", "executionMethod": "OnSite", "workDescription": "Kiểm tra nguồn" },
-    { "deviceCode": "TB002", "executionMethod": "External", "workDescription": "Thay bo mạch" }
+    { "deviceCode": "TB_A", "executionMethod": "OnSite", "workDescription": "Kiểm tra", "damageReportCode": "BC_A" },
+    { "deviceCode": "TB_B", "executionMethod": "External", "workDescription": "Sửa ngoài" }
   ],
-  "exportSlips": [
-    {
-      "facilityName": "Trung tâm dịch vụ A",
-      "facilityAddress": "Địa chỉ cơ sở",
-      "facilityContact": "Liên hệ cơ sở",
-      "deviceCodes": ["TB002"],
-      "plannedExportAt": "2026-11-05T08:00:00+07:00"
-    }
-  ]
+  "notes": "Ghi chú"
 }
 ```
 
-`orderType`: `Maintenance` hoặc `Repair`. `executionMethod`: `OnSite` hoặc `External`. Tối đa 100 item và 100 phiếu xuất trong một phiếu nguồn. Mã thiết bị trim/uppercase; không cho trùng. Mọi item External phải xuất hiện đúng một lần trong `exportSlips`; item OnSite không được xuất hiện. Phiếu chỉ gồm OnSite gửi `exportSlips: []`.
+`damageReportCode` tùy chọn, chỉ dành cho Repair và báo cáo phải đúng thiết bị; không sửa/đóng báo cáo. Source create không nhận `exportSlips`; client gửi hợp đồng cũ bị từ chối. Thiết bị nguồn có thể còn ở phòng khác, nhưng phải Quantity=1, Active, điều kiện phù hợp: Maintenance chỉ Good; Repair Good/Damaged. Missing không hợp lệ.
 
-Thiết bị phải Active, không Missing và chưa bị operation khác giữ. Maintenance yêu cầu Good; Repair chấp nhận Good/Damaged. Điều kiện được kiểm tra lại khi duyệt. Pending chưa giữ thiết bị; giữa các yêu cầu đang chờ, phiếu được duyệt thành công trước sẽ giữ thiết bị. Sửa quan hệ cha/con thiết bị tính cả phiếu dịch vụ đang chờ thông qua `HasPendingWorkflowAsync`.
+Duyệt:
 
-Tạo phiếu nguồn, item, repair detail, phiếu xuất, line xuất và history trong một transaction. Tên/mã/serial thiết bị và thông tin cơ sở được lưu snapshot. Các thay đổi master sau đó không sửa chứng từ cũ.
+```json
+{ "requestId": "10000000-0000-0000-0000-000000000002", "version": 0 }
+```
 
-## Duyệt, hủy và kết quả
+Toàn bộ item chuyển InProgress, mỗi item có `service_order_device_holds` lưu thiết bị, nguồn, item, người duyệt, thời gian. Không tạo/duyệt PX hay Thu hồi. Kiểm tra cả operation hold, service hold, export guard dưới cùng transaction và khóa thiết bị theo thứ tự ổn định.
 
-Duyệt dùng `{ "requestId": "<UUID>", "version": 0 }`. Chuyển cả phiếu nguồn, mọi item và mọi phiếu xuất sang `InProgress`, đồng thời giữ thiết bị qua `DeviceOperationHold` loại `ServiceOrder`. Nếu bất kỳ thiết bị nào không còn hợp lệ hoặc đã bị giữ, toàn bộ thao tác rollback.
+Ghi kết quả:
 
-Hủy dùng `{ "requestId": "<UUID>", "reason": "Không còn nhu cầu", "version": 0 }`. Chỉ creator được hủy khi PendingApproval; tất cả phiếu xuất con chuyển `Canceled`. Item chưa có execution status vẫn null. Không hủy sau duyệt.
+```json
+{
+  "requestId": "10000000-0000-0000-0000-000000000003",
+  "version": 1,
+  "items": [ { "itemNo": 1, "result": "NotExecuted", "description": "Không đủ điều kiện thực hiện" } ]
+}
+```
+
+Kết quả: Completed/Failed/NotExecuted; description bắt buộc, đặc biệt lý do NotExecuted. External Completed/Failed cần một lần xuất Success. Khi có guard HeldForExport, phải xử lý kết quả PX trước khi kết thúc item chuyên môn. Success còn chờ về vẫn được ghi kết quả chuyên môn, nhưng giữ service hold. Source Completed chỉ khi mọi item có kết quả cuối.
+
+Service hold được xóa ngay khi item cuối và không có export guard; việc xóa và HOLD_RELEASED cùng transaction. Nếu còn guard thì giữ hold. Sau nhập lại, gọi reconcile bằng body transition ở trên: chỉ xóa hold của item cuối và không còn guard; không đổi kết quả hay trạng thái nguồn. Retry trả lại số đã giải phóng của lần gốc. Không có worker tự động: frontend/vận hành cần chủ động gọi endpoint này cho nguồn đã hoàn thành còn hold.
+
+Tạo nhanh Thu hồi chỉ là frontend mở biểu mẫu với dữ liệu điền sẵn. Backend BT/SC không gọi, sinh hoặc liên kết chứng từ Thu hồi.
+
+## 4. Phiếu xuất
+
+| Method | Đường dẫn | Hành vi |
+|---|---|---|
+| GET | `/export-slips`, `/export-slips/{code}` | Danh sách/chi tiết; lọc serviceOrderCode, status |
+| POST | `/export-slips` | Tạo PX riêng cho một nguồn InProgress |
+| POST | `/export-slips/{code}/approve` | Manager duyệt toàn PX |
+| PUT | `/export-slips/{code}` | UC-PX-09: sửa PX PendingApproval |
+| POST | `/export-slips/{code}/cancel` | UC-PX-10: hủy PX PendingApproval |
+| POST | `/export-slips/{code}/result` | Ghi Success/Failed theo từng item |
+| GET | `/export-slips/{code}/history` | CREATE/EDIT/CANCEL/APPROVE/ITEM_RESULT_RECORDED/EXPORT_COMPLETED |
+| GET | `/export-slips/{code}/return-eligible-items` | Các item Success chưa nhập lại |
+
+Tạo PX:
+
+```json
+{
+  "requestId": "20000000-0000-0000-0000-000000000001",
+  "serviceOrderCode": "SC_SOURCE",
+  "facilityName": "Cơ sở sửa chữa A",
+  "facilityAddress": "Địa chỉ",
+  "facilityContact": "Liên hệ",
+  "plannedExportAt": "2026-11-05T08:00:00+07:00",
+  "itemNos": [2],
+  "notes": "Giao đợt 1"
+}
+```
+
+Item phải External/InProgress, đúng nguồn, có service hold đúng chủ; thiết bị hiện ở phòng QTTB, Quantity=1, Active, không Missing, không operation hold/guard khác. Tạo PX đặt HeldForExport. Duyệt kiểm tra lại; chuyển toàn PX InProgress, không ghi kết quả hộ item.
+
+Sửa PX dùng cùng bộ trường cơ sở/lịch/ghi chú/itemNos và thêm requestId/version, **không có serviceOrderCode**. Nguồn bất biến. Diff trong cùng transaction: giữ guard/dòng còn lại, xóa guard/dòng bỏ, thêm guard/dòng mới; tập item không rỗng. EDIT có snapshot trước/sau và hash, giữ được retry key cũ sau các lần sửa tiếp theo. EDIT không đổi nội dung chỉ ghi NoChange, không tăng version.
+
+Hủy PX:
+
+```json
+{ "requestId": "20000000-0000-0000-0000-000000000002", "version": 0, "reason": "Cơ sở ngừng nhận" }
+```
+
+Lưu Canceled/người/thời gian/lý do, giữ header/items/history, chỉ giải phóng guard đúng dòng của PX đó; không xóa service hold. Không được hủy PX đã duyệt bằng UC này.
 
 Kết quả xuất:
 
 ```json
 {
-  "requestId": "9fc3e176-cc9f-4331-99ef-88dbf156ae31",
-  "result": "Success",
-  "recipientName": "Người tiếp nhận",
-  "recipientContact": "Số liên hệ",
-  "evidenceRef": "handover/document-001",
-  "version": 1
-}
-```
-
-`Success` yêu cầu `recipientName`, không nhận `failureReason`; chỉ kết thúc phiếu xuất. Item nguồn vẫn `InProgress` và thiết bị vẫn bị giữ để chờ kết quả chuyên môn. `Failed` yêu cầu `failureReason`, không nhận người nhận; các item thuộc đúng phiếu xuất đó chuyển `NotExecuted` và được giải phóng hold. `evidenceRef` là tham chiếu chứng từ dạng text, không nhận absolute URL và không upload file.
-
-Ghi kết quả chuyên môn theo một hoặc nhiều item:
-
-```json
-{
-  "requestId": "09ed2b51-d519-4eba-90dd-74a23e4cc583",
+  "requestId": "20000000-0000-0000-0000-000000000003",
+  "version": 1,
   "items": [
-    { "itemNo": 1, "result": "Completed", "description": "Đã xử lý nguồn" },
-    { "itemNo": 2, "result": "Failed", "description": "Không thể sửa bo mạch" }
+    { "itemNo": 2, "result": "Success", "recipientName": "Người nhận", "recipientContact": "Liên hệ", "evidenceRef": "DOC_ABC" },
+    { "itemNo": 3, "result": "Failed", "failureReason": "Chưa nhận thiết bị" }
   ]
 }
 ```
 
-Chỉ cho `Completed` hoặc `Failed`, luôn cần mô tả. Không cho người dùng tự chọn `NotExecuted`. Item External chỉ được ghi kết quả sau khi phiếu xuất tương ứng Success. Một item terminal không được ghi lại bằng yêu cầu mới. Ghi nhiều item là atomic; thiết bị được giải phóng hold khi item terminal. Khi tất cả item terminal, phiếu nguồn tự `Completed`, kể cả khi có item Failed/NotExecuted. `Completed` của phiếu nguồn nghĩa là đã kết thúc xử lý, không đồng nghĩa mọi thiết bị thành công.
+Success cần người nhận, không failureReason; guard chuyển AwaitingReturn. Failed cần lý do, không người nhận/contact; xóa guard đúng dòng. Evidence là mã tham chiếu tài liệu, không URL tuyệt đối. Metadata/kết quả nằm ở item; kết quả cuối bất biến. Header Completed khi tất cả item có kết quả, chấp nhận hỗn hợp. Failed không đổi kết quả nguồn hoặc xóa service hold; có thể tạo PX khác nếu nguồn/item vẫn InProgress. Sau Success đã nhập lại, cũng có thể xuất lại nếu nguồn/item vẫn InProgress.
 
-Module không tự thay đổi tình trạng vật lý thiết bị, phòng ban hoặc người chịu trách nhiệm khi ghi kết quả; DBML chưa quy định chính sách cho các thay đổi này.
+## 5. Phiếu nhập lại
 
-## Idempotency, version và audit
+| Method | Đường dẫn | Hành vi |
+|---|---|---|
+| GET | `/export-return-slips` | Danh sách; lọc exportSlipCode |
+| GET | `/export-return-slips/{code}` | Chi tiết chứng từ |
+| POST | `/export-return-slips` | Ghi nhận Completed ngay, không duyệt |
+| GET | `/export-return-slips/{code}/history` | RETURN_SLIP_RECORDED/RETURN_ITEM_RECEIVED |
 
-Mọi mutation bắt buộc có `requestId` UUID khác rỗng trong body. Đây là khóa idempotency nghiệp vụ, độc lập với header `X-Request-Id` do middleware sinh cho HTTP. Client giữ nguyên body và khóa khi retry cùng thao tác; dùng khóa mới cho thao tác mới. Create lưu thêm `create_request_hash` để phân biệt payload retry đã chuẩn hóa. Retry thành công không tạo phiếu con, sự kiện hay cập nhật version lần hai. Retry create trả lại chứng từ hiện tại; retry mutation trả 204.
-
-Các khóa được phân phạm vi theo thao tác và đối tượng, với unique index cho create/approve/cancel và export result. Kết quả bulk dùng chung request ID cho nhiều item. Dùng lại khóa với payload hoặc actor khác trả 409 `IDEMPOTENCY_CONFLICT` khi phát hiện retry trên cùng đối tượng; unique index chặn xung đột khóa trên các đối tượng khác. Không dùng khóa này như bằng chứng phân quyền: quyền luôn kiểm tra lại trước khi trả kết quả retry.
-
-`version` tùy chọn cho transition/result; nếu có thì phải khớp version hiện tại của phiếu nguồn hoặc phiếu xuất đang thao tác. Mỗi item cũng có concurrency version. Lỗi version trả 409 `VERSION_CONFLICT`; retry cùng khóa thành công được nhận diện trước kiểm tra version.
-
-Snapshot hiện tại vẫn lưu người tạo/duyệt/ghi kết quả và thời gian. History lưu từng sự kiện thành công trong cùng transaction với nghiệp vụ, gồm before/after allowlist. Sự kiện `ITEM_NOT_EXECUTED` liên kết phiếu xuất gây ra thay đổi. Unique history có cả target để một request ghi nhiều item/phiếu xuất không tự xung đột. Phiên bản này chưa bổ sung audit Denied/Failed cho các thao tác bị từ chối/rollback.
-
-Lỗi chính: 400 `VALIDATION_FAILED`; 401 `AUTHENTICATION_REQUIRED`; 403 `WORKFLOW_ACTION_FORBIDDEN`; 404 `SERVICE_ORDER_NOT_FOUND`/`EXPORT_SLIP_NOT_FOUND`/`DEVICE_NOT_FOUND`; 409 `INVALID_WORKFLOW_TRANSITION`, `DEVICE_BUSY`, `DEVICE_LOCKED`, `DEVICE_NOT_AVAILABLE`, `EXPORT_NOT_SUCCESSFUL`, `VERSION_CONFLICT`, `IDEMPOTENCY_CONFLICT`; lỗi database/ghi audit trong inventory transaction trả 503 `DEVICE_WORKFLOW_UNAVAILABLE` và rollback.
-
-## Schema và triển khai
-
-Migration `ServiceOrdersAndExports` thêm 7 bảng, index và FK thiết bị/tài khoản. Enum mới lưu string PascalCase với CHECK constraints, dùng chung native `audit_outcome` hiện có. DBML dùng enum uppercase tương đương về nghĩa. Giữ hai FK đơn trên line xuất; PostgreSQL deferred constraint triggers kiểm tra item External, cùng phiếu nguồn và repair detail chỉ thuộc phiếu Repair, kể cả khi header/quan hệ bị cập nhật trực tiếp.
-
-`facility_id` và `damage_report_id` là dependency ngoài phạm vi chưa có master tương ứng. API không nhận hai ID này; facility lấy snapshot, repair detail để `damage_report_id = null`. Chưa có frontend cho module này.
-
-Migration chỉ được kiểm tra trên database tạm; không tự áp lên database ứng dụng. Triển khai bằng quy trình migration hiện có sau khi cấu hình đúng database và sao lưu theo quy trình của dự án:
-
-```bash
-dotnet run --project src/CSVC.API -- --migrate
+```json
+{
+  "requestId": "30000000-0000-0000-0000-000000000001",
+  "exportSlipCode": "PX_SOURCE",
+  "handoverPersonName": "Người giao về",
+  "handoverPersonContact": "Liên hệ",
+  "receivedByAccountCode": "TK_QTTB",
+  "receivedAt": "2026-11-06T09:00:00+07:00",
+  "notes": "Nhập đợt 1",
+  "items": [ { "itemNo": 2, "conditionAtReturn": "Damaged", "returnNote": "Còn lỗi" } ]
+}
 ```
 
-Kiểm thử:
+Chỉ một PX mỗi chứng từ, không cần chờ PX có kết quả tất cả item nếu các item chọn đã Success. Chọn Success chưa nhập lại, guard AwaitingReturn đúng dòng. Một PX có nhiều phiếu nhập lại từng phần; một dòng xuất chỉ được nhập lại đúng một lần trên toàn hệ thống.
 
-```bash
-# CSVC_POSTGRES_TEST_CONNECTION trỏ tới server test cho phép tạo database dùng một lần.
-dotnet test CSVC.sln --filter FullyQualifiedName~ServiceOrderApiTests
-```
+`createdAt` là thời gian server ghi chứng từ; `receivedAt` do người dùng xác nhận thời gian thực nhận, chuyển UTC, không được ở tương lai so với server. Hai mốc có thể khác nhau. `createdByAccountCode` lấy từ session; `receivedByAccountCode` có thể khác, nhưng phải là tài khoản QTTB hoạt động trong phòng hiện tại.
 
-Test tự tạo/xóa database riêng, không dùng database ứng dụng. Có kiểm tra create/retry, role/version, bulk audit, xuất thành công/thất bại, nhiều nhóm xuất, cạnh tranh hold, rollback audit, ràng buộc SQL và migration down/up.
+Header/items/history và xóa đúng guard trong một transaction. Return không cập nhật thiết bị (condition/department/quantity), kết quả nguồn hay service hold. ConditionAtReturn chỉ là dữ liệu của chứng từ. Return và lịch sử đã ghi là bất biến, không có API sửa/xóa.
+
+## 6. Database, concurrency và migration
+
+Migration: `20261104025216_ServiceExportReturnV9`.
+
+- Thêm `service_order_device_holds`, `export_device_guards`, `export_return_slips`, `export_return_slip_items`, `export_return_history`.
+- Chuyển kết quả/metadata xuất từ header xuống item; thêm metadata create/approve/edit/cancel và hash/target của export history.
+- Bỏ UNIQUE đơn `export_slip_items.service_order_item_id`, giữ UNIQUE(PX, item nguồn). PK guard theo device bảo đảm một lượt xuất đang giữ/chưa về. UNIQUE dòng nhập lại theo export item bảo đảm nhận về một lần.
+- Composite FK hold(item, source, device) → source item; return item(header, export) → return header; return item(export item, export) → export item. Tất cả Restrict.
+- Giữ các CHECK cũ về subtype, trạng thái, số thứ tự, cơ sở, cancel; giữ trigger repair subtype và Group14 report-device linkage. Thay membership cũ bằng deferred consistency cho trạng thái nguồn/PX, hold/guard, Success/return và audit nhập lại. Trigger cấm sửa/xóa return/history, cấm đổi chủ guard/hold, khóa cấu hình nguồn đã duyệt và kết quả cuối.
+
+Các mutation dùng `IInventoryTransaction` hiện có: khóa advisory account/session rồi inventory, khóa các hàng device theo UUID đã sắp xếp, kiểm tra lại, save, commit. Không sửa wrapper dùng chung hoặc các module khác. Khóa inventory hiện tại tuần tự hóa mutation toàn hệ thống; đây là giới hạn throughput sẵn có của codebase. Unique/version và trigger là lớp bảo vệ database bổ sung.
+
+**Migration không backfill và không tự xóa dữ liệu.** Prepare từ chối nếu còn bất kỳ nguồn/PX cũ hoặc operation hold ServiceOrder. Downgrade cũng từ chối khi còn chứng từ v9. Đã kiểm tra down/up trên database tạm. Chỉ reset/reseed sau khi người vận hành xác minh môi trường đó là test có thể bỏ; không thực thi reset lên database ứng dụng trong đợt này. Không chạy `--migrate` lên database có dữ liệu cũ mà chưa thực hiện quy trình này.
+
+## 7. Giới hạn tích hợp cần xử lý riêng
+
+Đọc [báo cáo triển khai v9](service-export-return-v9-report.md). Các module cũ chưa tự có kiểm tra service hold/guard mới; một module cũ có thể tạo operation hold sau khi BT/SC đã giữ thiết bị. BT/SC/PX có kiểm tra operation hold chiều ngược lại, nhưng không thể bảo đảm loại trừ hai chiều toàn hệ thống nếu không sửa các điểm ghi ngoài phạm vi. Không triển khai đồng thời các luồng xung đột như thể cơ chế hold toàn hệ thống đã hoàn chỉnh.
