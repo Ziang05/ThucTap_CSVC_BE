@@ -219,12 +219,14 @@ public sealed class DeviceService(
         var session = await unitOfWork.AuthSessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.AccountId == id && x.IsActive && x.ExpiresAt > clock.GetUtcNow(), ct);
         if (account is null || session is null) throw new UseCaseException(FailureKind.Unauthorized, "AUTHENTICATION_REQUIRED", "A valid session is required.");
         var role = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
-        var allowed = role?.Code is RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff or RoleCodes.DepartmentStaff;
-        if (!allowed || management && role!.Code == RoleCodes.DepartmentStaff)
+        var roleCode = role?.Code
+            ?? throw new UseCaseException(FailureKind.Forbidden, "DEVICE_ACCESS_FORBIDDEN", "Device access is not permitted.");
+        var allowed = roleCode is RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff or RoleCodes.DepartmentStaff;
+        if (!allowed || management && roleCode == RoleCodes.DepartmentStaff)
             throw new UseCaseException(FailureKind.Forbidden, "DEVICE_ACCESS_FORBIDDEN", "Device access is not permitted.");
         var profile = await unitOfWork.UserProfiles.GetByIdAsync(account.UserProfileId, ct);
         if (profile is null) throw new UseCaseException(FailureKind.Unauthorized, "AUTHENTICATION_REQUIRED", "A valid account profile is required.");
-        return new(id, role!.Code, profile.DepartmentId);
+        return new(id, roleCode, profile.DepartmentId);
     }
 
     private async Task<T> FindByCodeAsync<T>(IRepository<T> repository, string code, System.Linq.Expressions.Expression<Func<T, string>> selector, string errorCode, CancellationToken ct) where T : class

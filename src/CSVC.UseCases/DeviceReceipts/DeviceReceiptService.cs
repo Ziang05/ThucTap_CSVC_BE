@@ -338,9 +338,10 @@ public sealed class DeviceReceiptService(
         var session = await unitOfWork.AuthSessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.AccountId == id && x.IsActive && x.ExpiresAt > clock.GetUtcNow(), ct);
         if (account is null || session is null) throw Unauthorized();
         var role = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
-        var permitted = role?.Code is RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff;
-        if (!permitted || managerOnly && role!.Code != RoleCodes.EquipmentManager) throw Forbidden("Receipt access is not permitted.");
-        return new(id, role!.Code);
+        var roleCode = role?.Code ?? throw Forbidden("Receipt access is not permitted.");
+        var permitted = roleCode is RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff;
+        if (!permitted || managerOnly && roleCode != RoleCodes.EquipmentManager) throw Forbidden("Receipt access is not permitted.");
+        return new(id, roleCode);
     }
 
     private async Task<Actor> RequireStaffAsync(CancellationToken ct)
