@@ -113,6 +113,8 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         public string? FailNextSupplierAction { get; set; }
         public string? FailNextManufacturerAction { get; set; }
         public string? FailNextServiceAction { get; set; }
+        public string? FailNextExportAction { get; set; }
+        public string? FailNextReturnAction { get; set; }
         public bool FailNextSettingsChange { get; set; }
         public string? FailNextTransferAction { get; set; }
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
@@ -130,6 +132,12 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
                 FailNextTransferAction = null;
                 throw new DbUpdateException("Simulated transfer audit failure.");
             }
+            if (FailNextExportAction is { } exportAction && eventData.Context!.ChangeTracker.Entries<CSVC.Core.ServiceOrders.ExportHistory>()
+                .Any(e => e.State == EntityState.Added && e.Entity.ActionCode == exportAction))
+            { FailNextExportAction = null; throw new DbUpdateException("Simulated export audit failure."); }
+            if (FailNextReturnAction is { } returnAction && eventData.Context!.ChangeTracker.Entries<CSVC.Core.ServiceOrders.ExportReturnHistory>()
+                .Any(e => e.State == EntityState.Added && e.Entity.ActionCode == returnAction))
+            { FailNextReturnAction = null; throw new DbUpdateException("Simulated return audit failure."); }
             if (FailNextServiceAction is { } serviceAction && eventData.Context!.ChangeTracker.Entries<CSVC.Core.ServiceOrders.ServiceOrderHistory>()
                 .Any(entry => entry.State == EntityState.Added && entry.Entity.ActionCode == serviceAction))
             {

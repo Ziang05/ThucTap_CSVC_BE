@@ -13,6 +13,7 @@ public interface IServiceOrderService
     Task RecordResultsAsync(string code, RecordServiceResultsRequest request, CancellationToken ct);
     Task<PagedResult<ExportSlipDto>> ListExportsAsync(ExportSlipListQuery query, CancellationToken ct);
     Task<ExportSlipDto> GetExportAsync(string code, CancellationToken ct);
+    Task<int> ReconcileHoldsAsync(string code, ServiceTransitionRequest request, CancellationToken ct);
     Task RecordExportResultAsync(string code, RecordExportResultRequest request, CancellationToken ct);
     Task<PagedResult<ServiceHistoryDto>> HistoryAsync(string code, ServiceHistoryQuery query, CancellationToken ct);
     Task<PagedResult<ServiceHistoryDto>> ExportHistoryAsync(string code, ServiceHistoryQuery query, CancellationToken ct);

@@ -76,6 +76,12 @@ public sealed class DeviceQuantityApiTests
             new { name = "Changed", quantity = 1 }), HttpStatusCode.BadRequest);
         await Expect(await f.Staff.PostAsJsonAsync(Devices,
             new { name = "Other", categoryCode = "CAT_QTY", departmentCode = "PB_TEST", quantity = 1 }), HttpStatusCode.BadRequest);
+        await f.InDb(async db =>
+        {
+            var settings = await db.EquipmentSettings.SingleAsync();
+            settings.EquipmentDepartmentId = (await db.Departments.SingleAsync(d => d.Code == "PB_TEST")).Id;
+            await db.SaveChangesAsync();
+        });
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", new
         {
             requestId = Guid.NewGuid(), orderType = "Maintenance",

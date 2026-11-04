@@ -60,7 +60,7 @@ public sealed class ServiceOrderItemConfiguration : IEntityTypeConfiguration<Ser
             t.HasCheckConstraint("ck_service_items_no", "item_no > 0");
             t.HasCheckConstraint("ck_service_items_method", "execution_method IN ('OnSite','External')");
             t.HasCheckConstraint("ck_service_items_status", "execution_status IS NULL OR execution_status IN ('InProgress','NotExecuted','Completed','Failed')");
-            t.HasCheckConstraint("ck_service_items_result", "execution_status NOT IN ('Completed','Failed') OR (result_recorded_at IS NOT NULL AND result_recorded_by_account_id IS NOT NULL AND COALESCE(btrim(result_description), '') <> '')");
+            t.HasCheckConstraint("ck_service_items_result", "execution_status NOT IN ('NotExecuted','Completed','Failed') OR (result_recorded_at IS NOT NULL AND result_recorded_by_account_id IS NOT NULL AND COALESCE(btrim(result_description), '') <> '')");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
@@ -70,6 +70,7 @@ public sealed class ServiceOrderItemConfiguration : IEntityTypeConfiguration<Ser
         b.Property(x => x.DeviceNameSnapshot).HasMaxLength(255);
         b.Property(x => x.SerialSnapshot).HasMaxLength(120);
         b.Property(x => x.Version).IsConcurrencyToken();
+        b.HasAlternateKey(x => new { x.Id, x.ServiceOrderId, x.DeviceId }).HasName("uq_service_order_item_hold_fk");
         b.HasIndex(x => new { x.ServiceOrderId, x.ItemNo }).IsUnique();
         b.HasIndex(x => new { x.ServiceOrderId, x.DeviceId }).IsUnique();
         b.HasIndex(x => new { x.ServiceOrderId, x.ExecutionStatus });
@@ -89,7 +90,7 @@ public sealed class RepairItemDetailConfiguration : IEntityTypeConfiguration<Rep
         b.HasKey(x => x.ServiceOrderItemId);
         b.Property(x => x.ServiceOrderItemId).ValueGeneratedNever();
         b.HasIndex(x => x.DamageReportId);
-        b.HasOne<CSVC.Core.DamageReports.DamageReport>().WithMany().HasForeignKey(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.DamageReport).WithMany().HasForeignKey(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
         ServiceMapping.Columns(b);
     }
 }
@@ -103,25 +104,28 @@ public sealed class ExportSlipConfiguration : IEntityTypeConfiguration<ExportSli
             t.HasCheckConstraint("ck_export_slips_sequence", "sequence_no > 0");
             t.HasCheckConstraint("ck_export_slips_facility", "btrim(facility_name_snapshot) <> ''");
             t.HasCheckConstraint("ck_export_slips_status", "status IN ('PendingApproval','InProgress','Completed','Canceled')");
-            t.HasCheckConstraint("ck_export_slips_result", "(result IS NULL AND status <> 'Completed') OR (result IS NOT NULL AND status = 'Completed' AND completed_at IS NOT NULL AND result_recorded_at IS NOT NULL AND result_recorded_by_account_id IS NOT NULL AND ((result = 'Success' AND COALESCE(btrim(recipient_name), '') <> '') OR (result = 'Failed' AND COALESCE(btrim(failure_reason), '') <> '')))");
+            t.HasCheckConstraint("ck_export_slips_approval", "status NOT IN ('InProgress','Completed') OR (approved_by_account_id IS NOT NULL AND approved_at IS NOT NULL AND approval_request_id IS NOT NULL)");
+            t.HasCheckConstraint("ck_export_slips_cancel", "status <> 'Canceled' OR (canceled_by_account_id IS NOT NULL AND canceled_at IS NOT NULL AND cancel_request_id IS NOT NULL AND COALESCE(btrim(cancel_reason),'') <> '')");
+            t.HasCheckConstraint("ck_export_slips_completed", "(status = 'Completed') = (completed_at IS NOT NULL)");
         });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
         b.Property(x => x.DisplayCode).HasMaxLength(64);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(24);
-        b.Property(x => x.Result).HasConversion<string>().HasMaxLength(16);
         b.Property(x => x.FacilityNameSnapshot).HasMaxLength(255);
-        b.Property(x => x.RecipientName).HasMaxLength(255);
-        b.Property(x => x.RecipientContact).HasMaxLength(255);
         b.Property(x => x.Version).IsConcurrencyToken();
         b.HasIndex(x => x.DisplayCode).IsUnique();
-        b.HasIndex(x => x.ResultRequestId).IsUnique();
+        b.Property(x => x.CreateRequestHash).HasMaxLength(64);
+        b.HasIndex(x => x.CreateRequestId).IsUnique();
+        b.HasIndex(x => x.ApprovalRequestId).IsUnique();
+        b.HasIndex(x => x.CancelRequestId).IsUnique();
         b.HasIndex(x => new { x.ServiceOrderId, x.SequenceNo }).IsUnique();
         b.HasIndex(x => new { x.Status, x.CreatedAt });
-        b.HasIndex(x => new { x.Result, x.ResultRecordedAt });
         b.HasMany(x => x.Items).WithOne().HasForeignKey(x => x.ExportSlipId).OnDelete(DeleteBehavior.Restrict);
         ServiceMapping.Account(b, nameof(ExportSlip.CreatedByAccountId));
-        ServiceMapping.Account(b, nameof(ExportSlip.ResultRecordedByAccountId));
+        ServiceMapping.Account(b, nameof(ExportSlip.ApprovedByAccountId));
+        ServiceMapping.Account(b, nameof(ExportSlip.LastEditedByAccountId));
+        ServiceMapping.Account(b, nameof(ExportSlip.CanceledByAccountId));
         ServiceMapping.Columns(b);
     }
 }
@@ -130,13 +134,22 @@ public sealed class ExportSlipItemConfiguration : IEntityTypeConfiguration<Expor
 {
     public void Configure(EntityTypeBuilder<ExportSlipItem> b)
     {
-        b.ToTable("export_slip_items");
+        b.ToTable("export_slip_items", t => t.HasCheckConstraint("ck_export_item_result",
+            "(result IS NULL AND result_recorded_by_account_id IS NULL AND result_recorded_at IS NULL AND result_request_id IS NULL AND recipient_name IS NULL AND recipient_contact IS NULL AND failure_reason IS NULL AND evidence_ref IS NULL) OR (result IS NOT NULL AND result_recorded_by_account_id IS NOT NULL AND result_recorded_at IS NOT NULL AND result_request_id IS NOT NULL AND ((result = 'Success' AND COALESCE(btrim(recipient_name),'') <> '' AND failure_reason IS NULL) OR (result = 'Failed' AND COALESCE(btrim(failure_reason),'') <> '' AND recipient_name IS NULL AND recipient_contact IS NULL)))"));
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
         b.Property(x => x.DeviceCodeSnapshot).HasMaxLength(64);
         b.Property(x => x.DeviceNameSnapshot).HasMaxLength(255);
         b.Property(x => x.SerialSnapshot).HasMaxLength(120);
-        b.HasIndex(x => x.ServiceOrderItemId).IsUnique();
+        b.HasIndex(x => x.ServiceOrderItemId);
+        b.HasAlternateKey(x => new { x.Id, x.ExportSlipId }).HasName("uq_export_slip_items_id_export");
+        b.Property(x => x.Result).HasConversion<string>().HasMaxLength(16);
+        b.Property(x => x.RecipientName).HasMaxLength(255);
+        b.Property(x => x.RecipientContact).HasMaxLength(255);
+        b.Property(x => x.Version).HasDefaultValue(1).IsConcurrencyToken();
+        b.HasIndex(x => x.ResultRequestId);
+        b.HasIndex(x => new { x.Result, x.ResultRecordedAt });
+        ServiceMapping.Account(b, nameof(ExportSlipItem.ResultRecordedByAccountId));
         b.HasIndex(x => new { x.ExportSlipId, x.ServiceOrderItemId }).IsUnique();
         b.HasOne<ServiceOrderItem>().WithMany().HasForeignKey(x => x.ServiceOrderItemId).OnDelete(DeleteBehavior.Restrict);
         ServiceMapping.Columns(b);
@@ -176,12 +189,15 @@ public sealed class ExportHistoryConfiguration : IEntityTypeConfiguration<Export
         b.ToTable("export_history");
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
+        b.Property(x => x.TargetKey).HasMaxLength(80);
+        b.Property(x => x.RequestPayloadHash).HasMaxLength(64);
+        b.HasOne<ExportSlipItem>().WithMany().HasForeignKey(x => x.ExportSlipItemId).OnDelete(DeleteBehavior.Restrict);
         b.Property(x => x.ActionCode).HasMaxLength(64);
         b.Property(x => x.Outcome).HasColumnType("audit_outcome");
         b.Property(x => x.ReasonCode).HasMaxLength(80);
         b.Property(x => x.BeforeData).HasColumnType("jsonb");
         b.Property(x => x.AfterData).HasColumnType("jsonb");
-        b.HasIndex(x => new { x.RequestId, x.ActionCode, x.ExportSlipId }).IsUnique();
+        b.HasIndex(x => new { x.RequestId, x.ActionCode, x.ExportSlipId, x.TargetKey }).IsUnique();
         b.HasIndex(x => new { x.ExportSlipId, x.OccurredAt });
         b.HasOne<ExportSlip>().WithMany().HasForeignKey(x => x.ExportSlipId).OnDelete(DeleteBehavior.Restrict);
         ServiceMapping.Account(b, nameof(ExportHistory.ActorAccountId));

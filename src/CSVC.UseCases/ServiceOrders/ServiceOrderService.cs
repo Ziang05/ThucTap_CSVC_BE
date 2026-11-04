@@ -15,9 +15,11 @@ using CSVC.UseCases.ServiceOrders.DTOs;
 
 namespace CSVC.UseCases.ServiceOrders;
 
-public sealed class ServiceOrderService(
+public sealed partial class ServiceOrderService(
     IServiceOrderRepository orders, IRepository<ServiceOrderHistory> history, IRepository<ExportHistory> exportHistory,
-    IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current, TimeProvider clock) : IServiceOrderService
+    IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current, TimeProvider clock,
+    IRepository<ServiceOrderDeviceHold> holds, IRepository<ExportDeviceGuard> guards,
+    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports) : IServiceOrderService
 {
     public async Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct)
     {
@@ -38,7 +40,7 @@ public sealed class ServiceOrderService(
     public Task<ServiceOrderDto> CreateAsync(CreateServiceOrderRequest request, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
-            var actor = await RequireActorAsync(RoleCodes.EquipmentStaff, token);
+            var actor = await RequireActorAsync(null, token);
             ValidateCreate(request);
             var hash = Fingerprint(request);
             var existing = await orders.GetByCreateRequestAsync(request.RequestId, token);
@@ -68,29 +70,15 @@ public sealed class ServiceOrderService(
                     ExecutionMethod = input.ExecutionMethod, WorkDescription = Clean(input.WorkDescription), Notes = Clean(input.Notes),
                     DeviceCodeSnapshot = device.DeviceCode, DeviceNameSnapshot = device.Name, SerialSnapshot = device.SerialNumber
                 };
-                if (order.OrderType == ServiceOrderType.Repair) item.RepairDetail = new() { ServiceOrderItemId = item.Id };
-                order.Items.Add(item);
-            }
-            foreach (var (input, index) in request.ExportSlips.Select((x, i) => (x, i)))
-            {
-                var slip = new ExportSlip
+                if (Clean(input.DamageReportCode) is { } reportCode)
                 {
-                    ServiceOrderId = order.Id, SequenceNo = index + 1, DisplayCode = BusinessCode.NewRandom("PX"),
-                    FacilityNameSnapshot = Clean(input.FacilityName)!, FacilityAddressSnapshot = Clean(input.FacilityAddress),
-                    FacilityContactSnapshot = Clean(input.FacilityContact), PlannedExportAt = input.PlannedExportAt?.ToUniversalTime(),
-                    Notes = Clean(input.Notes), CreatedByAccountId = actor, CreatedAt = now
-                };
-                foreach (var deviceCode in input.DeviceCodes)
-                {
-                    var item = order.Items.Single(x => x.DeviceCodeSnapshot == Code(deviceCode));
-                    slip.Items.Add(new ExportSlipItem
-                    {
-                        ExportSlipId = slip.Id, ServiceOrderItemId = item.Id,
-                        DeviceCodeSnapshot = item.DeviceCodeSnapshot, DeviceNameSnapshot = item.DeviceNameSnapshot, SerialSnapshot = item.SerialSnapshot
-                    });
+                    if (order.OrderType != ServiceOrderType.Repair) throw Validation("Only Repair items may reference a damage report.");
+                    var report = await damageReports.FirstOrDefaultTrackedAsync(r => r.ReportCode == Code(reportCode) && r.DeviceId == device.Id, token)
+                        ?? throw Validation("Damage report must exist and concern this device.");
+                    item.RepairDetail = new() { ServiceOrderItemId = item.Id, DamageReportId = report.Id, DamageReport = report };
                 }
-                order.ExportSlips.Add(slip);
-                await AuditExportAsync(slip, request.RequestId, actor, "EXPORT_CREATED", null, token);
+                else if (order.OrderType == ServiceOrderType.Repair) item.RepairDetail = new() { ServiceOrderItemId = item.Id };
+                order.Items.Add(item);
             }
             await orders.AddAsync(order, token);
             await AuditAsync(order, request.RequestId, actor, "SERVICE_CREATED", null, null, null, token);
@@ -116,20 +104,15 @@ public sealed class ServiceOrderService(
             {
                 var device = await unitOfWork.Devices.GetByIdAsync(item.DeviceId, token) ?? throw Missing("DEVICE_NOT_FOUND");
                 await ValidateDeviceAsync(device, order.OrderType, token);
-                if (!await unitOfWork.DeviceOperationHolds.TryAcquireAsync(new DeviceOperationHold
-                    { DeviceCode = device.DeviceCode, DeviceId = device.Id, OperationKind = DeviceOperationKind.ServiceOrder,
-                      OperationId = order.Id, HeldAt = now }, token)) throw Busy();
+                if (await guards.ExistsAsync(x => x.DeviceId == device.Id, token)) throw Busy();
+                await holds.AddAsync(new ServiceOrderDeviceHold { DeviceId = device.Id, ServiceOrderId = order.Id,
+                    ServiceOrderItemId = item.Id, HeldByAccountId = actor, HeldAt = now }, token);
                 item.ExecutionStatus = ServiceItemStatus.InProgress;
                 item.Version++;
+                await AuditAsync(order, request.RequestId, actor, "HOLD_ACQUIRED", null, item, null, token);
             }
             order.Status = ServiceWorkflowStatus.InProgress; order.ApprovedByAccountId = actor;
             order.ApprovedAt = now; order.ApprovalRequestId = request.RequestId; order.Version++;
-            foreach (var slip in order.ExportSlips)
-            {
-                RequireStatus(slip.Status, ServiceWorkflowStatus.PendingApproval);
-                slip.Status = ServiceWorkflowStatus.InProgress; slip.Version++;
-                await AuditExportAsync(slip, request.RequestId, actor, "EXPORT_STARTED", ServiceWorkflowStatus.PendingApproval, token);
-            }
             await AuditAsync(order, request.RequestId, actor, "SERVICE_APPROVED", ServiceWorkflowStatus.PendingApproval, null, null, token);
             return true;
         }, ct);
@@ -137,7 +120,7 @@ public sealed class ServiceOrderService(
     public Task CancelAsync(string code, CancelServiceOrderRequest request, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
-            var actor = await RequireActorAsync(RoleCodes.EquipmentStaff, token);
+            var actor = await RequireActorAsync(null, token);
             Validate(request); RequireRequest(request.RequestId);
             var reason = Clean(request.Reason) ?? throw Validation("A cancel reason is required.");
             var order = await LoadAsync(code, true, token);
@@ -151,12 +134,6 @@ public sealed class ServiceOrderService(
             RequireStatus(order.Status, ServiceWorkflowStatus.PendingApproval);
             order.Status = ServiceWorkflowStatus.Canceled; order.CanceledByAccountId = actor;
             order.CanceledAt = clock.GetUtcNow(); order.CancelRequestId = request.RequestId; order.CancelReason = reason; order.Version++;
-            foreach (var slip in order.ExportSlips)
-            {
-                RequireStatus(slip.Status, ServiceWorkflowStatus.PendingApproval);
-                slip.Status = ServiceWorkflowStatus.Canceled; slip.CanceledAt = order.CanceledAt; slip.Version++;
-                await AuditExportAsync(slip, request.RequestId, actor, "CANCELED_BY_SOURCE", ServiceWorkflowStatus.PendingApproval, token);
-            }
             await AuditAsync(order, request.RequestId, actor, "SERVICE_CANCELED", ServiceWorkflowStatus.PendingApproval, null, null, token);
             return true;
         }, ct);
@@ -164,15 +141,15 @@ public sealed class ServiceOrderService(
     public Task RecordResultsAsync(string code, RecordServiceResultsRequest request, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
-            var actor = await RequireActorAsync(RoleCodes.EquipmentStaff, token);
+            var actor = await RequireActorAsync(null, token);
             Validate(request); RequireRequest(request.RequestId);
             if (request.Items is null || request.Items.Count is < 1 or > 100) throw Validation("Supply 1 to 100 results.");
             foreach (var input in request.Items)
             {
                 if (input is null) throw Validation("Result items cannot be null.");
                 Validate(input);
-                if (input.Result is not (ServiceItemStatus.Completed or ServiceItemStatus.Failed))
-                    throw Validation("A professional result must be Completed or Failed.");
+                if (input.Result is not (ServiceItemStatus.Completed or ServiceItemStatus.Failed or ServiceItemStatus.NotExecuted))
+                    throw Validation("A professional result must be Completed, Failed or NotExecuted.");
                 if (Clean(input.Description) is null) throw Validation("A result description is required.");
             }
             if (request.Items.Select(x => x.ItemNo).Distinct().Count() != request.Items.Count) throw Validation("Duplicate result item numbers.");
@@ -193,81 +170,23 @@ public sealed class ServiceOrderService(
             foreach (var item in selected)
             {
                 if (item.ExecutionStatus != ServiceItemStatus.InProgress) throw InvalidTransition();
-                if (item.ExecutionMethod == ExecutionMethod.External && !order.ExportSlips.Any(e => e.Result == ExportResult.Success
-                    && e.Items.Any(line => line.ServiceOrderItemId == item.Id)))
-                    throw Conflict("EXPORT_NOT_SUCCESSFUL", "Record a successful export before recording external service results.");
+                var guard = await guards.FirstOrDefaultAsync(g => g.DeviceId == item.DeviceId, token);
+                if (guard?.GuardState == ExportGuardState.HeldForExport)
+                    throw Conflict("EXPORT_RESULT_PENDING", "Record the pending export result before the professional outcome.");
+                var inputResult = request.Items.Single(x => x.ItemNo == item.ItemNo).Result;
+                if (item.ExecutionMethod == ExecutionMethod.External && inputResult != ServiceItemStatus.NotExecuted
+                    && !order.ExportSlips.Any(e => e.Items.Any(line => line.ServiceOrderItemId == item.Id && line.Result == ExportResult.Success)))
+                    throw Conflict("EXPORT_NOT_SUCCESSFUL", "A successful export is required for external work; select NotExecuted with a reason otherwise.");
                 var input = request.Items.Single(x => x.ItemNo == item.ItemNo);
                 item.ExecutionStatus = input.Result; item.ResultDescription = Clean(input.Description);
                 item.ResultRecordedByAccountId = actor; item.ResultRecordedAt = clock.GetUtcNow();
                 item.ResultRequestId = request.RequestId; item.Version++;
-                await ReleaseAsync(order, item, token);
-                await AuditAsync(order, request.RequestId, actor, input.Result == ServiceItemStatus.Completed ? "ITEM_COMPLETED" : "ITEM_FAILED",
+                await ReleaseAsync(order, item, request.RequestId, actor, token);
+                await AuditAsync(order, request.RequestId, actor, "ITEM_" + input.Result.ToString().ToUpperInvariant(),
                     ServiceItemStatus.InProgress, item, null, token);
             }
             order.Version++;
             await CompleteIfFinishedAsync(order, request.RequestId, actor, null, token);
-            return true;
-        }, ct);
-
-    public async Task<PagedResult<ExportSlipDto>> ListExportsAsync(ExportSlipListQuery query, CancellationToken ct)
-    {
-        await RequireActorAsync(null, ct); Validate(query);
-        return await orders.ListExportsAsync(query, ct);
-    }
-
-    public async Task<ExportSlipDto> GetExportAsync(string code, CancellationToken ct)
-    {
-        await RequireActorAsync(null, ct);
-        var order = await LoadExportAsync(code, false, ct);
-        return ToExportDto(order.ExportSlips.Single(x => x.DisplayCode == Code(code)), order, await AccountCodesAsync([order], ct));
-    }
-
-    public Task RecordExportResultAsync(string code, RecordExportResultRequest request, CancellationToken ct)
-        => transaction.ExecuteAsync(async token =>
-        {
-            var actor = await RequireActorAsync(RoleCodes.EquipmentStaff, token);
-            Validate(request); RequireRequest(request.RequestId);
-            if (request.Result == ExportResult.Success && (Clean(request.RecipientName) is null || Clean(request.FailureReason) is not null))
-                throw Validation("Successful export requires a recipient and no failure reason.");
-            if (request.Result == ExportResult.Failed && (Clean(request.FailureReason) is null || Clean(request.RecipientName) is not null || Clean(request.RecipientContact) is not null))
-                throw Validation("Failed export requires a reason and no recipient.");
-            if (Clean(request.EvidenceRef) is { } evidence && Uri.TryCreate(evidence, UriKind.Absolute, out _))
-                throw Validation("evidenceRef must be an opaque document reference, not an absolute URL.");
-            var order = await LoadExportAsync(code, true, token);
-            var slip = order.ExportSlips.Single(x => x.DisplayCode == Code(code));
-            if (slip.ResultRequestId == request.RequestId)
-            {
-                if (slip.ResultRecordedByAccountId != actor || slip.Result != request.Result || slip.RecipientName != Clean(request.RecipientName)
-                    || slip.RecipientContact != Clean(request.RecipientContact) || slip.FailureReason != Clean(request.FailureReason)
-                    || slip.EvidenceRef != Clean(request.EvidenceRef)) throw IdempotencyConflict();
-                return true;
-            }
-            RequireVersion(slip.Version, request.Version);
-            RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
-            RequireStatus(slip.Status, ServiceWorkflowStatus.InProgress);
-            var ids = slip.Items.Select(x => x.ServiceOrderItemId).ToHashSet();
-            var items = order.Items.Where(x => ids.Contains(x.Id)).ToArray();
-            if (items.Length != ids.Count || items.Length == 0 || items.Any(x => x.ExecutionMethod != ExecutionMethod.External
-                || x.ExecutionStatus != ServiceItemStatus.InProgress)) throw InvalidTransition();
-            await transaction.LockDevicesAsync(items.Select(x => x.DeviceId), token);
-            slip.Result = request.Result; slip.ResultRequestId = request.RequestId; slip.ResultRecordedByAccountId = actor;
-            slip.ResultRecordedAt = clock.GetUtcNow(); slip.CompletedAt = slip.ResultRecordedAt;
-            slip.Status = ServiceWorkflowStatus.Completed; slip.Version++;
-            slip.RecipientName = Clean(request.RecipientName); slip.RecipientContact = Clean(request.RecipientContact);
-            slip.FailureReason = Clean(request.FailureReason); slip.EvidenceRef = Clean(request.EvidenceRef);
-            await AuditExportAsync(slip, request.RequestId, actor,
-                request.Result == ExportResult.Success ? "EXPORT_RESULT_SUCCESS" : "EXPORT_RESULT_FAILED", ServiceWorkflowStatus.InProgress, token);
-            if (request.Result == ExportResult.Failed)
-            {
-                foreach (var item in items)
-                {
-                    item.ExecutionStatus = ServiceItemStatus.NotExecuted; item.Version++;
-                    await ReleaseAsync(order, item, token);
-                    await AuditAsync(order, request.RequestId, actor, "ITEM_NOT_EXECUTED", ServiceItemStatus.InProgress, item, slip, token);
-                }
-                order.Version++;
-                await CompleteIfFinishedAsync(order, request.RequestId, actor, slip, token);
-            }
             return true;
         }, ct);
 
@@ -294,6 +213,8 @@ public sealed class ServiceOrderService(
         var role = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
         if (role?.Code is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff)
             || (requiredRole is not null && role.Code != requiredRole)) throw Forbidden();
+        var profile = await unitOfWork.UserProfiles.GetByIdAsync(account.UserProfileId, ct) ?? throw Forbidden();
+        await equipment.RequireMemberAsync(role.Code, profile.DepartmentId, ct);
         return id;
     }
 
@@ -303,13 +224,43 @@ public sealed class ServiceOrderService(
         if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "The device is locked.");
         if (device.Condition == DeviceCondition.Missing || (type == ServiceOrderType.Maintenance && device.Condition != DeviceCondition.Good))
             throw Conflict("DEVICE_NOT_AVAILABLE", "The device condition is incompatible with this service order.");
-        if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(device.Id, ct)) throw Busy();
+        if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(device.Id, ct)
+            || await holds.ExistsAsync(x => x.DeviceId == device.Id, ct)
+            || await guards.ExistsAsync(x => x.DeviceId == device.Id, ct)) throw Busy();
     }
 
-    private async Task ReleaseAsync(ServiceOrder order, ServiceOrderItem item, CancellationToken ct)
+    private async Task<bool> ReleaseAsync(ServiceOrder order, ServiceOrderItem item, Guid requestId, Guid actor, CancellationToken ct)
     {
-        if (!await unitOfWork.DeviceOperationHolds.ReleaseAsync(item.DeviceCodeSnapshot, DeviceOperationKind.ServiceOrder, order.Id, ct)) throw Busy();
+        if (item.ExecutionStatus is null or ServiceItemStatus.InProgress || await guards.ExistsAsync(g => g.DeviceId == item.DeviceId, ct)) return false;
+        var hold = await holds.FirstOrDefaultTrackedAsync(h => h.DeviceId == item.DeviceId && h.ServiceOrderItemId == item.Id && h.ServiceOrderId == order.Id, ct);
+        if (hold is null) return false;
+        await holds.DeleteAsync(hold, ct);
+        await AuditAsync(order, requestId, actor, "HOLD_RELEASED", new { deviceCode = item.DeviceCodeSnapshot, heldAt = hold.HeldAt }, item, null, ct);
+        return true;
     }
+
+    public Task<int> ReconcileHoldsAsync(string code, ServiceTransitionRequest request, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireActorAsync(null, token);
+            Validate(request); RequireRequest(request.RequestId);
+            var order = await LoadAsync(code, true, token);
+            var prior = await history.FindAsync(h => h.ServiceOrderId == order.Id && h.RequestId == request.RequestId && h.ActionCode == "HOLDS_RECONCILED", token);
+            if (prior.Count != 0)
+            {
+                if (prior[0].ActorAccountId != actor) throw IdempotencyConflict();
+                return JsonDocument.Parse(prior[0].AfterData!).RootElement.GetProperty("released").GetInt32();
+            }
+            RequireVersion(order.Version, request.Version);
+            await transaction.LockDevicesAsync(order.Items.Select(i => i.DeviceId), token);
+            var released = 0;
+            foreach (var item in order.Items)
+                if (await ReleaseAsync(order, item, request.RequestId, actor, token)) released++;
+            await history.AddAsync(new ServiceOrderHistory { ServiceOrderId = order.Id, RequestId = request.RequestId,
+                TargetKey = "ORDER", ActorAccountId = actor, ActionCode = "HOLDS_RECONCILED", Outcome = released == 0 ? AuditOutcome.NoChange : AuditOutcome.Success,
+                OccurredAt = clock.GetUtcNow(), AfterData = JsonSerializer.Serialize(new { released }) }, token);
+            return released;
+        }, ct);
 
     private async Task CompleteIfFinishedAsync(ServiceOrder order, Guid requestId, Guid actor, ExportSlip? cause, CancellationToken ct)
     {
@@ -325,20 +276,10 @@ public sealed class ServiceOrderService(
             RequestId = requestId, ServiceOrderId = order.Id, ServiceOrderItemId = item?.Id, RelatedExportSlipId = cause?.Id,
             TargetKey = item is null ? "ORDER" : "ITEM:" + item.Id, ActorAccountId = actor,
             ActionCode = action, Outcome = AuditOutcome.Success, OccurredAt = clock.GetUtcNow(),
-            BeforeData = before is null ? null : JsonSerializer.Serialize(new { status = before.ToString() }),
+            BeforeData = before is null ? null : JsonSerializer.Serialize(before),
             AfterData = JsonSerializer.Serialize(new { orderCode = order.DisplayCode, itemNo = item?.ItemNo,
                 status = item is null ? order.Status.ToString() : item.ExecutionStatus?.ToString(),
-                resultDescription = item?.ResultDescription, relatedExportSlipCode = cause?.DisplayCode, cancelReason = order.CancelReason })
-        }, ct);
-
-    private Task AuditExportAsync(ExportSlip slip, Guid requestId, Guid actor, string action, ServiceWorkflowStatus? before, CancellationToken ct)
-        => exportHistory.AddAsync(new ExportHistory
-        {
-            RequestId = requestId, ExportSlipId = slip.Id, ActorAccountId = actor, ActionCode = action,
-            Outcome = AuditOutcome.Success, OccurredAt = clock.GetUtcNow(),
-            BeforeData = before is null ? null : JsonSerializer.Serialize(new { status = before.ToString() }),
-            AfterData = JsonSerializer.Serialize(new { exportCode = slip.DisplayCode, status = slip.Status.ToString(),
-                result = slip.Result?.ToString(), facilityName = slip.FacilityNameSnapshot, failureReason = slip.FailureReason })
+                deviceCode = item?.DeviceCodeSnapshot, resultDescription = item?.ResultDescription, relatedExportSlipCode = cause?.DisplayCode, cancelReason = order.CancelReason })
         }, ct);
 
     private async Task<ServiceOrder> LoadAsync(string code, bool tracked, CancellationToken ct)
@@ -348,34 +289,28 @@ public sealed class ServiceOrderService(
 
     private Task<IReadOnlyDictionary<Guid, string>> AccountCodesAsync(IEnumerable<ServiceOrder> source, CancellationToken ct)
         => orders.AccountCodesAsync(source.SelectMany(o => new Guid?[] { o.CreatedByAccountId, o.ApprovedByAccountId, o.CanceledByAccountId }
-            .Concat(o.Items.Select(i => i.ResultRecordedByAccountId)).Concat(o.ExportSlips.Select(e => e.ResultRecordedByAccountId)))
+            .Concat(o.Items.Select(i => i.ResultRecordedByAccountId))
+            .Concat(o.ExportSlips.SelectMany(e => new Guid?[] { e.CreatedByAccountId, e.ApprovedByAccountId, e.CanceledByAccountId, e.LastEditedByAccountId }
+                .Concat(e.Items.Select(i => i.ResultRecordedByAccountId))
+                .Concat(e.Items.Select(i => (Guid?)i.ReturnItem?.ReturnSlip.ReceivedByAccountId)))))
             .Where(x => x.HasValue).Select(x => x!.Value).Distinct(), ct);
     private static string? ActorCode(IReadOnlyDictionary<Guid, string> codes, Guid? id)
         => id is { } value && codes.TryGetValue(value, out var code) ? code : null;
 
-    private static ServiceOrderDto ToDto(ServiceOrder o, IReadOnlyDictionary<Guid, string> codes)
+    private ServiceOrderDto ToDto(ServiceOrder o, IReadOnlyDictionary<Guid, string> codes)
         => new(o.DisplayCode, o.OrderType, o.Status, ActorCode(codes, o.CreatedByAccountId)!, o.CreatedAt,
             ActorCode(codes, o.ApprovedByAccountId), o.ApprovedAt, ActorCode(codes, o.CanceledByAccountId), o.CanceledAt,
             o.CancelReason, o.CompletedAt, o.Notes, o.Version, o.Items.Count,
             o.Items.OrderBy(i => i.ItemNo).Select(i => new ServiceOrderItemDto(i.ItemNo, i.DeviceCodeSnapshot, i.DeviceNameSnapshot,
                 i.SerialSnapshot, i.ExecutionMethod, i.ExecutionStatus, i.WorkDescription, i.ResultDescription,
-                ActorCode(codes, i.ResultRecordedByAccountId), i.ResultRecordedAt, i.Notes, i.Version)).ToArray(),
+                ActorCode(codes, i.ResultRecordedByAccountId), i.ResultRecordedAt, i.Notes, i.Version) { DamageReportCode = i.RepairDetail?.DamageReport?.ReportCode }).ToArray(),
             o.ExportSlips.OrderBy(e => e.SequenceNo).Select(e => ToExportDto(e, o, codes)).ToArray());
-
-    private static ExportSlipDto ToExportDto(ExportSlip e, ServiceOrder o, IReadOnlyDictionary<Guid, string> codes)
-        => new(e.DisplayCode, o.DisplayCode, o.OrderType, e.SequenceNo, e.Status, e.FacilityNameSnapshot,
-            e.FacilityAddressSnapshot, e.FacilityContactSnapshot, e.PlannedExportAt, e.Notes,
-            ActorCode(codes, e.CreatedByAccountId)!, e.CreatedAt, e.Result, ActorCode(codes, e.ResultRecordedByAccountId),
-            e.ResultRecordedAt, e.RecipientName, e.RecipientContact, e.FailureReason, e.EvidenceRef,
-            e.CanceledAt, e.CompletedAt, e.Version,
-            e.Items.Select(line => new ExportSlipItemDto(o.Items.Single(i => i.Id == line.ServiceOrderItemId).ItemNo,
-                line.DeviceCodeSnapshot, line.DeviceNameSnapshot, line.SerialSnapshot)).OrderBy(i => i.ItemNo).ToArray());
 
     private static void ValidateCreate(CreateServiceOrderRequest request)
     {
         Validate(request); RequireRequest(request.RequestId);
-        if (request.Items is null || request.ExportSlips is null || request.Items.Count is < 1 or > 100 || request.ExportSlips.Count > 100)
-            throw Validation("Supply 1 to 100 items and at most 100 export slips.");
+        if (request.Items is null || request.Items.Count is < 1 or > 100)
+            throw Validation("Supply 1 to 100 items.");
         foreach (var item in request.Items)
         {
             if (item is null) throw Validation("Items cannot be null.");
@@ -385,18 +320,6 @@ public sealed class ServiceOrderService(
         }
         var all = request.Items.Select(x => Code(x.DeviceCode)).ToArray();
         if (all.Distinct().Count() != all.Length) throw Validation("Duplicate devices.");
-        var exported = new List<string>();
-        foreach (var slip in request.ExportSlips)
-        {
-            if (slip is null) throw Validation("Export slips cannot be null.");
-            Validate(slip);
-            if (Clean(slip.FacilityName) is null || slip.DeviceCodes is null || slip.DeviceCodes.Count is < 1 or > 100)
-                throw Validation("Every export requires a facility name and devices.");
-            exported.AddRange(slip.DeviceCodes.Select(Code));
-        }
-        var external = request.Items.Where(x => x.ExecutionMethod == ExecutionMethod.External).Select(x => Code(x.DeviceCode)).ToHashSet();
-        if (exported.Distinct().Count() != exported.Count || !external.SetEquals(exported))
-            throw Validation("Every external item must occur in exactly one export slip; on-site items cannot be exported.");
     }
 
     private static string Fingerprint(CreateServiceOrderRequest r)
@@ -404,10 +327,7 @@ public sealed class ServiceOrderService(
         {
             r.OrderType, notes = Clean(r.Notes),
             items = r.Items.Select(i => new { deviceCode = Code(i.DeviceCode), i.ExecutionMethod,
-                workDescription = Clean(i.WorkDescription), notes = Clean(i.Notes) }),
-            exports = r.ExportSlips.Select(e => new { facilityName = Clean(e.FacilityName), facilityAddress = Clean(e.FacilityAddress),
-                facilityContact = Clean(e.FacilityContact), plannedExportAt = e.PlannedExportAt?.ToUniversalTime(), notes = Clean(e.Notes),
-                deviceCodes = e.DeviceCodes.Select(Code).Order().ToArray() })
+                workDescription = Clean(i.WorkDescription), notes = Clean(i.Notes), damageReportCode = Clean(i.DamageReportCode) is null ? null : Code(i.DamageReportCode) })
         }))));
     private static void Validate(object value)
     {

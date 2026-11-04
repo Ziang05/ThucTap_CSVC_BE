@@ -10,8 +10,14 @@ public interface IServiceOrderRepository : IRepository<ServiceOrder>
     Task<ServiceOrder?> GetByCreateRequestAsync(Guid requestId, CancellationToken ct);
     Task<ServiceOrder?> GetByExportCodeAsync(string code, bool tracked, CancellationToken ct);
     Task<PagedResult<ServiceOrder>> ListAsync(ServiceOrderListQuery query, CancellationToken ct);
-    Task<PagedResult<ExportSlipDto>> ListExportsAsync(ExportSlipListQuery query, CancellationToken ct);
+    Task<PagedResult<ExportSlip>> ListExportsAsync(ExportSlipListQuery query, CancellationToken ct);
     Task<PagedResult<ServiceHistoryDto>> HistoryAsync(Guid orderId, ServiceHistoryQuery query, CancellationToken ct);
     Task<PagedResult<ServiceHistoryDto>> ExportHistoryAsync(Guid slipId, ServiceHistoryQuery query, CancellationToken ct);
+    Task<IReadOnlyList<ServiceOrder>> GetByExportIdsAsync(IEnumerable<Guid> ids, CancellationToken ct);
+    Task<int> NextReturnSequenceAsync(Guid exportId, CancellationToken ct);
+    Task<ExportReturnSlip?> GetReturnAsync(string code, CancellationToken ct);
+    Task<ExportReturnSlip?> GetReturnByRequestAsync(Guid requestId, CancellationToken ct);
+    Task<PagedResult<ExportReturnSlip>> ListReturnsAsync(ExportReturnListQuery query, CancellationToken ct);
+    Task<PagedResult<ServiceHistoryDto>> ReturnHistoryAsync(Guid returnId, ServiceHistoryQuery query, CancellationToken ct);
     Task<IReadOnlyDictionary<Guid, string>> AccountCodesAsync(IEnumerable<Guid> ids, CancellationToken ct);
 }

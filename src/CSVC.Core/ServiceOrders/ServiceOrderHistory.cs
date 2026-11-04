@@ -21,6 +21,9 @@ public sealed class ServiceOrderHistory
 
 public sealed class ExportHistory
 {
+    public string? RequestPayloadHash { get; set; }
+    public Guid? ExportSlipItemId { get; set; }
+    public required string TargetKey { get; set; }
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid RequestId { get; set; }
     public Guid ExportSlipId { get; set; }
