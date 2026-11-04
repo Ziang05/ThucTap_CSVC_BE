@@ -19,6 +19,7 @@ public sealed partial class ServiceOrderService(
     IServiceOrderRepository orders, IRepository<ServiceOrderHistory> history, IRepository<ExportHistory> exportHistory,
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current, TimeProvider clock,
     IRepository<ServiceOrderDeviceHold> holds, IRepository<ExportDeviceGuard> guards,
+    IRepository<ExportSlipItem> exportItems,
     CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports) : IServiceOrderService
 {
     public async Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct)

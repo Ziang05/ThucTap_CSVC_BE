@@ -33,6 +33,118 @@ public sealed partial class ServiceOrderService
         return ToExportDto(order.ExportSlips.Single(e => e.DisplayCode == Code(code)), order, await AccountCodesAsync([order], ct));
     }
 
+    public Task<ExportSlipDto> CreateExportAsync(CreateExportSlipRequest request, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireActorAsync(null, token);
+            Validate(request); RequireRequest(request.RequestId);
+            ValidateSelection(request.ItemNos); RequireFacility(request.FacilityName);
+            var hash = Hash(new { source = Code(request.ServiceOrderCode), facility = Clean(request.FacilityName),
+                address = Clean(request.FacilityAddress), contact = Clean(request.FacilityContact),
+                planned = request.PlannedExportAt?.ToUniversalTime(), notes = Clean(request.Notes), items = request.ItemNos.Order() });
+            var prior = await exportHistory.FirstOrDefaultAsync(h => h.RequestId == request.RequestId && h.ActionCode == "CREATE", token);
+            if (prior is not null)
+            {
+                if (prior.ActorAccountId != actor || prior.RequestPayloadHash != hash) throw IdempotencyConflict();
+                var priorOrder = await LoadAsync(Code(request.ServiceOrderCode), false, token);
+                return ToExportDto(priorOrder.ExportSlips.Single(e => e.Id == prior.ExportSlipId), priorOrder, await AccountCodesAsync([priorOrder], token));
+            }
+            var order = await LoadAsync(request.ServiceOrderCode, true, token);
+            RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
+            var selected = SelectItems(order, request.ItemNos);
+            await transaction.LockDevicesAsync(selected.Select(i => i.DeviceId), token);
+            foreach (var item in selected) await ValidateExportItemAsync(order, item, null, token);
+            var now = clock.GetUtcNow();
+            var slip = new ExportSlip { ServiceOrderId = order.Id, DisplayCode = BusinessCode.NewRandom("PX"),
+                SequenceNo = order.ExportSlips.Select(e => e.SequenceNo).DefaultIfEmpty(0).Max() + 1,
+                CreateRequestId = request.RequestId, CreateRequestHash = hash, CreatedByAccountId = actor, CreatedAt = now,
+                FacilityNameSnapshot = Clean(request.FacilityName)!, FacilityAddressSnapshot = Clean(request.FacilityAddress),
+                FacilityContactSnapshot = Clean(request.FacilityContact), PlannedExportAt = request.PlannedExportAt?.ToUniversalTime(), Notes = Clean(request.Notes) };
+            foreach (var item in selected) await AddExportLineAsync(slip, item, token);
+            order.ExportSlips.Add(slip);
+            await AuditExportAsync(slip, request.RequestId, hash, actor, "CREATE", null, null, token);
+            return ToExportDto(slip, order, await AccountCodesAsync([order], token));
+        }, ct);
+
+    public Task ApproveExportAsync(string code, ServiceTransitionRequest request, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireActorAsync(RoleCodes.EquipmentManager, token);
+            Validate(request); RequireRequest(request.RequestId);
+            var order = await LoadExportAsync(code, true, token); var slip = Export(order, code);
+            var hash = Hash(new { request.Version });
+            if (await ExportRetryAsync(slip, request.RequestId, hash, actor, "APPROVE", token)) return true;
+            RequireVersion(slip.Version, request.Version); RequireStatus(slip.Status, ServiceWorkflowStatus.PendingApproval);
+            RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
+            var items = SelectItems(order, slip.Items.Select(l => order.Items.Single(i => i.Id == l.ServiceOrderItemId).ItemNo));
+            await transaction.LockDevicesAsync(items.Select(i => i.DeviceId), token);
+            foreach (var item in items) await ValidateExportItemAsync(order, item, slip.Items.Single(l => l.ServiceOrderItemId == item.Id).Id, token);
+            var before = ExportSnapshot(slip);
+            slip.Status = ServiceWorkflowStatus.InProgress; slip.ApprovedAt = clock.GetUtcNow();
+            slip.ApprovedByAccountId = actor; slip.ApprovalRequestId = request.RequestId; slip.Version++;
+            await AuditExportAsync(slip, request.RequestId, hash, actor, "APPROVE", before, null, token);
+            return true;
+        }, ct);
+
+    public Task EditExportAsync(string code, EditExportSlipRequest request, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireActorAsync(null, token);
+            Validate(request); RequireRequest(request.RequestId); ValidateSelection(request.ItemNos); RequireFacility(request.FacilityName);
+            var order = await LoadExportAsync(code, true, token); var slip = Export(order, code);
+            await RequireExportEditorAsync(slip, actor, token);
+            var hash = Hash(new { request.Version, facility = Clean(request.FacilityName), address = Clean(request.FacilityAddress),
+                contact = Clean(request.FacilityContact), planned = request.PlannedExportAt?.ToUniversalTime(), notes = Clean(request.Notes), items = request.ItemNos.Order() });
+            if (await ExportRetryAsync(slip, request.RequestId, hash, actor, "EDIT", token)) return true;
+            RequireVersion(slip.Version, request.Version); RequireStatus(slip.Status, ServiceWorkflowStatus.PendingApproval);
+            RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
+            var selected = SelectItems(order, request.ItemNos);
+            var oldItems = order.Items.Where(i => slip.Items.Any(l => l.ServiceOrderItemId == i.Id)).ToArray();
+            await transaction.LockDevicesAsync(selected.Concat(oldItems).Select(i => i.DeviceId), token);
+            foreach (var item in selected)
+                await ValidateExportItemAsync(order, item, slip.Items.SingleOrDefault(l => l.ServiceOrderItemId == item.Id)?.Id, token);
+            var before = ExportSnapshot(slip);
+            var changed = slip.FacilityNameSnapshot != Clean(request.FacilityName) || slip.FacilityAddressSnapshot != Clean(request.FacilityAddress)
+                || slip.FacilityContactSnapshot != Clean(request.FacilityContact) || slip.PlannedExportAt != request.PlannedExportAt?.ToUniversalTime()
+                || slip.Notes != Clean(request.Notes) || !oldItems.Select(i => i.ItemNo).Order().SequenceEqual(request.ItemNos.Order());
+            if (changed)
+            {
+                foreach (var line in slip.Items.Where(l => !selected.Any(i => i.Id == l.ServiceOrderItemId)).ToArray())
+                {
+                    if (await exportHistory.ExistsAsync(h => h.ExportSlipItemId == line.Id, token)) throw InvalidTransition();
+                    await RemoveGuardAsync(order.Items.Single(i => i.Id == line.ServiceOrderItemId), line, token);
+                    slip.Items.Remove(line); await exportItems.DeleteAsync(line, token);
+                }
+                foreach (var item in selected.Where(i => !slip.Items.Any(l => l.ServiceOrderItemId == i.Id))) await AddExportLineAsync(slip, item, token);
+                slip.FacilityNameSnapshot = Clean(request.FacilityName)!; slip.FacilityAddressSnapshot = Clean(request.FacilityAddress);
+                slip.FacilityContactSnapshot = Clean(request.FacilityContact); slip.PlannedExportAt = request.PlannedExportAt?.ToUniversalTime();
+                slip.Notes = Clean(request.Notes); slip.LastEditedAt = clock.GetUtcNow(); slip.LastEditedByAccountId = actor;
+                slip.EditRequestId = request.RequestId; slip.Version++;
+            }
+            await AuditExportAsync(slip, request.RequestId, hash, actor, "EDIT", before, null, token, changed ? AuditOutcome.Success : AuditOutcome.NoChange);
+            return true;
+        }, ct);
+
+    public Task CancelExportAsync(string code, CancelServiceOrderRequest request, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireActorAsync(null, token); Validate(request); RequireRequest(request.RequestId);
+            var reason = Clean(request.Reason) ?? throw Validation("A cancel reason is required.");
+            var order = await LoadExportAsync(code, true, token); var slip = Export(order, code);
+            await RequireExportEditorAsync(slip, actor, token);
+            var hash = Hash(new { request.Version, reason });
+            if (await ExportRetryAsync(slip, request.RequestId, hash, actor, "CANCEL", token)) return true;
+            RequireVersion(slip.Version, request.Version); RequireStatus(slip.Status, ServiceWorkflowStatus.PendingApproval);
+            RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
+            await transaction.LockDevicesAsync(order.Items.Where(i => slip.Items.Any(l => l.ServiceOrderItemId == i.Id)).Select(i => i.DeviceId), token);
+            var before = ExportSnapshot(slip);
+            foreach (var line in slip.Items) await RemoveGuardAsync(order.Items.Single(i => i.Id == line.ServiceOrderItemId), line, token);
+            slip.Status = ServiceWorkflowStatus.Canceled; slip.CanceledAt = clock.GetUtcNow(); slip.CanceledByAccountId = actor;
+            slip.CancelRequestId = request.RequestId; slip.CancelReason = reason; slip.Version++;
+            await AuditExportAsync(slip, request.RequestId, hash, actor, "CANCEL", before, null, token);
+            return true;
+        }, ct);
+
     public Task RecordExportResultAsync(string code, RecordExportResultRequest request, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
@@ -92,8 +204,24 @@ public sealed partial class ServiceOrderService
         var guard = await guards.FirstOrDefaultAsync(g => g.DeviceId == item.DeviceId, ct);
         if (ownLineId is null ? guard is not null : guard is null || guard.ExportSlipItemId != ownLineId || guard.GuardState != ExportGuardState.HeldForExport) throw Busy();
     }
+    private async Task AddExportLineAsync(ExportSlip slip, ServiceOrderItem item, CancellationToken ct)
+    {
+        var line = new ExportSlipItem { ExportSlipId = slip.Id, ServiceOrderItemId = item.Id, DeviceCodeSnapshot = item.DeviceCodeSnapshot,
+            DeviceNameSnapshot = item.DeviceNameSnapshot, SerialSnapshot = item.SerialSnapshot };
+        slip.Items.Add(line);
+        await guards.AddAsync(new ExportDeviceGuard { DeviceId = item.DeviceId, ExportSlipItemId = line.Id,
+            GuardState = ExportGuardState.HeldForExport, AcquiredAt = clock.GetUtcNow(), ChangedAt = clock.GetUtcNow() }, ct);
+    }
     private async Task<ExportDeviceGuard> OwnGuardAsync(ServiceOrderItem item, ExportSlipItem line, ExportGuardState state, CancellationToken ct)
         => await guards.FirstOrDefaultTrackedAsync(g => g.DeviceId == item.DeviceId && g.ExportSlipItemId == line.Id && g.GuardState == state, ct) ?? throw Busy();
+    private async Task RemoveGuardAsync(ServiceOrderItem item, ExportSlipItem line, CancellationToken ct)
+        => await guards.DeleteAsync(await OwnGuardAsync(item, line, ExportGuardState.HeldForExport, ct), ct);
+    private async Task RequireExportEditorAsync(ExportSlip slip, Guid actor, CancellationToken ct)
+    {
+        var account = await unitOfWork.Accounts.GetByIdAsync(actor, ct) ?? throw Forbidden();
+        var role = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
+        if (slip.CreatedByAccountId != actor && role?.Code != RoleCodes.EquipmentManager) throw Forbidden();
+    }
     private async Task<bool> ExportRetryAsync(ExportSlip slip, Guid request, string hash, Guid actor, string action, CancellationToken ct)
     {
         var events = await exportHistory.FindAsync(h => h.ExportSlipId == slip.Id && h.RequestId == request, ct);
@@ -121,6 +249,7 @@ public sealed partial class ServiceOrderService
         if (values is null || values.Length is < 1 or > 100 || values.Any(n => n is < 1 or > 100) || values.Distinct().Count() != values.Length)
             throw Validation("Select 1 to 100 distinct item numbers.");
     }
+    private static void RequireFacility(string? value) { if (Clean(value) is null) throw Validation("Facility name is required."); }
     private static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value))));
     private static ExportSlipDto ToExportDto(ExportSlip e, ServiceOrder o, IReadOnlyDictionary<Guid, string> codes)
         => new(e.DisplayCode, o.DisplayCode, o.OrderType, e.SequenceNo, e.Status, e.FacilityNameSnapshot,
