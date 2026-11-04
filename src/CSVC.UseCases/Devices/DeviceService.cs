@@ -22,15 +22,24 @@ namespace CSVC.UseCases.Devices;
 
 public sealed class DeviceService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock) : IDeviceService
+    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations) : IDeviceService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex BarcodePattern = new("^BC[A-F0-9]{30}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    public async Task<PagedResult<BorrowedDeviceDto>> BorrowedAsync(BorrowedDeviceListQuery query, CancellationToken ct)
+    {
+        var actor = await RequireActorAsync(false, ct);
+        Validate(query);
+        return await unitOfWork.Devices.BorrowedAsync(query, actor.DepartmentId, clock.GetUtcNow(), ct);
+    }
 
     public async Task<PagedResult<DeviceDto>> ListAsync(DeviceListQuery query, CancellationToken ct)
     {
         var actor = await RequireActorAsync(false, ct);
         Validate(query);
+        if (query.EligibleFor == CSVC.UseCases.Devices.DTOs.DeviceWorkflowEligibility.Loan)
+            throw new UseCaseException(FailureKind.Validation, "LOAN_ELIGIBILITY_ENDPOINT_CHANGED", "Use /api/v1/device-loans/eligible-devices to borrow devices from another department.");
         var page = await unitOfWork.Devices.ListAsync(query, actor.RoleCode == RoleCodes.DepartmentStaff ? actor.DepartmentId : null, ct);
         return new(page.Items.Select(x => ToDto(x, actor.RoleCode != RoleCodes.DepartmentStaff)).ToArray(), page.TotalCount, page.Page, page.PageSize);
     }
@@ -151,8 +160,11 @@ public sealed class DeviceService(
             var subtree = await unitOfWork.Devices.GetSubtreeAsync(device.Id, token);
             await transaction.LockDevicesAsync(subtree.Select(x => x.Id).Append(parent?.Id ?? Guid.Empty).Where(x => x != Guid.Empty), token);
             foreach (var node in subtree)
-                if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(node.Id, token) || await unitOfWork.Devices.HasPendingWorkflowAsync(node.Id, token)) throw Conflict("DEVICE_BUSY", "A device in this subtree has an active operation.");
-            if (parent is not null && await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(parent.Id, token)) throw Conflict("DEVICE_BUSY", "The selected parent device has an active operation.");
+            {
+                await reservations.RequireAsync(node, false, ct: token);
+                if (await unitOfWork.Devices.HasPendingWorkflowAsync(node.Id, token)) throw Conflict("DEVICE_BUSY", "A device in this subtree has a pending operation.");
+            }
+            if (parent is not null) await reservations.RequireAsync(parent, false, ct: token);
             if (parent is not null && await unitOfWork.Devices.HasPendingWorkflowAsync(parent.Id, token)) throw Conflict("DEVICE_BUSY", "The selected parent device has a pending operation.");
             device.ParentDeviceId = parent?.Id;
             unitOfWork.Devices.Update(device);
@@ -174,8 +186,7 @@ public sealed class DeviceService(
             foreach (var item in subtree)
             {
                 var affected = item.Id == device.Id ? device : await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.Id == item.Id, token) ?? throw Missing();
-                if (locked && await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(affected.Id, token))
-                    throw Conflict("DEVICE_BUSY", "A device in this subtree has an active operation.");
+                if (locked) await reservations.RequireAsync(affected, false, ct: token);
                 if (affected.Status == next) continue;
                 var before = StateSnapshot(affected);
                 affected.Status = next;
@@ -250,7 +261,9 @@ public sealed class DeviceService(
         => new(x.DeviceCode, includeBarcode ? x.Barcode : null, x.Name, x.CategoryCode, x.CategoryName, x.DepartmentCode, x.DepartmentName,
             x.AreaCode, x.Status, x.Condition, Availability(x), x.ResponsibleAccountCode, x.ResponsibleFullName,
             x.ManufacturerCode, x.ManufacturerName, x.Model, x.SerialNumber, x.PurchaseDate, x.PaidInvoiceCode,
-            x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, VersionOf(x), x.ParentDeviceCode, x.ParentDeviceName, x.IsComponent, x.Quantity);
+            x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, VersionOf(x), x.ParentDeviceCode, x.ParentDeviceName, x.IsComponent, x.Quantity)
+        { ActiveLoanCode = x.ActiveLoanCode, BorrowerDepartmentCode = x.BorrowerDepartmentCode,
+          BorrowerDepartmentName = x.BorrowerDepartmentName, LoanDueAt = x.LoanDueAt };
 
     private static DeviceAvailability Availability(DeviceReadModel x) => !x.HasHold ? x.Quantity == 0 ? DeviceAvailability.NotReceived : DeviceAvailability.Available
         : x.IsOnLoan ? DeviceAvailability.OnLoan

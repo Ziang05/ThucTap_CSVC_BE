@@ -28,6 +28,7 @@ Record ngoài phòng ban của Department Staff trả `404 DEVICE_NOT_FOUND` đ�
 | Method | Route | Kết quả |
 |---|---|---|
 | GET | `/api/v1/devices` | Paged list |
+| GET | `/api/v1/devices/borrowed` | Thiết bị phòng hiện tại đang mượn, DTO chỉ đọc theo phiếu |
 | GET | `/api/v1/devices/{deviceCode}` | Detail |
 | GET | `/api/v1/devices/by-barcode/{barcode}` | Lookup để scan barcode |
 | POST | `/api/v1/devices` | `201 Created`, detail + barcode |
@@ -37,9 +38,23 @@ Record ngoài phòng ban của Department Staff trả `404 DEVICE_NOT_FOUND` đ�
 | GET | `/api/v1/devices/{deviceCode}/history` | Paged audit history |
 | GET | `/api/v1/history/devices` | QTTB global device timeline |
 
-### List
+### Thiết bị phòng đang mượn
 
-`eligibleFor=Loan|Transfer|Recovery` lọc thiết bị có thể chọn khi tạo/sửa phiếu: đã tiếp nhận (`quantity=1`), đang hoạt động, chưa bị giữ chỗ. `Loan` và `Transfer` yêu cầu tình trạng `Good`; riêng `Recovery` cho phép `Good` hoặc `Damaged`, không cho `Missing`. Kiểm tra áp dụng cho cả cây thiết bị con; `Transfer` và `Recovery` còn yêu cầu mọi thành phần cùng phòng ban với thiết bị được chọn. Filter này kết hợp với tìm kiếm, phòng ban, sắp xếp và phân trang tại database, giữ nguyên scope của người dùng. Ví dụ: `GET /devices?eligibleFor=Recovery&departmentCode=CNTT&page=1&pageSize=20`. Khi gửi phiếu, backend vẫn xác định loại nghiệp vụ từ phòng nguồn/đích và kiểm tra lại điều kiện; việc lấy danh sách `Recovery` không cho phép đưa thiết bị hỏng vào cấp phát hoặc điều chuyển giữa phòng ban.
+`GET /devices/borrowed` lấy thiết bị trên các phiếu có borrower department là phòng hiện tại của actor và trạng thái `OnLoan` hoặc `PendingReturnConfirmation`. Cùng quy tắc phạm vi áp dụng cho cả role QTTB đọc toàn cục: endpoint này luôn là thiết bị **phòng của actor** đang mượn, không nhận phòng mượn từ client.
+
+Thiết bị xuất hiện khi bên mượn xác nhận thực nhận; vẫn hiển thị khi quá hạn, báo trả hoặc bên cho mượn từ chối nhận trả. Sau khi bên cho mượn xác nhận nhận lại, thiết bị không còn trong danh sách. Pending/Approved/Rejected/Cancelled/Returned không thuộc nhóm đang mượn.
+
+Query: `search` (tên/mã/serial/phiếu/phòng cho mượn), `loanCode`, `status=OnLoan|PendingReturnConfirmation`, `overdue`, `page`, `pageSize` (tối đa 100). Scope và filter áp trước count/paging; sort dueAt, loanCode, deviceCode tăng dần.
+
+Response gồm thông tin nhận diện/danh mục/tình trạng, `ownerDepartmentCode/Name` hiện tại, `lenderDepartmentCode/Name` trên phiếu, mã phiếu, hạn trả, thời điểm nhận/báo trả, trạng thái và cờ quá hạn. Không trả giá mua, invoice, barcode, ghi chú hoặc thông tin cá nhân người chịu trách nhiệm. Legacy đang OnLoan vẫn hiển thị; lender chưa xác định giữ null, không suy diễn từ owner hiện tại.
+
+Trang thiết bị tách “Thiết bị phòng quản lý” và “Thiết bị đang mượn”. Nhóm mượn chỉ xem phiếu; không mở rộng quyền detail/barcode/history/sửa/khóa/điều chuyển tài sản ngoài phòng. Các thuộc tính department/responsible/area của thiết bị không thay đổi. Danh sách tài sản bên cho mượn vẫn giữ thiết bị, có trạng thái “Đang cho mượn” và metadata `activeLoanCode`, `borrowerDepartmentCode/Name`, `loanDueAt`; metadata này hết khi nhận trả xong.
+
+### Danh sách thiết bị quản lý
+
+`eligibleFor=Transfer|Recovery` lọc cả cây thiết bị trước count/paging: quantity=1, Active, không operation hold; Transfer yêu cầu Good và không service hold, Recovery cho Good/Damaged và cho phép service hold. Cả cây phải cùng phòng nguồn. Backend vẫn kiểm tra lại khi tạo/sửa/acquire/hoàn tất.
+
+Mượn dùng `GET /device-loans/eligible-devices` để lấy options thiết bị phòng khác, không dùng scope danh sách quản lý thiết bị. `eligibleFor=Loan` cũ trả 400 `LOAN_ELIGIBILITY_ENDPOINT_CHANGED`. Xem [API mượn hai phòng](device-loans-api.md). Availability của thiết bị có service hold là Reserved, không Available.
 
 Query hỗ trợ `search`, `categoryCode`, `status`, `condition`, `departmentCode`, `areaCode`, `availability`, `sortBy`, `sortDirection`, `page`, `pageSize`. `sortBy`: `DeviceCode|Name|Category|Department|Status`; direction `Asc|Desc`. `availability`: `Available|Reserved|OnLoan|TransferPending`. Mặc định page 1, pageSize 20; pageSize tối đa 100.
 

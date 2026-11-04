@@ -15,9 +15,9 @@ using CSVC.UseCases.Exceptions;
 
 namespace CSVC.UseCases.DeviceLoans;
 
-public sealed class DeviceLoanService(
+public sealed partial class DeviceLoanService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy) : IDeviceLoanService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IRepository<CSVC.Core.Settings.EquipmentSettings> settings) : IDeviceLoanService
 {
     public async Task<PagedResult<DeviceLoanDto>> ListAsync(DeviceLoanListQuery query, CancellationToken ct)
     {
@@ -41,11 +41,11 @@ public sealed class DeviceLoanService(
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
             var now = clock.GetUtcNow();
-            var (purpose, dueAt, devices) = await ValidateLoanRequestAsync(request, actor, now, [], token);
+            var (purpose, dueAt, devices, lender) = await ValidateLoanRequestAsync(request, actor, now, [], token);
             var loan = new DeviceLoan
             {
                 LoanCode = BusinessCode.NewRandom("MT"),
-                BorrowerAccountId = actor.AccountId, BorrowerDepartmentId = actor.DepartmentId,
+                BorrowerAccountId = actor.AccountId, BorrowerDepartmentId = actor.DepartmentId, LenderDepartmentId = lender,
                 Purpose = purpose, DueAt = dueAt, CreatorAccountId = actor.AccountId, CreatedAt = now,
                 Status = DeviceLoanStatus.PendingApproval, Notes = Clean(request.Notes),
                 Items = devices.Select(device => new DeviceLoanItem { DeviceId = device.Id }).ToList()
@@ -63,23 +63,25 @@ public sealed class DeviceLoanService(
         {
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
-            var loan = await unitOfWork.DeviceLoans.FirstOrDefaultTrackedAsync(x => x.LoanCode == NormalizeCode(loanCode), token) ?? throw Missing();
+            var loan = await LoadForMutationAsync(loanCode, request.Version, actor, token);
             RequirePending(loan);
             if (loan.CreatorAccountId != actor.AccountId || loan.BorrowerDepartmentId != actor.DepartmentId)
                 throw Forbidden("Only the creator in the borrower department may edit this loan.");
             var oldItems = await unitOfWork.DeviceLoanItems.ListTrackedForLoanAsync(loan.Id, token);
             var oldDevices = await LoadLoanDevicesAsync(oldItems, token);
             var before = Snapshot(loan, oldDevices.Select(x => new { x.DeviceCode, x.Name }));
-            var (purpose, dueAt, devices) = await ValidateLoanRequestAsync(request, actor, loan.CreatedAt, oldDevices, token);
+            var (purpose, dueAt, devices, lender) = await ValidateLoanRequestAsync(request, actor, loan.CreatedAt, oldDevices, token);
             var existingByDeviceId = oldItems.ToDictionary(x => x.DeviceId);
             var selectedIds = devices.Select(x => x.Id).ToHashSet();
             foreach (var old in oldItems.Where(x => !selectedIds.Contains(x.DeviceId)))
                 await unitOfWork.DeviceLoanItems.DeleteAsync(old, token);
             foreach (var device in devices.Where(x => !existingByDeviceId.ContainsKey(x.Id)))
                 await unitOfWork.DeviceLoanItems.AddAsync(new DeviceLoanItem { LoanId = loan.Id, DeviceId = device.Id }, token);
+            loan.LenderDepartmentId = lender;
             loan.Purpose = purpose;
             loan.DueAt = dueAt;
             loan.Notes = Clean(request.Notes);
+            loan.Version++;
             unitOfWork.DeviceLoans.Update(loan);
             await AuditAsync(loan, actor.AccountId, "LOAN_UPDATED", ["purpose", "dueAt", "items", "notes"], before,
                 Snapshot(loan, devices.Select(x => new { x.DeviceCode, x.Name })), token);
@@ -90,10 +92,12 @@ public sealed class DeviceLoanService(
     public async Task DecideAsync(string loanCode, bool approve, LoanDecisionRequest request, CancellationToken ct)
         => await transaction.ExecuteAsync(async token =>
         {
-            var actor = await RequireEquipmentAsync(token);
+            var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
-            var loan = await unitOfWork.DeviceLoans.FirstOrDefaultTrackedAsync(x => x.LoanCode == NormalizeCode(loanCode), token) ?? throw Missing();
+            var loan = await LoadForMutationAsync(loanCode, request.Version, actor, token);
             RequirePending(loan);
+            if (loan.LenderDepartmentId != actor.DepartmentId) throw Forbidden("Only the lending department may decide this loan.");
+            if (!approve && Clean(request.Reason) is null) throw Validation("A rejection reason is required.");
             var items = await unitOfWork.DeviceLoanItems.ListTrackedForLoanAsync(loan.Id, token);
             if (items.Count == 0) throw Conflict("LOAN_EMPTY", "A loan must contain at least one device.");
             var before = SnapshotStatus(loan);
@@ -106,6 +110,7 @@ public sealed class DeviceLoanService(
                 foreach (var device in devices)
                 {
                     ValidateDeviceAvailable(device);
+                    await RequireLenderDeviceAsync(loan, device, false, token);
                     var acquired = await unitOfWork.DeviceOperationHolds.TryAcquireAsync(new DeviceOperationHold
                     {
                         DeviceCode = device.DeviceCode, DeviceId = device.Id, OperationKind = DeviceOperationKind.Loan,
@@ -119,6 +124,7 @@ public sealed class DeviceLoanService(
             loan.DecisionAccountId = actor.AccountId;
             loan.DecidedAt = clock.GetUtcNow();
             loan.DecisionReason = Clean(request.Reason);
+            loan.Version++;
             unitOfWork.DeviceLoans.Update(loan);
             await AuditAsync(loan, actor.AccountId, approve ? "LOAN_APPROVED" : "LOAN_REJECTED", ["status", "decisionAccount", "decidedAt", "decisionReason"], before, SnapshotStatus(loan), token);
             await unitOfWork.CommitAsync(token);
@@ -130,7 +136,7 @@ public sealed class DeviceLoanService(
         {
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
-            var loan = await unitOfWork.DeviceLoans.FirstOrDefaultTrackedAsync(x => x.LoanCode == NormalizeCode(loanCode), token) ?? throw Missing();
+            var loan = await LoadForMutationAsync(loanCode, request.Version, actor, token);
             if (loan.Status != DeviceLoanStatus.Approved) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only an approved loan can be handed over.");
             if (loan.BorrowerDepartmentId != actor.DepartmentId) throw Missing();
             var items = await unitOfWork.DeviceLoanItems.ListTrackedForLoanAsync(loan.Id, token);
@@ -147,8 +153,8 @@ public sealed class DeviceLoanService(
             foreach (var item in items)
             {
                 var device = await unitOfWork.Devices.GetByIdAsync(item.DeviceId, token) ?? throw Conflict("DEVICE_NOT_AVAILABLE", "A loan device no longer exists.");
-                if (!await unitOfWork.DeviceOperationHolds.IsOwnedByAsync(device.DeviceCode, DeviceOperationKind.Loan, loan.Id, token))
-                    throw Conflict("DEVICE_BUSY", "The loan no longer owns a device reservation.");
+                ValidateDeviceAvailable(device);
+                await RequireLenderDeviceAsync(loan, device, true, token);
                 var input = conditions[device.DeviceCode];
                 item.ConditionAtHandover = input.Condition;
                 item.HandoverNote = Clean(input.Note);
@@ -159,6 +165,7 @@ public sealed class DeviceLoanService(
             loan.Status = DeviceLoanStatus.OnLoan;
             loan.HandedOverAt = clock.GetUtcNow();
             loan.HandoverAccountId = actor.AccountId;
+            loan.Version++;
             unitOfWork.DeviceLoans.Update(loan);
             await AuditAsync(loan, actor.AccountId, "LOAN_HANDED_OVER", ["status", "handedOverAt", "handoverAccount", "itemConditions"], before,
                 Snapshot(loan, request.Items.Select(x => new { deviceCode = NormalizeCode(x.DeviceCode), condition = x.Condition.ToString(), note = Clean(x.Note) })), token);
@@ -166,57 +173,16 @@ public sealed class DeviceLoanService(
             return true;
         }, ct);
 
-    public async Task ReturnAsync(string loanCode, LoanReturnRequest request, CancellationToken ct)
+    public async Task CancelAsync(string loanCode, LoanDecisionRequest request, CancellationToken ct)
         => await transaction.ExecuteAsync(async token =>
         {
             var actor = await RequireDepartmentStaffAsync(token);
-            Validate(request);
-            var loan = await unitOfWork.DeviceLoans.FirstOrDefaultTrackedAsync(x => x.LoanCode == NormalizeCode(loanCode), token) ?? throw Missing();
-            if (loan.Status != DeviceLoanStatus.OnLoan) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only a loan currently on loan can be returned.");
-            if (loan.BorrowerDepartmentId != actor.DepartmentId) throw Missing();
-            var items = await unitOfWork.DeviceLoanItems.ListTrackedForLoanAsync(loan.Id, token);
-            await transaction.LockDevicesAsync(items.Select(x => x.DeviceId), token);
-            var devices = await LoadLoanDevicesAsync(items, token);
-            var conditions = ValidateCompleteItemSet(request.Items, items, devices.ToDictionary(x => x.Id), x => x.DeviceCode);
-            if (request.Items.Any(x => x.Condition is null || !Enum.IsDefined(x.Condition.Value) || x.Note?.Length > 1000))
-                throw Validation("Every returned device requires a valid condition and note.");
-            var before = Snapshot(loan, items.Select(item =>
-            {
-                var device = devices.Single(d => d.Id == item.DeviceId);
-                return new { device.DeviceCode, item.ConditionAtHandover, item.ConditionAtReturn };
-            }));
-            foreach (var item in items)
-            {
-                var device = devices.Single(x => x.Id == item.DeviceId);
-                var input = conditions[device.DeviceCode];
-                var condition = input.Condition ?? throw Validation("Every returned device requires a condition.");
-                item.ConditionAtReturn = condition;
-                item.ReturnNote = Clean(input.Note);
-                device.Condition = condition;
-                unitOfWork.DeviceLoanItems.Update(item);
-                unitOfWork.Devices.Update(device);
-                if (!await unitOfWork.DeviceOperationHolds.ReleaseAsync(device.DeviceCode, DeviceOperationKind.Loan, loan.Id, token))
-                    throw Conflict("DEVICE_BUSY", "The loan no longer owns its device reservation.");
-            }
-            loan.Status = DeviceLoanStatus.Returned;
-            loan.ReturnedAt = clock.GetUtcNow();
-            loan.ReturnAccountId = actor.AccountId;
-            unitOfWork.DeviceLoans.Update(loan);
-            await AuditAsync(loan, actor.AccountId, "LOAN_RETURNED", ["status", "returnedAt", "returnAccount", "itemConditions"], before,
-                Snapshot(loan, request.Items.Select(x => new { deviceCode = NormalizeCode(x.DeviceCode), condition = x.Condition!.Value.ToString(), note = Clean(x.Note) })), token);
-            await unitOfWork.CommitAsync(token);
-            return true;
-        }, ct);
-
-    public async Task CancelAsync(string loanCode, CancellationToken ct)
-        => await transaction.ExecuteAsync(async token =>
-        {
-            var actor = await RequireDepartmentStaffAsync(token);
-            var loan = await unitOfWork.DeviceLoans.FirstOrDefaultTrackedAsync(x => x.LoanCode == NormalizeCode(loanCode), token) ?? throw Missing();
+            var loan = await LoadForMutationAsync(loanCode, request.Version, actor, token);
             RequirePending(loan);
             if (loan.CreatorAccountId != actor.AccountId || loan.BorrowerDepartmentId != actor.DepartmentId) throw Forbidden("Only the loan creator may cancel it.");
             var before = SnapshotStatus(loan);
             loan.Status = DeviceLoanStatus.Cancelled;
+            loan.Version++;
             unitOfWork.DeviceLoans.Update(loan);
             await AuditAsync(loan, actor.AccountId, "LOAN_CANCELLED", ["status"], before, SnapshotStatus(loan), token);
             await unitOfWork.CommitAsync(token);
@@ -236,7 +202,7 @@ public sealed class DeviceLoanService(
             actor.RoleCode == RoleCodes.DepartmentStaff ? null : x.AfterData)).ToArray(), page.TotalCount, page.Page, page.PageSize);
     }
 
-    private async Task<(string Purpose, DateTimeOffset DueAt, List<Device> Devices)> ValidateLoanRequestAsync(
+    private async Task<(string Purpose, DateTimeOffset DueAt, List<Device> Devices, Guid Lender)> ValidateLoanRequestAsync(
         CreateDeviceLoanRequest request, Actor actor, DateTimeOffset createdAt, IReadOnlyList<Device> existingDevices, CancellationToken ct)
     {
         if (request.Items is null || request.Items.Count is < 1 or > 200) throw Validation("A loan must contain between 1 and 200 devices.");
@@ -245,6 +211,11 @@ public sealed class DeviceLoanService(
         var dueAt = request.DueAt.ToUniversalTime();
         var now = clock.GetUtcNow();
         if (dueAt <= now || dueAt <= createdAt) throw Validation("dueAt must be in the future.");
+        var lender = await unitOfWork.Departments.FirstOrDefaultAsync(d => d.Code == NormalizeCode(request.LenderDepartmentCode), ct)
+            ?? throw Validation("The lending department does not exist.");
+        if (lender.Id == actor.DepartmentId) throw Conflict("LOAN_SAME_DEPARTMENT", "Borrow from another department.");
+        await RequireActiveDepartmentAsync(actor.DepartmentId, ct);
+        await RequireLenderAsync(lender.Id, ct);
         var existingByCode = existingDevices.ToDictionary(x => x.DeviceCode, StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var devices = new List<Device>(request.Items.Count);
@@ -259,16 +230,20 @@ public sealed class DeviceLoanService(
                 ?? await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == code, ct)
                 ?? throw new UseCaseException(FailureKind.NotFound, "DEVICE_NOT_FOUND", "A requested device was not found.");
             ValidateDeviceAvailable(device);
-            if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(device.Id, ct)) throw Conflict("DEVICE_BUSY", "A requested device is already reserved.");
+            if (device.DepartmentId != lender.Id) throw Conflict("LOAN_LENDER_MISMATCH", "Every device must belong to the lending department.");
+            await reservations.RequireAsync(device, false, ct: ct);
             foreach (var member in await unitOfWork.Devices.GetSubtreeAsync(device.Id, ct))
             {
                 if (devices.Any(x => x.Id == member.Id)) continue;
                 ValidateDeviceAvailable(member);
-                if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(member.Id, ct)) throw Conflict("DEVICE_BUSY", "A device in the selected subtree is already reserved.");
+                if (member.DepartmentId != lender.Id) throw Conflict("LOAN_LENDER_MISMATCH", "The entire device group must belong to the lending department.");
+                await reservations.RequireAsync(member, false, ct: ct);
                 devices.Add(member);
             }
         }
-        return (purpose, dueAt, devices);
+        if (devices.Count > 200) throw Validation("A loan supports at most 200 devices including components.");
+        await transaction.LockDevicesAsync(devices.Select(d => d.Id), ct);
+        return (purpose, dueAt, devices, lender.Id);
     }
 
     private async Task<List<Device>> LoadLoanDevicesAsync(IEnumerable<DeviceLoanItem> items, CancellationToken ct)
@@ -321,15 +296,8 @@ public sealed class DeviceLoanService(
     {
         var actor = await RequireActorAsync(ct);
         if (!RoleCodes.CanActAsDepartmentStaff(actor.RoleCode)) throw Forbidden("Only department or equipment staff may perform this action.");
-        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
-        return actor;
-    }
-
-    private async Task<Actor> RequireEquipmentAsync(CancellationToken ct)
-    {
-        var actor = await RequireActorAsync(ct);
-        if (actor.RoleCode is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff)) throw Forbidden("Only equipment staff may decide loan requests.");
-        await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
+        if (actor.RoleCode == RoleCodes.EquipmentStaff) await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
+        await RequireActiveDepartmentAsync(actor.DepartmentId, ct);
         return actor;
     }
 
@@ -341,14 +309,17 @@ public sealed class DeviceLoanService(
     {
         var items = await unitOfWork.DeviceLoanItems.ListForLoanAsync(read.Id, ct);
         return ToDto(read) with { Items = items.Select(x => new DeviceLoanItemDto(x.DeviceCode, x.Name, x.CategoryCode, x.CategoryName,
-            x.ConditionAtHandover, x.HandoverNote, x.ConditionAtReturn, x.ReturnNote)).ToArray() };
+            x.ConditionAtHandover, x.HandoverNote, x.ConditionAtReturn, x.ReturnNote) { DeclaredReturnCondition = x.DeclaredReturnCondition, DeclaredReturnNote = x.DeclaredReturnNote }).ToArray() };
     }
 
     private DeviceLoanDto ToDto(DeviceLoanReadModel x)
         => new(x.LoanCode, x.BorrowerAccountCode, x.BorrowerFullName, x.DepartmentCode, x.DepartmentName, x.Purpose,
             x.DueAt, x.IsOverdue ? "Overdue" : x.Status.ToString(), x.IsOverdue, x.CreatorAccountCode, x.CreatedAt,
             x.DecisionAccountCode, x.DecidedAt, x.DecisionReason, x.HandedOverAt, x.HandoverAccountCode,
-            x.ReturnedAt, x.ReturnAccountCode, x.Notes, x.ItemCount, x.Version);
+            x.ReturnedAt, x.ReturnAccountCode, x.Notes, x.ItemCount, x.Version)
+        { LenderDepartmentCode = x.LenderDepartmentCode, LenderDepartmentName = x.LenderDepartmentName,
+          WorkflowVersion = x.WorkflowVersion, WorkflowStatus = x.Status.ToString(), ReturnRequestedAt = x.ReturnRequestedAt,
+          ReturnRequestedByAccountCode = x.ReturnRequestedByAccountCode };
 
     private Task AuditAsync(DeviceLoan loan, Guid actor, string action, IReadOnlyList<string> fields, string? before, string after, CancellationToken ct)
         => unitOfWork.DeviceLoanHistories.AddAsync(new DeviceLoanHistory
@@ -359,9 +330,9 @@ public sealed class DeviceLoanService(
         }, ct);
 
     private static string Snapshot(DeviceLoan loan, IEnumerable<object> items)
-        => JsonSerializer.Serialize(new { loan.LoanCode, loan.Purpose, loan.DueAt, loan.Notes, items });
+        => JsonSerializer.Serialize(new { loan.LoanCode, loan.BorrowerDepartmentId, loan.LenderDepartmentId, loan.WorkflowVersion, loan.Purpose, loan.DueAt, loan.Notes, items });
     private static string SnapshotStatus(DeviceLoan loan)
-        => JsonSerializer.Serialize(new { loan.LoanCode, status = loan.Status.ToString(), loan.DecisionReason, loan.DecidedAt, loan.HandedOverAt, loan.ReturnedAt });
+        => JsonSerializer.Serialize(new { loan.LoanCode, status = loan.Status.ToString(), loan.DecisionReason, loan.DecisionAccountId, loan.DecidedAt, loan.HandedOverAt, loan.ReturnRequestedAt, loan.ReturnedAt, loan.WorkflowVersion, loan.LenderDepartmentId });
     private static void RequirePending(DeviceLoan loan)
     {
         if (loan.Status != DeviceLoanStatus.PendingApproval) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only a pending loan can be changed or decided.");

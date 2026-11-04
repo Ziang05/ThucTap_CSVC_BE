@@ -10,6 +10,11 @@ namespace CSVC.API.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
 public sealed class DevicesController(IDeviceService devices) : AuthenticatedApiControllerBase
 {
+    [HttpGet("borrowed")]
+    [ProducesResponseType<PagedResult<BorrowedDeviceDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<BorrowedDeviceDto>>> Borrowed([FromQuery] BorrowedDeviceListQuery query, CancellationToken ct)
+        => Ok(await devices.BorrowedAsync(query, ct));
+
     [HttpGet]
     [ProducesResponseType<PagedResult<DeviceDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<DeviceDto>>> List([FromQuery] DeviceListQuery query, CancellationToken cancellationToken)

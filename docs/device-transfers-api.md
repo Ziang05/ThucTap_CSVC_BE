@@ -94,3 +94,7 @@ Department staff history responses omit raw before/after snapshots and changed-f
 # Tập thiết bị có quan hệ thành phần
 
 Khi tạo hoặc sửa phiếu, mỗi device code được mở rộng thành thiết bị đó và mọi hậu duệ. Backend loại trùng khi các nhánh được chọn chồng nhau; toàn bộ thiết bị mở rộng phải thuộc phòng ban nguồn, nếu không trả `DEVICE_GROUP_SOURCE_MISMATCH`. Điều chuyển cập nhật phòng ban và người chịu trách nhiệm cho từng item đã mở rộng.
+
+## Giữ chỗ cập nhật 04/11/2026
+
+Allocation/InterDepartment kiểm tra cả device_operation_holds và service_order_device_holds tại danh sách, create/update, acquire và hoàn tất; cả cây phải hợp lệ. Recovery cho phép có service hold nhưng vẫn không được có operation hold khác. Sau đồng ý/duyệt, hoàn tất yêu cầu Transfer hold thuộc chính phiếu. Thu hồi không xóa service hold/guard hoặc ghi kết quả BT/SC.

@@ -18,7 +18,7 @@ namespace CSVC.UseCases.DeviceTransfers;
 
 public sealed class DeviceTransferService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy) : IDeviceTransferService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations) : IDeviceTransferService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -172,6 +172,7 @@ public sealed class DeviceTransferService(
         foreach (var device in devices)
         {
             ValidateTransferDevice(device, transfer.SourceDepartmentId, transfer.TransferType);
+            await reservations.RequireAsync(device, transfer.TransferType == DeviceTransferType.Recovery, ct: token);
             var acquired = await unitOfWork.DeviceOperationHolds.TryAcquireAsync(new DeviceOperationHold
             {
                 DeviceCode = device.DeviceCode, DeviceId = device.Id, OperationKind = DeviceOperationKind.Transfer,
@@ -220,8 +221,7 @@ public sealed class DeviceTransferService(
             {
                 var device = devicesById[item.DeviceId];
                 ValidateTransferDevice(device, transfer.SourceDepartmentId, transfer.TransferType);
-                if (!await unitOfWork.DeviceOperationHolds.IsOwnedByAsync(device.DeviceCode, DeviceOperationKind.Transfer, transfer.Id, token))
-                    throw Conflict("DEVICE_BUSY", "The transfer no longer owns a device reservation.");
+                await reservations.RequireAsync(device, transfer.TransferType == DeviceTransferType.Recovery, DeviceOperationKind.Transfer, transfer.Id, token);
                 var input = requestByCode[device.DeviceCode];
                 var receivedCondition = input.Condition ?? DeviceCondition.Good;
                 item.ConditionAtHandover = receivedCondition;
@@ -317,14 +317,14 @@ public sealed class DeviceTransferService(
                 ?? await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == code, ct)
                 ?? throw new UseCaseException(FailureKind.NotFound, "DEVICE_NOT_FOUND", "A requested device was not found.");
             ValidateTransferDevice(device, source.Id, transferType);
-            if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(device.Id, ct)) throw Conflict("DEVICE_BUSY", "A transfer device is already held by another operation.");
+            await reservations.RequireAsync(device, transferType == DeviceTransferType.Recovery, ct: ct);
             var subtree = await unitOfWork.Devices.GetSubtreeAsync(device.Id, ct);
             if (subtree.Any(x => x.DepartmentId != source.Id)) throw Conflict("DEVICE_GROUP_SOURCE_MISMATCH", "Every device in the selected subtree must belong to the transfer source department.");
             foreach (var member in subtree)
             {
                 if (devices.Any(x => x.Id == member.Id)) continue;
                 ValidateTransferDevice(member, source.Id, transferType);
-                if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(member.Id, ct)) throw Conflict("DEVICE_BUSY", "A device in the selected subtree is already held by another operation.");
+                await reservations.RequireAsync(member, transferType == DeviceTransferType.Recovery, ct: ct);
                 devices.Add(member);
             }
         }

@@ -14,6 +14,22 @@ public sealed class DeviceLoansController(IDeviceLoanService loans) : Authentica
     public async Task<ActionResult<PagedResult<DeviceLoanDto>>> List([FromQuery] DeviceLoanListQuery query, CancellationToken cancellationToken)
         => Ok(await loans.ListAsync(query, cancellationToken));
 
+    [HttpGet("eligible-devices")]
+    public async Task<ActionResult<PagedResult<LoanDeviceOptionDto>>> Eligible([FromQuery] LoanDeviceOptionsQuery query, CancellationToken ct)
+        => Ok(await loans.EligibleDevicesAsync(query, ct));
+
+    [HttpPost("{loanCode}/confirm-return")]
+    public async Task<IActionResult> ConfirmReturn(string loanCode, LoanReturnRequest request, CancellationToken ct)
+    { await loans.ConfirmReturnAsync(loanCode, request, ct); return NoContent(); }
+
+    [HttpPost("{loanCode}/reject-return")]
+    public async Task<IActionResult> RejectReturn(string loanCode, LoanDecisionRequest request, CancellationToken ct)
+    { await loans.RejectReturnAsync(loanCode, request, ct); return NoContent(); }
+
+    [HttpPost("{loanCode}/adopt-legacy")]
+    public async Task<IActionResult> AdoptLegacy(string loanCode, AdoptLegacyLoanRequest request, CancellationToken ct)
+    { await loans.AdoptLegacyAsync(loanCode, request, ct); return NoContent(); }
+
     [HttpGet("{loanCode}")]
     [ProducesResponseType<DeviceLoanDto>(StatusCodes.Status200OK)]
     public async Task<ActionResult<DeviceLoanDto>> Get(string loanCode, CancellationToken cancellationToken)
@@ -69,9 +85,9 @@ public sealed class DeviceLoansController(IDeviceLoanService loans) : Authentica
 
     [HttpPost("{loanCode}/cancel")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Cancel(string loanCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> Cancel(string loanCode, LoanDecisionRequest request, CancellationToken cancellationToken)
     {
-        await loans.CancelAsync(loanCode, cancellationToken);
+        await loans.CancelAsync(loanCode, request, cancellationToken);
         return NoContent();
     }
 

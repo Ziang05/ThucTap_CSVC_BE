@@ -160,7 +160,8 @@ public sealed class ServiceOrderApiTests
             var error = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE export_slips SET facility_id={Guid.NewGuid()} WHERE display_code={export.DisplayCode}"));
             Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
             var deleteError = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM suppliers WHERE id={supplier.Id}"));
-            Assert.Equal(PostgresErrorCodes.RestrictViolation, deleteError.SqlState);
+            Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, deleteError.SqlState);
+            Assert.Equal("FK_export_slips_suppliers_facility_id", deleteError.ConstraintName);
         });
         var detail = await f.GetExport(export.DisplayCode);
         Assert.Equal("Workshop", detail.FacilityName); Assert.Equal("Address A", detail.FacilityAddress);

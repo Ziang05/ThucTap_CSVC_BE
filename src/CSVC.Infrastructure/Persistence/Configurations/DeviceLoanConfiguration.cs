@@ -13,6 +13,14 @@ public sealed class DeviceLoanConfiguration : IEntityTypeConfiguration<DeviceLoa
     public void Configure(EntityTypeBuilder<DeviceLoan> builder)
     {
         builder.ToTable("device_loans", table => table.HasCheckConstraint("ck_device_loans_due_at", "due_at > created_at"));
+        builder.ToTable(t => t.HasCheckConstraint("ck_device_loans_two_parties", "workflow_version IN (1,2) AND (workflow_version = 1 OR (lender_department_id IS NOT NULL AND lender_department_id <> borrower_department_id))"));
+        builder.Property(x => x.LenderDepartmentId).HasColumnName("lender_department_id");
+        builder.Property(x => x.WorkflowVersion).HasColumnName("workflow_version").HasDefaultValue(2);
+        builder.Property(x => x.ReturnRequestedAt).HasColumnName("return_requested_at");
+        builder.Property(x => x.ReturnRequestedByAccountId).HasColumnName("return_requested_by_account_id");
+        builder.HasOne<Department>().WithMany().HasForeignKey(x => x.LenderDepartmentId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Account>().WithMany().HasForeignKey(x => x.ReturnRequestedByAccountId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => new { x.LenderDepartmentId, x.Status });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).HasColumnName("id").HasColumnType("uuid").ValueGeneratedNever();
         builder.Property(x => x.LoanCode).HasColumnName("loan_code").HasColumnType("varchar(32)").HasMaxLength(32).IsRequired();
@@ -57,6 +65,8 @@ public sealed class DeviceLoanItemConfiguration : IEntityTypeConfiguration<Devic
         builder.Property(x => x.HandoverNote).HasColumnName("handover_note").HasColumnType("varchar(1000)").HasMaxLength(1000);
         builder.Property(x => x.ConditionAtReturn).HasColumnName("condition_at_return").HasColumnType("device_condition");
         builder.Property(x => x.ReturnNote).HasColumnName("return_note").HasColumnType("varchar(1000)").HasMaxLength(1000);
+        builder.Property(x => x.DeclaredReturnCondition).HasColumnName("declared_return_condition").HasColumnType("device_condition");
+        builder.Property(x => x.DeclaredReturnNote).HasColumnName("declared_return_note").HasMaxLength(1000);
         builder.HasIndex(x => new { x.LoanId, x.DeviceId }).IsUnique().HasDatabaseName("uq_device_loan_items_loan_device");
         builder.HasIndex(x => x.DeviceId).HasDatabaseName("ix_device_loan_items_device");
         builder.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
