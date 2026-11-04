@@ -152,7 +152,8 @@ public sealed class RepositoryTests
             new DeviceLoanHistoryRepository(context),
             new DeviceTransferRepository(context),
             new DeviceTransferItemRepository(context),
-            new DeviceTransferHistoryRepository(context));
+            new DeviceTransferHistoryRepository(context),
+            new DamageReportRepository(context));
 
 
     private static AutoMapper.IMapper ManufacturerMapper()

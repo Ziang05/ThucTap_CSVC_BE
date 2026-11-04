@@ -1,3 +1,6 @@
+using CSVC.Core.DamageReports;
+using CSVC.UseCases.DamageReports;
+using CSVC.Infrastructure.Storage;
 using CSVC.Core.Common;
 using CSVC.Infrastructure.Email;
 using CSVC.Infrastructure.Security;
@@ -44,6 +47,7 @@ public static class DependencyInjection
         services.AddDbContext<CsvcDbContext>(options => options.UseNpgsql(
             connectionString,
             postgres => postgres.CommandTimeout(30)
+                .MapEnum<DamageReportIncidentType>("damage_report_incident_type", nameTranslator: EnumNames)
                 .MapEnum<EntityStatus>("entity_status", nameTranslator: EnumNames)
                 .MapEnum<AuditOutcome>("audit_outcome", nameTranslator: EnumNames)
                 .MapEnum<DeviceCondition>("device_condition", nameTranslator: EnumNames)
@@ -59,6 +63,9 @@ public static class DependencyInjection
         services.AddScoped<ISupplierTransaction, SupplierTransaction>();
         services.AddScoped<IManufacturerTransaction, ManufacturerTransaction>();
         services.AddScoped<IAreaTransaction, AreaTransaction>();
+        services.AddScoped<IDamageReportTransaction, DamageReportTransaction>();
+        services.AddScoped<IDamageReportRepository, DamageReportRepository>();
+        services.AddSingleton<IReportEvidenceStore, LocalReportEvidenceStore>();
         services.AddScoped<IInventoryTransaction, InventoryTransaction>();
         services.AddScoped<IBusinessCodeGenerator, BusinessCodeGenerator>();
         services.AddScoped<IAccountPasswordHasher, AccountPasswordHasher>();

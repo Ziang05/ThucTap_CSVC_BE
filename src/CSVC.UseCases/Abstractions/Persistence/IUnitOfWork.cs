@@ -36,5 +36,7 @@ public interface IUnitOfWork
     IDeviceTransferItemRepository DeviceTransferItems { get; }
     IDeviceTransferHistoryRepository DeviceTransferHistories { get; }
 
+    IDamageReportRepository DamageReports { get; }
+
     Task<int> CommitAsync(CancellationToken cancellationToken = default);
 }

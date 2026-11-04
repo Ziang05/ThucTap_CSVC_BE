@@ -89,6 +89,7 @@ public sealed class RepairItemDetailConfiguration : IEntityTypeConfiguration<Rep
         b.HasKey(x => x.ServiceOrderItemId);
         b.Property(x => x.ServiceOrderItemId).ValueGeneratedNever();
         b.HasIndex(x => x.DamageReportId);
+        b.HasOne<CSVC.Core.DamageReports.DamageReport>().WithMany().HasForeignKey(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
         ServiceMapping.Columns(b);
     }
 }

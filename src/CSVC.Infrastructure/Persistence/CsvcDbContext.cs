@@ -1,3 +1,4 @@
+using CSVC.Core.DamageReports;
 using CSVC.Core.ServiceOrders;
 using CSVC.Core.Accounts;
 using CSVC.Core.Areas;
@@ -18,6 +19,8 @@ namespace CSVC.Infrastructure.Persistence;
 public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
     : DbContext(options)
 {
+    public DbSet<DamageReport> DamageReports => Set<DamageReport>();
+
     public DbSet<Role> Roles => Set<Role>();
 
     public DbSet<CSVC.Core.Settings.EquipmentSettings> EquipmentSettings => Set<CSVC.Core.Settings.EquipmentSettings>();

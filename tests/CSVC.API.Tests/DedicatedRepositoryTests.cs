@@ -132,8 +132,8 @@ public sealed class DedicatedRepositoryTests
         var context = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
         var script = context.Database.GenerateCreateScript();
 
-        Assert.Equal(40, context.Model.GetEntityTypes().Count());
-        foreach (var table in new[] { "equipment_settings", "equipment_settings_history", "service_orders", "service_order_items", "repair_item_details", "export_slips", "export_slip_items", "service_order_history", "export_history" })
+        Assert.Equal(47, context.Model.GetEntityTypes().Count());
+        foreach (var table in new[] { "damage_reports", "damage_report_contexts", "damage_report_pending_devices", "damage_report_receptions", "damage_report_evidence", "damage_report_history", "damage_report_requests", "equipment_settings", "equipment_settings_history", "service_orders", "service_order_items", "repair_item_details", "export_slips", "export_slip_items", "service_order_history", "export_history" })
             Assert.Contains($"CREATE TABLE {table}", script);
         Assert.Contains("CREATE TYPE entity_status AS ENUM ('ACTIVE', 'LOCKED')", script);
         Assert.Contains("'NO_CHANGE'", script);
