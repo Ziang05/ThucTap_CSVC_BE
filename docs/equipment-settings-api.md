@@ -38,6 +38,8 @@ Các thao tác ghi của luồng mượn/trả và điều chuyển kiểm tra c
 
 ## Lỗi nghiệp vụ
 
+Từ 05/11/2026, quy tắc không đổi QTTB khi còn transfer mở cũng áp dụng cho phiếu Recovery do QTTB khởi tạo ở cả ba giai đoạn: chờ nguồn đồng ý, chờ nguồn bàn giao và chờ QTTB thực nhận. Các phiếu này dùng cùng `device_transfers` nên tiếp tục được chặn bởi kiểm tra hiện hữu. QTTB manager/staff được lập phiếu mới khi thuộc đúng phòng cấu hình; chỉ QTTB staff xác nhận thực nhận.
+
 | Code | Ý nghĩa |
 | --- | --- |
 | `EQUIPMENT_DEPARTMENT_NOT_CONFIGURED` | Chưa chọn phòng QTTB; thao tác nghiệp vụ trả 409 |

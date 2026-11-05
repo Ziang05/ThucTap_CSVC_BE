@@ -90,6 +90,8 @@ Không có QTTB duyệt độc lập. Tất cả mutation có version; không đ
 
 ### 3.4. Transfer
 
+**Cập nhật 05/11/2026:** bảng dưới mô tả nhánh `initiationType=SourceDepartment`. Nhánh mới `EquipmentDepartment` do QTTB manager/staff lập một phiếu Recovery thực sự: nguồn đồng ý/từ chối → nguồn xác nhận đã bàn giao → QTTB staff xác nhận thực nhận. Manager không nhận vật lý. Trách nhiệm thiết bị chỉ đổi ở bước thực nhận; giữ Transfer hold từ khi nguồn đồng ý đến hoàn tất, cho phép service hold và giữ nguyên hồ sơ BTSC. Mọi mutation nhánh mới có version; create có requestId chống trùng. Chi tiết route, metadata và điều kiện: [equipment-initiated recovery](device-transfers-api.md#equipment-initiated-recovery). Phiếu hiện hữu giữ SourceDepartment, không chuyển luồng hoặc đánh dấu legacy.
+
 | Hiện tại | Lệnh | Vai trò | Tiếp theo | Ghi chú |
 |---|---|---|---|---|
 | `PendingConfirmation` | Edit/Cancel | Creator thuộc source department | PendingConfirmation/`Cancelled` | Chỉ bên giao lập phiếu, không lập hộ. |

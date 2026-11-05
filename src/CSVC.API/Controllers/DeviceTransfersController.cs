@@ -9,6 +9,29 @@ namespace CSVC.API.Controllers;
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
 public sealed class DeviceTransfersController(IDeviceTransferService transfers) : AuthenticatedApiControllerBase
 {
+    [HttpPost("recovery-orders")]
+    public async Task<ActionResult<DeviceTransferDto>> CreateRecoveryOrder(CreateRecoveryOrderRequest request, CancellationToken ct)
+    {
+        var transfer = await transfers.CreateRecoveryOrderAsync(request, ct);
+        return CreatedAtAction(nameof(Get), new { transferCode = transfer.TransferCode }, transfer);
+    }
+
+    [HttpPut("recovery-orders/{code}")]
+    public async Task<IActionResult> UpdateRecoveryOrder(string code, UpdateRecoveryOrderRequest request, CancellationToken ct)
+    { await transfers.UpdateRecoveryOrderAsync(code, request, ct); return NoContent(); }
+
+    [HttpPost("{code}/confirm-recovery-intent")]
+    public async Task<IActionResult> ConfirmRecovery(string code, TransferDecisionRequest request, CancellationToken ct)
+    { await transfers.DecideRecoveryOrderAsync(code, true, request, ct); return NoContent(); }
+
+    [HttpPost("{code}/reject-recovery-intent")]
+    public async Task<IActionResult> RejectRecovery(string code, TransferDecisionRequest request, CancellationToken ct)
+    { await transfers.DecideRecoveryOrderAsync(code, false, request, ct); return NoContent(); }
+
+    [HttpPost("{code}/confirm-source-handover")]
+    public async Task<IActionResult> SourceHandover(string code, TransferHandoverRequest request, CancellationToken ct)
+    { await transfers.ConfirmSourceHandoverAsync(code, request, ct); return NoContent(); }
+
     [HttpGet]
     [ProducesResponseType<PagedResult<DeviceTransferDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<DeviceTransferDto>>> List([FromQuery] DeviceTransferListQuery query, CancellationToken cancellationToken)
@@ -75,9 +98,9 @@ public sealed class DeviceTransfersController(IDeviceTransferService transfers) 
 
     [HttpPost("{transferCode}/cancel")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Cancel(string transferCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> Cancel(string transferCode, CancellationToken cancellationToken, [FromBody] TransferDecisionRequest? request = null)
     {
-        await transfers.CancelAsync(transferCode, cancellationToken);
+        await transfers.CancelAsync(transferCode, cancellationToken, request);
         return NoContent();
     }
 

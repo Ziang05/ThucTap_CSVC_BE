@@ -556,6 +556,12 @@ public sealed class DeviceTransferRepository(CsvcDbContext context) : GenericRep
            select new DeviceTransferReadModel
            {
                Id = transfer.Id, TransferCode = transfer.TransferCode,
+               InitiationType = transfer.InitiationType, SourceAcceptedAt = transfer.SourceAcceptedAt,
+               SourceAcceptedByAccountCode = _context.Accounts.Where(a => a.Id == transfer.SourceAcceptedByAccountId).Select(a => a.AccountCode).FirstOrDefault(),
+               SourceRejectedAt = transfer.SourceRejectedAt, SourceRejectionReason = transfer.SourceRejectionReason,
+               SourceRejectedByAccountCode = _context.Accounts.Where(a => a.Id == transfer.SourceRejectedByAccountId).Select(a => a.AccountCode).FirstOrDefault(),
+               SourceHandoverConfirmedAt = transfer.SourceHandoverConfirmedAt,
+               SourceHandoverConfirmedByAccountCode = _context.Accounts.Where(a => a.Id == transfer.SourceHandoverConfirmedByAccountId).Select(a => a.AccountCode).FirstOrDefault(),
                TransferType = transfer.TransferType,
                ReceiverConfirmedAccountCode = _context.Accounts.Where(a => a.Id == transfer.ReceiverConfirmedAccountId).Select(a => a.AccountCode).FirstOrDefault(),
                ReceiverConfirmedAt = transfer.ReceiverConfirmedAt,
@@ -630,7 +636,8 @@ public sealed class DeviceTransferItemRepository(CsvcDbContext context) : Generi
                   select new DeviceTransferItemReadModel
                   {
                       DeviceCode = device.DeviceCode, Name = device.Name, CategoryCode = category.DisplayCode, CategoryName = category.Name,
-                      ConditionAtHandover = item.ConditionAtHandover, HandoverNote = item.HandoverNote, CurrentCondition = device.Condition
+                      ConditionAtHandover = item.ConditionAtHandover, HandoverNote = item.HandoverNote, CurrentCondition = device.Condition,
+                      ConditionAtSourceHandover = item.ConditionAtSourceHandover, SourceHandoverNote = item.SourceHandoverNote
                   }).ToListAsync(ct);
 }
 public sealed class DeviceTransferHistoryRepository(CsvcDbContext context) : GenericRepository<DeviceTransferHistory>(context), IDeviceTransferHistoryRepository

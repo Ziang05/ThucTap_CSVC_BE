@@ -12,6 +12,10 @@ public interface IDeviceTransferService
     Task DecideAsync(string transferCode, bool approve, TransferDecisionRequest request, CancellationToken cancellationToken);
     Task ConfirmReceiptIntentAsync(string transferCode, bool accept, TransferDecisionRequest request, CancellationToken cancellationToken);
     Task HandoverCompleteAsync(string transferCode, TransferHandoverRequest request, CancellationToken cancellationToken);
-    Task CancelAsync(string transferCode, CancellationToken cancellationToken);
+    Task CancelAsync(string transferCode, CancellationToken cancellationToken, TransferDecisionRequest? request = null);
+    Task<DeviceTransferDto> CreateRecoveryOrderAsync(CreateRecoveryOrderRequest request, CancellationToken ct);
+    Task UpdateRecoveryOrderAsync(string code, UpdateRecoveryOrderRequest request, CancellationToken ct);
+    Task DecideRecoveryOrderAsync(string code, bool accept, TransferDecisionRequest request, CancellationToken ct);
+    Task ConfirmSourceHandoverAsync(string code, TransferHandoverRequest request, CancellationToken ct);
     Task<PagedResult<DeviceTransferHistoryDto>> HistoryAsync(string transferCode, DeviceTransferHistoryQuery query, CancellationToken cancellationToken);
 }

@@ -14,6 +14,8 @@ public enum DeviceTransferStatus
 
 public enum DeviceTransferType { Allocation, InterDepartment, Recovery }
 
+public enum TransferInitiationType { SourceDepartment, EquipmentDepartment }
+
 public sealed class DeviceTransfer
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -26,6 +28,16 @@ public sealed class DeviceTransfer
     public DateTimeOffset CreatedAt { get; set; }
     public DeviceTransferStatus Status { get; set; } = DeviceTransferStatus.PendingConfirmation;
     public DeviceTransferType TransferType { get; set; }
+    public TransferInitiationType InitiationType { get; set; } = TransferInitiationType.SourceDepartment;
+    public Guid? CreateRequestId { get; set; }
+    public string? CreateRequestHash { get; set; }
+    public Guid? SourceAcceptedByAccountId { get; set; }
+    public DateTimeOffset? SourceAcceptedAt { get; set; }
+    public Guid? SourceRejectedByAccountId { get; set; }
+    public DateTimeOffset? SourceRejectedAt { get; set; }
+    public string? SourceRejectionReason { get; set; }
+    public Guid? SourceHandoverConfirmedByAccountId { get; set; }
+    public DateTimeOffset? SourceHandoverConfirmedAt { get; set; }
     public Guid? ReceiverConfirmedAccountId { get; set; }
     public DateTimeOffset? ReceiverConfirmedAt { get; set; }
     public Guid? ReceiverRejectedAccountId { get; set; }
@@ -49,4 +61,6 @@ public sealed class DeviceTransferItem
     public Guid DeviceId { get; set; }
     public DeviceCondition? ConditionAtHandover { get; set; }
     public string? HandoverNote { get; set; }
+    public DeviceCondition? ConditionAtSourceHandover { get; set; }
+    public string? SourceHandoverNote { get; set; }
 }

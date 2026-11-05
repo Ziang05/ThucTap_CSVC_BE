@@ -4,6 +4,8 @@ This guide covers the schema and API changes for devices, receipts, loans, trans
 
 ## Before release
 
+Equipment-initiated recovery (2026-11-05): `20261105032457_EquipmentInitiatedRecovery` adds initiation, source decision/dispatch, item source conditions and idempotency metadata, constraints and indexes. Existing transfers default to `SourceDepartment`; no devices/accounts/holds are rewritten. Release BE and FE together. New orders use the same transfer aggregate. Down is blocked if any `EquipmentDepartment` order exists because dropping signed metadata would lose workflow history; restore a reviewed backup for schema rollback. See [API contract](device-transfers-api.md#equipment-initiated-recovery).
+
 Quantity update (2026-11-02): `20261102105247_DeviceReceiptQuantity` adds `devices.quantity` (0/1), backfills 1 only for devices linked to completed receipts, and replaces global receipt-item code/barcode uniqueness with uniqueness within each receipt. Review legacy devices without a completed receipt before release: they remain 0 and cannot enter loans, transfers or service orders until received. Down migration cannot recreate the previous global unique indexes if the same existing device has since appeared on multiple receipts; restore the backup for rollback in that case.
 
 1. Review the migration diff and confirm the target environment is backed up. The current development migration is `20261029120000_InventoryFoundation`; preserve migrations already applied in shared or production databases.

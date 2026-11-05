@@ -413,7 +413,7 @@ public sealed class EquipmentStaffWorkflowTests
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
 
-    private sealed class Fixture(AccountTestDatabase database, AccountApiTestHost host, HttpClient manager, HttpClient staff,
+    internal sealed class Fixture(AccountTestDatabase database, AccountApiTestHost host, HttpClient manager, HttpClient staff,
         HttpClient department, HttpClient foreignStaff, HttpClient receiver) : IAsyncDisposable
     {
         public HttpClient Receiver { get; } = receiver;

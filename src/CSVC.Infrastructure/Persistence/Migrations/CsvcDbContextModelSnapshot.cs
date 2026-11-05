@@ -1765,6 +1765,15 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("completed_at");
 
+                    b.Property<string>("CreateRequestHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("create_request_hash");
+
+                    b.Property<Guid?>("CreateRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("create_request_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at");
@@ -1785,6 +1794,14 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("varchar(1000)")
                         .HasColumnName("decision_reason");
+
+                    b.Property<string>("InitiationType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("SourceDepartment")
+                        .HasColumnName("initiation_type");
 
                     b.Property<string>("Notes")
                         .HasColumnType("text")
@@ -1817,6 +1834,14 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("receiver_rejection_reason");
 
+                    b.Property<DateTimeOffset?>("SourceAcceptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("source_accepted_at");
+
+                    b.Property<Guid?>("SourceAcceptedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_accepted_by_account_id");
+
                     b.Property<Guid>("SourceDepartmentId")
                         .HasColumnType("uuid")
                         .HasColumnName("source_department_id");
@@ -1824,6 +1849,27 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("SourceHandoverAccountId")
                         .HasColumnType("uuid")
                         .HasColumnName("source_handover_account_id");
+
+                    b.Property<DateTimeOffset?>("SourceHandoverConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("source_handover_confirmed_at");
+
+                    b.Property<Guid?>("SourceHandoverConfirmedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_handover_confirmed_by_account_id");
+
+                    b.Property<DateTimeOffset?>("SourceRejectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("source_rejected_at");
+
+                    b.Property<Guid?>("SourceRejectedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_rejected_by_account_id");
+
+                    b.Property<string>("SourceRejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("source_rejection_reason");
 
                     b.Property<DeviceTransferStatus>("Status")
                         .HasColumnType("device_transfer_status")
@@ -1862,17 +1908,21 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CreatorAccountId");
-
                     b.HasIndex("DecisionAccountId");
 
                     b.HasIndex("ReceiverConfirmedAccountId");
 
                     b.HasIndex("ReceiverRejectedAccountId");
 
+                    b.HasIndex("SourceAcceptedByAccountId");
+
                     b.HasIndex("SourceDepartmentId");
 
                     b.HasIndex("SourceHandoverAccountId");
+
+                    b.HasIndex("SourceHandoverConfirmedByAccountId");
+
+                    b.HasIndex("SourceRejectedByAccountId");
 
                     b.HasIndex("TargetDepartmentId");
 
@@ -1884,6 +1934,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("uq_device_transfers_code");
 
+                    b.HasIndex("CreatorAccountId", "CreateRequestId")
+                        .IsUnique()
+                        .HasFilter("create_request_id IS NOT NULL");
+
                     b.HasIndex("Status", "CreatedAt")
                         .HasDatabaseName("ix_device_transfers_status_created");
 
@@ -1892,6 +1946,8 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_device_transfers_distinct_departments", "source_department_id <> target_department_id");
 
                             t.HasCheckConstraint("ck_device_transfers_reason", "btrim(reason) <> ''");
+
+                            t.HasCheckConstraint("ck_equipment_recovery_workflow", "initiation_type IN ('SourceDepartment','EquipmentDepartment') AND\r\n(initiation_type = 'SourceDepartment' OR (\r\n    transfer_type = 'Recovery' AND create_request_id IS NOT NULL AND create_request_id <> '00000000-0000-0000-0000-000000000000'::uuid\r\n    AND create_request_hash IS NOT NULL AND create_request_hash ~ '^[0-9A-F]{64}$'\r\n    AND receiver_confirmed_account_id IS NULL AND receiver_confirmed_at IS NULL\r\n    AND receiver_rejected_account_id IS NULL AND receiver_rejected_at IS NULL\r\n    AND decision_account_id IS NULL AND decided_at IS NULL\r\n    AND (source_accepted_by_account_id IS NULL) = (source_accepted_at IS NULL)\r\n    AND (source_rejected_by_account_id IS NULL) = (source_rejected_at IS NULL)\r\n    AND (source_handover_confirmed_by_account_id IS NULL) = (source_handover_confirmed_at IS NULL)\r\n    AND (source_accepted_at IS NULL OR source_accepted_at >= created_at)\r\n    AND (source_rejected_at IS NULL OR source_rejected_at >= created_at)\r\n    AND (source_handover_confirmed_at IS NULL OR (source_accepted_at IS NOT NULL AND source_handover_confirmed_at >= source_accepted_at))\r\n    AND (status::text NOT IN ('APPROVED','COMPLETED') OR source_accepted_at IS NOT NULL)\r\n    AND (status::text NOT IN ('PENDING_CONFIRMATION','CANCELLED','REJECTED') OR source_accepted_at IS NULL)\r\n    AND (status::text <> 'REJECTED' OR (source_rejected_at IS NOT NULL AND source_rejection_reason IS NOT NULL AND btrim(source_rejection_reason) <> ''))\r\n    AND (status::text = 'REJECTED' OR source_rejected_at IS NULL)\r\n    AND (status::text <> 'COMPLETED' OR (source_handover_confirmed_at IS NOT NULL AND completed_at IS NOT NULL\r\n        AND target_handover_account_id IS NOT NULL AND completed_at >= source_handover_confirmed_at))\r\n    AND status::text IN ('PENDING_CONFIRMATION','APPROVED','COMPLETED','REJECTED','CANCELLED')\r\n))");
                         });
                 });
 
@@ -1971,6 +2027,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("device_condition")
                         .HasColumnName("condition_at_handover");
 
+                    b.Property<DeviceCondition?>("ConditionAtSourceHandover")
+                        .HasColumnType("device_condition")
+                        .HasColumnName("condition_at_source_handover");
+
                     b.Property<Guid>("DeviceId")
                         .HasColumnType("uuid")
                         .HasColumnName("device_id");
@@ -1979,6 +2039,11 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("varchar(1000)")
                         .HasColumnName("handover_note");
+
+                    b.Property<string>("SourceHandoverNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("source_handover_note");
 
                     b.Property<Guid>("TransferId")
                         .HasColumnType("uuid")
@@ -1993,7 +2058,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("uq_device_transfer_items_transfer_device");
 
-                    b.ToTable("device_transfer_items", (string)null);
+                    b.ToTable("device_transfer_items", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_transfer_source_condition", "condition_at_source_handover IS NULL OR condition_at_source_handover IN ('GOOD','DAMAGED')");
+                        });
                 });
 
             modelBuilder.Entity("CSVC.Core.Devices.Device", b =>
@@ -4071,6 +4139,11 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ReceiverRejectedAccountId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SourceAcceptedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CSVC.Core.Departments.Department", null)
                         .WithMany()
                         .HasForeignKey("SourceDepartmentId")
@@ -4080,6 +4153,16 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasOne("CSVC.Core.Accounts.Account", null)
                         .WithMany()
                         .HasForeignKey("SourceHandoverAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SourceHandoverConfirmedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SourceRejectedByAccountId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("CSVC.Core.Departments.Department", null)
