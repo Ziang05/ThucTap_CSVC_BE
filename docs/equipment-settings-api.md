@@ -26,6 +26,14 @@ Quy tắc chặn đổi cấu hình áp dụng cho cả `Allocation`, `InterDepa
 
 GET workflow context trả `isConfigured`, `equipmentDepartmentCode`, `equipmentAccountMatchesDepartment`, `actorDepartmentId`, `actorDepartmentCode`, đủ cho UI nghiệp vụ kiểm tra cấu hình, lọc phòng nhận và dùng phòng hiện tại từ backend ngay sau khi sửa hồ sơ. Không trả danh sách tài khoản hoặc quyền ghi cấu hình.
 
+### Tích hợp frontend nghiệp vụ
+
+Trang thu hồi, điều chuyển và mượn/trả dùng `GET /api/v1/settings/workflow-context` để kiểm tra cấu hình cho tài khoản đang đăng nhập. Chỉ trang quản lý cấu hình của manager dùng `GET /api/v1/settings/equipment-department`; staff gọi endpoint này sẽ nhận `403 SETTINGS_ACTION_FORBIDDEN` dù phòng QTTB đã được lưu.
+
+Với trang thu hồi, dùng `equipmentDepartmentCode` từ workflow context để tìm phòng QTTB và danh sách người phụ trách, đồng thời loại phòng này khỏi lựa chọn phòng nguồn. Chỉ bật lập phiếu cho role QTTB khi đọc context thành công, `isConfigured=true` và `equipmentAccountMatchesDepartment=true`. Hiển thị riêng trạng thái đang tải, lỗi đọc API, chưa cấu hình và tài khoản lệch phòng; lỗi `403` hoặc lỗi mạng không đồng nghĩa với chưa cấu hình.
+
+Cache workflow context cần gắn với tài khoản hiện tại và được làm mới sau khi lưu cấu hình. Trang nghiệp vụ phải hoạt động cả khi staff tải lại trang trực tiếp, không phụ thuộc cache cấu hình còn lại từ phiên manager.
+
 ## Quyền tài khoản và thiết lập lần đầu
 
 1. Đăng nhập bằng manager, tạo/chọn phòng ban tại trang **Cấu hình** (`/settings`).
