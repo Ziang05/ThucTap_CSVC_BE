@@ -53,8 +53,7 @@ public sealed class AreaApiTests
         var a = await env.CreateAreaAsync("  Tòa\t Một ".Normalize(NormalizationForm.FormD));
         Assert.Equal("Tòa Một", a.Name);
         Assert.Null(a.ParentId);
-        Assert.Equal(32, a.Code.Length);
-        Assert.StartsWith("KV", a.Code);
+        Assert.Matches(@"^KV-20261021-\d{4,}$", a.Code);
         Assert.Equal(new[] { a.Id }, a.PathIds);
         Assert.Equal(EntityStatus.Active, a.Status);
         Assert.Equal(EntityStatus.Active, a.EffectiveStatus);

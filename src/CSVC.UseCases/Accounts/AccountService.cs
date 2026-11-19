@@ -61,7 +61,7 @@ public sealed class AccountService(
                 throw Error(FailureKind.Conflict, "EMAIL_ALREADY_EXISTS", "Email is already in use.");
             var profile = mapper.Map<UserProfile>(request);
             var account = mapper.Map<Account>(request);
-            account.AccountCode = request.AccountCode ?? await codes.NextAccountCodeAsync(ct);
+            account.AccountCode = request.AccountCode ?? await codes.NextAsync(BusinessCodeKind.Account, ct);
             await RequireUniqueCodeAsync(account.AccountCode, null, ct);
             account.UserProfileId = profile.Id;
             account.PasswordHash = passwords.Hash(account.Email);

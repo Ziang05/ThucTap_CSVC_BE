@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSVC.Core.Accounts;
-using CSVC.Core.Common;
 using CSVC.Core.DamageReports;
 using CSVC.Core.Devices;
 using CSVC.UseCases.Abstractions.Persistence;
@@ -16,7 +15,7 @@ namespace CSVC.UseCases.DamageReports;
 
 public sealed class DamageReportService(IUnitOfWork uow, IDamageReportTransaction transaction,
     ICurrentAccount current, TimeProvider clock, IEquipmentDepartmentPolicy equipmentPolicy,
-    IReportEvidenceStore files) : IDamageReportService
+    IReportEvidenceStore files, IBusinessCodeGenerator codeGenerator) : IDamageReportService
 {
     private IDamageReportRepository Reports => uow.DamageReports;
 
@@ -66,7 +65,7 @@ public sealed class DamageReportService(IUnitOfWork uow, IDamageReportTransactio
             if (await Reports.HasPendingAsync(device.Id, token)) throw Conflict("DEVICE_REPORT_PENDING", "This device already has a report awaiting reception.");
             var report = new DamageReport
             {
-                ReportCode = BusinessCode.NewRandom("SC"), DeviceId = device.Id,
+                ReportCode = await codeGenerator.NextAsync(BusinessCodeKind.DamageReport, token), DeviceId = device.Id,
                 ReportingDepartmentId = actor.DepartmentId, ReporterAccountId = actor.Id,
                 IncidentType = type, IncidentDescription = description, Notes = Clean(request.Notes),
                 DetectedAt = detected, ReportedAt = now, CreateRequestId = request.RequestId, CreateRequestHash = hash,

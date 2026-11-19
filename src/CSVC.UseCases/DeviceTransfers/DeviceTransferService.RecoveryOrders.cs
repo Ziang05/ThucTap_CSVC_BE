@@ -5,6 +5,7 @@ using CSVC.Core.Accounts;
 using CSVC.Core.Common;
 using CSVC.Core.DeviceTransfers;
 using CSVC.Core.Devices;
+using CSVC.UseCases.Abstractions.Persistence;
 using CSVC.UseCases.DeviceTransfers.DTOs;
 
 namespace CSVC.UseCases.DeviceTransfers;
@@ -35,7 +36,7 @@ public sealed partial class DeviceTransferService
             await transaction.LockDevicesAsync(devices.Select(d => d.Id), token);
             var transfer = new DeviceTransfer
             {
-                TransferCode = BusinessCode.NewRandom("DC"), SourceDepartmentId = source.Id, TargetDepartmentId = target.Id,
+                TransferCode = await codeGenerator.NextAsync(BusinessCodeKind.DeviceRecovery, token), SourceDepartmentId = source.Id, TargetDepartmentId = target.Id,
                 TargetResponsibleAccountId = responsible.Id, Reason = reason, Notes = Clean(request.Notes),
                 CreatorAccountId = actor.AccountId, CreatedAt = clock.GetUtcNow(), TransferType = DeviceTransferType.Recovery,
                 InitiationType = TransferInitiationType.EquipmentDepartment, Status = DeviceTransferStatus.PendingConfirmation,

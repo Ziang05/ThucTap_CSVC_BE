@@ -3,6 +3,7 @@ using CSVC.Core.Accounts;
 using CSVC.Core.Common;
 using CSVC.Core.Devices;
 using CSVC.Core.ServiceOrders;
+using CSVC.UseCases.Abstractions.Persistence;
 using CSVC.UseCases.Common;
 using CSVC.UseCases.ServiceOrders.DTOs;
 
@@ -44,7 +45,7 @@ public sealed partial class ServiceOrderService
             if (selected.Any(i => !export.Items.Any(l => l.ServiceOrderItemId == i.Id))) throw Validation("Return items must belong to the selected export.");
             await transaction.LockDevicesAsync(selected.Select(i => i.DeviceId), token);
             var slip = new ExportReturnSlip { ExportSlipId = export.Id, SequenceNo = await orders.NextReturnSequenceAsync(export.Id, token),
-                DisplayCode = BusinessCode.NewRandom("NL"), FacilityNameSnapshot = export.FacilityNameSnapshot,
+                DisplayCode = await codeGenerator.NextAsync(BusinessCodeKind.ExportReturnSlip, token), FacilityNameSnapshot = export.FacilityNameSnapshot,
                 HandoverPersonName = Clean(request.HandoverPersonName)!, HandoverPersonContact = Clean(request.HandoverPersonContact),
                 ReceivedByAccountId = receiver.Id, ReceivedAt = request.ReceivedAt.ToUniversalTime(), CreatedByAccountId = actor, CreatedAt = now,
                 CreateRequestId = request.RequestId, CreateRequestHash = hash, Notes = Clean(request.Notes) };

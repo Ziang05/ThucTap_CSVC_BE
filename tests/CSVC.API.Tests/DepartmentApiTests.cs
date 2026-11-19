@@ -51,8 +51,7 @@ public sealed class DepartmentApiTests
         Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
         var created = await ReadAsync<DepartmentDetailDto>(createdResponse);
         Assert.EndsWith(created.Id.ToString(), createdResponse.Headers.Location!.ToString());
-        Assert.Equal("PB000001", created.Code);
-        Assert.StartsWith("PB", created.Code);
+        Assert.Equal("PB-20261021-0001", created.Code);
         Assert.Equal("Phòng Nhân sự", created.Name);
         Assert.Equal("NS", created.ShortName);
         Assert.Equal("Nhân viên", created.Description);

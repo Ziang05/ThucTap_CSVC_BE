@@ -60,7 +60,7 @@ GET /api/v1/device-categories?search=m%C3%A1y&status=Active&sortBy=DisplayCode&s
 
 | Trường JSON | POST tạo mới | PUT cập nhật | Ý nghĩa / quy tắc |
 | --- | --- | --- | --- |
-| `displayCode` | Tùy chọn | Không được gửi | Mã tối đa 64 ký tự, trim/viết hoa. Bắt đầu bằng chữ A–Z hoặc số; phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Bỏ qua/null/trắng khi tạo thì tự sinh mã `DM` + 32 ký tự hex. Bất biến sau khi tạo. |
+| `displayCode` | Tùy chọn | Không được gửi | Mã tối đa 64 ký tự, trim/viết hoa. Bắt đầu bằng chữ A–Z hoặc số; phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Bỏ qua/null/trắng khi tạo thì tự sinh mã dạng `DM-YYYYMMDD-NNNN`. Bất biến sau khi tạo. |
 | `name` | Bắt buộc | Bắt buộc | Tên tối đa 200 ký tự sau chuẩn hóa NFC, trim và gộp khoảng trắng; không được trùng tên không phân biệt hoa thường, kể cả danh mục khóa. |
 | `description` | Tùy chọn | Tùy chọn | Mô tả, tối đa 4000 ký tự; trim, trắng/null thành null. Bỏ qua trong PUT sẽ xóa mô tả cũ về null. |
 | `notes` | Tùy chọn | Tùy chọn | Ghi chú nội bộ, độc lập với mô tả; tối đa 4000 ký tự; xử lý chuỗi trắng và bỏ qua trong PUT giống `description`. |

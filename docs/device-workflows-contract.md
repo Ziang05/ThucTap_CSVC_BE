@@ -30,9 +30,9 @@ Quy tắc này ưu tiên các mô tả cũ về tạo thiết bị tại các m�
 | Giá trị | Quy tắc |
 |---|---|
 | `deviceCode` nhập tay | Trim, uppercase invariant; tối đa 32 ký tự; regex `^[A-Z0-9][A-Z0-9._/-]*$`; duy nhất toàn hệ thống, kể cả device Locked. Không đổi sau tạo. |
-| `deviceCode` sinh | `TB` + 30 ký tự hex uppercase từ UUID ngẫu nhiên, tổng 32 ký tự. |
+| `deviceCode` sinh | `TB-YYYYMMDD-NNNN`, cấp bởi backend cho cả thiết bị khai báo trực tiếp và thiết bị mới trong phiếu nhập. |
 | `barcode` | Backend sinh sau khi device code được xác định; `BC` + 30 ký tự hex uppercase, tổng 32 ký tự. Duy nhất và bất biến. Chỉ lưu text, không lưu ảnh/file tem. Scan lookup trả về đúng device theo authorization scope. |
-| Mã phiếu | Receipt `PN` + 30 hex; transfer `DC` + 30 hex; loan `MT` + 30 hex. Tổng 32 ký tự, do server sinh, bất biến. |
+| Mã phiếu | `<tiền tố>-YYYYMMDD-NNNN`, ví dụ `KK-20261119-0042`. Mã do backend cấp khi lập phiếu. |
 | `serialNumber` | Trim; tối đa 100 ký tự; tùy chọn; chưa áp unique vì serial có thể thiếu/trùng giữa hãng/model. |
 | `name`, `model` | Unicode NFC, trim, gộp whitespace; name bắt buộc tối đa 200 ký tự; model tối đa 120. |
 | `carrierName` | Text, tùy chọn, tối đa 200 ký tự. |
@@ -42,7 +42,17 @@ Quy tắc này ưu tiên các mô tả cũ về tạo thiết bị tại các m�
 | Giá | Decimal(18,2), không âm, đơn vị duy nhất VND; trường tùy chọn. |
 | Barcode URL | Barcode hiện dùng ký tự URL-safe; vẫn encode path parameter đúng chuẩn. |
 
-Generated-code collision được retry tối đa 3 lần rồi trả 503. Unique constraint ở PostgreSQL là nguồn bảo vệ cuối. Nếu code/barcode được tạo ở phiếu trước khi nhập hoàn tất, giá trị đã cấp được lưu trên item và không sinh lại ở retry.
+Ngày trong mã là ngày tạo theo giờ Việt Nam (UTC+7). Số thứ tự có ít nhất 4 chữ số, lấy từ một sequence PostgreSQL dùng chung và có thể có khoảng trống. Bộ cấp mã bỏ qua mã đã có và mã nhập tay trong cùng phiếu nhập. Ràng buộc duy nhất của PostgreSQL vẫn được áp dụng khi ghi. Mã đã cấp, mã người dùng nhập và barcode tiếp tục dùng theo quy tắc của từng API.
+
+| Đối tượng | Tiền tố |
+|---|---|
+| Tài khoản và phòng ban | `TK` tài khoản, `PB` phòng ban |
+| Danh mục | `KV` khu vực, `DM` loại thiết bị, `HSX` hãng sản xuất, `NCC` nhà cung cấp |
+| Thiết bị và luân chuyển | `TB` thiết bị, `PN` phiếu nhập, `MT` phiếu mượn, `DC` điều chuyển, `TH` thu hồi |
+| Bảo trì và sửa chữa | `BH` báo hỏng, `BT` bảo trì, `SC` sửa chữa, `PX` phiếu xuất, `NL` phiếu nhập lại |
+| Kiểm kê | `KK` phiếu kiểm kê |
+
+Migration `ReadableBusinessCodes` tạo sequence `business_code_seq` để cấp mã mới. Mã từng cấp vẫn tra cứu được theo đường dẫn API cũ.
 
 ## 3. State machines
 

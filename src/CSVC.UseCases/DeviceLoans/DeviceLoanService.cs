@@ -17,7 +17,7 @@ namespace CSVC.UseCases.DeviceLoans;
 
 public sealed partial class DeviceLoanService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IRepository<CSVC.Core.Settings.EquipmentSettings> settings) : IDeviceLoanService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IRepository<CSVC.Core.Settings.EquipmentSettings> settings, IBusinessCodeGenerator codeGenerator) : IDeviceLoanService
 {
     public async Task<PagedResult<DeviceLoanDto>> ListAsync(DeviceLoanListQuery query, CancellationToken ct)
     {
@@ -44,7 +44,7 @@ public sealed partial class DeviceLoanService(
             var (purpose, dueAt, devices, lender) = await ValidateLoanRequestAsync(request, actor, now, [], token);
             var loan = new DeviceLoan
             {
-                LoanCode = BusinessCode.NewRandom("MT"),
+                LoanCode = await codeGenerator.NextAsync(BusinessCodeKind.DeviceLoan, token),
                 BorrowerAccountId = actor.AccountId, BorrowerDepartmentId = actor.DepartmentId, LenderDepartmentId = lender,
                 Purpose = purpose, DueAt = dueAt, CreatorAccountId = actor.AccountId, CreatedAt = now,
                 Status = DeviceLoanStatus.PendingApproval, Notes = Clean(request.Notes),

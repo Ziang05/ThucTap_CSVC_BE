@@ -46,7 +46,7 @@ GET /api/v1/suppliers?search=NCC&status=Active&sortBy=DisplayCode&sortDirection=
 
 | Trường JSON | POST | PUT | Quy tắc |
 | --- | --- | --- | --- |
-| `displayCode` | Tùy chọn | Không gửi | Tối đa 64 ký tự, trim/viết hoa; bắt đầu bằng A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Bỏ qua/null/trắng khi tạo thì sinh `NCC` + 32 ký tự hex. Mã bất biến sau tạo, không trùng kể cả bản ghi khóa. |
+| `displayCode` | Tùy chọn | Không gửi | Tối đa 64 ký tự, trim/viết hoa; bắt đầu bằng A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Bỏ qua/null/trắng khi tạo thì sinh mã dạng `NCC-YYYYMMDD-NNNN`. Mã bất biến sau tạo, không trùng kể cả bản ghi khóa. |
 | `name` | Bắt buộc | Bắt buộc | Tối đa 200 ký tự sau NFC/trim/gộp khoảng trắng, không trùng không phân biệt hoa thường kể cả bản ghi khóa. |
 | `description` | Tùy chọn | Tùy chọn | Mô tả, tối đa 4000 ký tự. |
 | `notes` | Tùy chọn | Tùy chọn | Ghi chú nội bộ, tối đa 4000 ký tự, độc lập với mô tả. |

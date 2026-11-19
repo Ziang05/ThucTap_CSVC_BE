@@ -48,7 +48,7 @@ GET /api/v1/manufacturers?search=HSX&status=Active&sortBy=DisplayCode&sortDirect
 
 | Trường JSON | POST | PUT | Quy tắc |
 | --- | --- | --- | --- |
-| `displayCode` | Tùy chọn | Không gửi | Tối đa 64 ký tự; trim/viết hoa, bắt đầu A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Bỏ qua/null/trắng khi tạo sinh `HSX` + 32 ký tự hex. Mã bất biến sau tạo, không trùng kể cả bản ghi khóa. |
+| `displayCode` | Tùy chọn | Không gửi | Tối đa 64 ký tự; trim/viết hoa, bắt đầu A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Bỏ qua/null/trắng khi tạo sinh mã dạng `HSX-YYYYMMDD-NNNN`. Mã bất biến sau tạo, không trùng kể cả bản ghi khóa. |
 | `name` | Bắt buộc | Bắt buộc | Tối đa 200 ký tự sau NFC/trim/gộp khoảng trắng. Không trùng sau chuẩn hóa/không phân biệt hoa thường kể cả bản ghi khóa. |
 | `description` | Tùy chọn | Tùy chọn | Mô tả tối đa 4000 ký tự, trim. |
 | `country` | Tùy chọn | Tùy chọn | Quốc gia/khu vực, tối đa 120 ký tự sau NFC/trim/gộp khoảng trắng. Là chuỗi tự do, không dùng danh sách mã ISO. |

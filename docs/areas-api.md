@@ -38,7 +38,7 @@ Content-Type: application/json
 }
 ```
 
-ParentId=null hoặc bỏ qua tạo node gốc; gửi UUID tạo con của node đó. Mã tự sinh 32 ký tự, tiền tố KV + 30 ký tự hex ngẫu nhiên, không phụ thuộc đường dẫn. Trạng thái khởi tạo Active.
+ParentId=null hoặc bỏ qua tạo node gốc; gửi UUID tạo con của node đó. Mã tự sinh dạng `KV-YYYYMMDD-NNNN`, ví dụ `KV-20261119-0042`, không phụ thuộc đường dẫn. Trạng thái khởi tạo Active.
 
 Name bắt buộc, tối đa 200 ký tự sau chuẩn hóa NFC/gộp khoảng trắng/trim. Tên không trùng trong cùng parentId, bao gồm các gốc null và node đã khóa; các cha khác nhau được có con cùng tên. TypeLabel tùy chọn tối đa 100 ký tự, không ép cứng cấp Tòa/Tầng/Phòng. Description tùy chọn tối đa 4000 ký tự ở API để giới hạn payload; sheet không quy định độ dài và DB dùng text. Chuỗi tùy chọn trắng được lưu null.
 

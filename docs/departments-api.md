@@ -35,7 +35,7 @@ POST và PUT nhận cùng các trường nội dung:
 
 Tên bắt buộc, tối đa 200 ký tự sau NFC/gộp khoảng trắng/trim; so sánh trùng không phân biệt hoa thường. Tên viết tắt tùy chọn tối đa 50 ký tự. Mô tả tùy chọn có giới hạn API 4000 ký tự để giới hạn payload (sheet không quy định độ dài; DB là text). ShortName/description trống hoặc bỏ qua trong PUT được xóa về null. Riêng code bỏ qua, null hoặc chuỗi trắng trong PUT giữ nguyên mã hiện có.
 
-Code tùy chọn khi tạo: bỏ qua, null hoặc chuỗi trắng thì dùng PostgreSQL sequence cấp `PB000001`, `PB000002`…; tối thiểu 6 chữ số, không reset theo năm. Mã nhập tay được trim/viết hoa, tối đa 32 ký tự, bắt đầu bằng A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Mã không trùng với phòng ban khác dù khác hoa/thường hay khoảng trắng đầu/cuối, kể cả phòng ban khóa. Bộ cấp mã bỏ qua mã đã bị nhập tay chiếm; số có thể có khoảng trống sau rollback.
+Code tùy chọn khi tạo: bỏ qua, null hoặc chuỗi trắng thì backend cấp mã dạng `PB-YYYYMMDD-NNNN`. Ngày tính theo giờ Việt Nam (UTC+7). Phần số có ít nhất 4 chữ số và lấy từ sequence PostgreSQL dùng chung. Mã từng cấp như `PB000001` vẫn dùng được. Mã nhập tay được trim/viết hoa, tối đa 32 ký tự, bắt đầu bằng A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Mã không trùng với phòng ban khác dù khác hoa/thường hay khoảng trắng đầu/cuối, kể cả phòng ban khóa. Bộ cấp mã bỏ qua mã đã bị nhập tay chiếm; số có thể có khoảng trống sau rollback.
 
 PUT cho phép đổi code cùng nội dung phòng ban; ID và các liên kết nhân sự giữ nguyên. Audit `DEPARTMENT_UPDATED` lưu code cũ/mới trong snapshot, người sửa và thời gian; cập nhật không thay đổi dữ liệu không ghi thêm SUCCESS. Mã legacy không bị tự đổi sau migration. Trạng thái tạo mới luôn Active. DTO vẫn từ chối các trường ngoài hợp đồng như id/status/createdBy; AutoMapper chỉ map nội dung, service kiểm tra và gán mã. Không cho sửa phòng ban Locked; cần mở khóa trước. Tên và mã của phòng ban Locked vẫn giữ chỗ.
 
@@ -44,7 +44,7 @@ Tạo trả DTO chi tiết. Danh mục trả id/code/name/shortName/status, khô
 ```json
 {
   "id": "<department-id>",
-  "code": "PB000001",
+  "code": "PB-20261119-0043",
   "name": "Phòng Kế toán",
   "shortName": "KT",
   "description": "Quản lý tài chính",

@@ -18,7 +18,7 @@ namespace CSVC.UseCases.DeviceTransfers;
 
 public sealed partial class DeviceTransferService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations) : IDeviceTransferService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator) : IDeviceTransferService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -45,9 +45,10 @@ public sealed partial class DeviceTransferService(
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
             var (source, target, responsible, reason, devices, transferType) = await ValidateTransferRequestAsync(request, actor, [], token);
+            var codeKind = transferType == DeviceTransferType.Recovery ? BusinessCodeKind.DeviceRecovery : BusinessCodeKind.DeviceTransfer;
             var transfer = new DeviceTransfer
             {
-                TransferCode = BusinessCode.NewRandom("DC"),
+                TransferCode = await codeGenerator.NextAsync(codeKind, token),
                 SourceDepartmentId = source.Id, TargetDepartmentId = target.Id,
                 TargetResponsibleAccountId = responsible.Id, Reason = reason, CreatorAccountId = actor.AccountId,
                 CreatedAt = clock.GetUtcNow(), Status = DeviceTransferStatus.PendingConfirmation, Notes = Clean(request.Notes),

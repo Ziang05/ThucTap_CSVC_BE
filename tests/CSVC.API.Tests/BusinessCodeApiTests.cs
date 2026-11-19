@@ -16,39 +16,65 @@ namespace CSVC.API.Tests;
 public sealed class BusinessCodeApiTests
 {
     [PostgreSqlFact]
+    public async Task Dated_codes_use_Vietnam_date_skip_manual_codes_and_are_unique_across_concurrent_creates()
+    {
+        await using var database = await AccountTestDatabase.CreateAsync();
+        await using var factory = new AccountApiTestHost(database.ConnectionString);
+        var seed = await factory.SeedAsync();
+        using var manager = Client(factory, seed.ManagerToken);
+        const string root = "/api/v1/device-categories";
+
+        async Task<string> Create(string name, string? code = null)
+        {
+            using var response = await manager.PostAsJsonAsync(root, new { name, displayCode = code });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            return body.GetProperty("displayCode").GetString()!;
+        }
+
+        Assert.Equal("DM-20261021-0001", await Create("Manual", " dm-20261021-0001 "));
+        Assert.Equal("DM-20261021-0002", await Create("Automatic"));
+        factory.Clock.Advance(TimeSpan.FromHours(5)); // 17:00 UTC is midnight in Vietnam.
+        var codes = await Task.WhenAll(Enumerable.Range(0, 4).Select(i => Create($"Concurrent {i}")));
+        Assert.Equal(4, codes.Distinct().Count());
+        Assert.All(codes, code => Assert.Matches(@"^DM-20261022-\d{4,}$", code));
+        Assert.Equal(HttpStatusCode.OK, (await manager.GetAsync($"{root}/DM-20261021-0001")).StatusCode);
+    }
+
+    [PostgreSqlFact]
     public async Task Manual_codes_are_normalized_and_automatic_codes_skip_occupied_numbers()
     {
         await using var database = await AccountTestDatabase.CreateAsync();
         await using var factory = new AccountApiTestHost(database.ConnectionString);
         var seed = await factory.SeedAsync();
         using var manager = Client(factory, seed.ManagerToken);
-        var manualDepartment = await CreateDepartmentAsync(manager, "Manual", " pb000001 ");
-        Assert.Equal("PB000001", manualDepartment.GetProperty("code").GetString());
+        var manualDepartment = await CreateDepartmentAsync(manager, "Manual", " pb-20261021-0001 ");
+        Assert.Equal("PB-20261021-0001", manualDepartment.GetProperty("code").GetString());
         var automaticDepartment = await CreateDepartmentAsync(manager, "Automatic", " \t ");
-        Assert.Equal("PB000002", automaticDepartment.GetProperty("code").GetString());
-        Assert.Equal("PB000003", (await CreateDepartmentAsync(manager, "Omitted")).GetProperty("code").GetString());
-        Assert.Equal("PB000004", (await CreateDepartmentAsync(manager, "Empty", "")).GetProperty("code").GetString());
-        var manual = await CreateAccountAsync(manager, seed.Department, "manual@example.com", " tk000001 ");
-        Assert.Equal("TK000001", manual.AccountCode);
-        Assert.Equal("TK000002", (await CreateAccountAsync(manager, seed.Department, "auto@example.com", " ")).AccountCode);
-        Assert.Equal("TK000003", (await CreateAccountAsync(manager, seed.Department, "omitted@example.com")).AccountCode);
-        Assert.Equal("TK000004", (await CreateAccountAsync(manager, seed.Department, "empty@example.com", "")).AccountCode);
+        Assert.Equal("PB-20261021-0002", automaticDepartment.GetProperty("code").GetString());
+        Assert.Equal("PB-20261021-0003", (await CreateDepartmentAsync(manager, "Omitted")).GetProperty("code").GetString());
+        Assert.Equal("PB-20261021-0004", (await CreateDepartmentAsync(manager, "Empty", "")).GetProperty("code").GetString());
+        var manual = await CreateAccountAsync(manager, seed.Department, "manual@example.com", " tk-20261021-0005 ");
+        Assert.Equal("TK-20261021-0005", manual.AccountCode);
+        Assert.Equal("TK-20261021-0006", (await CreateAccountAsync(manager, seed.Department, "auto@example.com", " ")).AccountCode);
+        Assert.Equal("TK-20261021-0007", (await CreateAccountAsync(manager, seed.Department, "omitted@example.com")).AccountCode);
+        Assert.Equal("TK-20261021-0008", (await CreateAccountAsync(manager, seed.Department, "empty@example.com", "")).AccountCode);
         Assert.Equal("NV.QTTB/2026-01", (await CreateAccountAsync(manager, seed.Department, "format@example.com", " nv.qttb/2026-01 ")).AccountCode);
         using var nullDepartment = await manager.PostAsJsonAsync("/api/v1/departments", new { name = "Explicit null", code = (string?)null });
         Assert.Equal(HttpStatusCode.Created, nullDepartment.StatusCode);
-        Assert.Equal("PB000005", (await nullDepartment.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal("PB-20261021-0009", (await nullDepartment.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         using var nullAccount = await manager.PostAsJsonAsync("/api/v1/accounts", new
         { fullName = "Explicit null", email = "null@example.com", roleId = 2, departmentId = seed.Department, accountCode = (string?)null });
         Assert.Equal(HttpStatusCode.Created, nullAccount.StatusCode);
-        Assert.Equal("TK000005", (await nullAccount.Content.ReadFromJsonAsync<CreatedAccountDto>())!.AccountCode);
+        Assert.Equal("TK-20261021-0010", (await nullAccount.Content.ReadFromJsonAsync<CreatedAccountDto>())!.AccountCode);
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
-            await db.Database.ExecuteSqlRawAsync("SELECT setval('account_code_seq', 999999)");
-            await db.Database.ExecuteSqlRawAsync("SELECT setval('department_code_seq', 999999)");
+            await db.Database.ExecuteSqlRawAsync("SELECT setval('business_code_seq', 9999)");
         }
-        Assert.Equal("TK1000000", (await CreateAccountAsync(manager, seed.Department, "million@example.com")).AccountCode);
-        Assert.Equal("PB1000000", (await CreateDepartmentAsync(manager, "Million")).GetProperty("code").GetString());
+        factory.Clock.Advance(TimeSpan.FromHours(5));
+        Assert.Equal("TK-20261022-10000", (await CreateAccountAsync(manager, seed.Department, "overflow@example.com")).AccountCode);
+        Assert.Equal("PB-20261022-10001", (await CreateDepartmentAsync(manager, "Larger suffix")).GetProperty("code").GetString());
     }
 
     [PostgreSqlFact]
@@ -144,10 +170,13 @@ public sealed class BusinessCodeApiTests
         using var manager = Client(factory, seed.ManagerToken);
         var departments = await Task.WhenAll(Enumerable.Range(0, 4).Select(i => CreateDepartmentAsync(manager, $"Concurrent {i}")));
         Assert.Equal(4, departments.Select(d => d.GetProperty("code").GetString()).Distinct().Count());
-        Assert.All(departments, d => Assert.Matches(@"^PB\d{6}$", d.GetProperty("code").GetString()!));
+        Assert.All(departments, d => Assert.Matches(@"^PB-20261021-\d{4}$", d.GetProperty("code").GetString()!));
         var accounts = await Task.WhenAll(Enumerable.Range(0, 4).Select(i => CreateAccountAsync(manager, seed.Department, $"concurrent{i}@example.com")));
         Assert.Equal(4, accounts.Select(a => a.AccountCode).Distinct().Count());
-        Assert.All(accounts, a => Assert.Matches(@"^TK\d{6}$", a.AccountCode));
+        Assert.All(accounts, a => Assert.Matches(@"^TK-20261021-\d{4}$", a.AccountCode));
+        var generatedNumbers = departments.Select(d => d.GetProperty("code").GetString()!)
+            .Concat(accounts.Select(a => a.AccountCode)).Select(code => code.Split('-')[2]);
+        Assert.Equal(8, generatedNumbers.Distinct().Count());
         var accountResponses = await Task.WhenAll(Enumerable.Range(0, 2).Select(i => manager.PostAsJsonAsync("/api/v1/accounts",
             new { fullName = "Duplicate", email = $"race{i}@example.com", roleId = 2, departmentId = seed.Department, accountCode = "RACE" })));
         Assert.Single(accountResponses, r => r.StatusCode == HttpStatusCode.Created);
