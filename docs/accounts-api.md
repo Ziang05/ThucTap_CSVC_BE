@@ -129,7 +129,7 @@ SMTP gửi sau khi DB commit. Nếu gửi lỗi, hệ thống ghi lỗi vận h�
 
 ## AutoMapper
 
-Dùng AutoMapper 16.2.0. Có thể đặt `AUTOMAPPER_LICENSE_KEY` theo [hướng dẫn cấp phép AutoMapper](https://docs.automapper.io/en/stable/License-configuration.html); không hardcode key hoặc tắt log kiểm tra license.
+Dùng AutoMapper 16.3.0. Có thể đặt `AUTOMAPPER_LICENSE_KEY` theo [hướng dẫn cấp phép AutoMapper](https://docs.automapper.io/en/stable/License-configuration.html); không hardcode key hoặc tắt log kiểm tra license.
 
 ## Kiểm thử
 

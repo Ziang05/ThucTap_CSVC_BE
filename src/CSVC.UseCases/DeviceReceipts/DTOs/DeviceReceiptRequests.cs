@@ -7,7 +7,7 @@ namespace CSVC.UseCases.DeviceReceipts.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class CreateDeviceReceiptRequest
 {
-    [Required, StringLength(32)] public string SupplierCode { get; init; } = "";
+    [Required, StringLength(64)] public string SupplierCode { get; init; } = "";
     [StringLength(200)] public string? CarrierName { get; init; }
     [StringLength(64)] public string? RequestCode { get; init; }
     public DateOnly DeliveryDate { get; init; }
@@ -25,7 +25,7 @@ public sealed class UpdateDeviceReceiptRequest : CreateDeviceReceiptRequest { }
 public sealed class DeviceReceiptItemRequest
 {
     [StringLength(32)] public string? ExistingDeviceCode { get; init; }
-    [StringLength(32)] public string? CategoryCode { get; init; }
+    [StringLength(64)] public string? CategoryCode { get; init; }
     [StringLength(200)] public string? Name { get; init; }
     [StringLength(32)] public string? DeviceCode { get; init; }
     [StringLength(100)] public string? SerialNumber { get; init; }
@@ -41,7 +41,7 @@ public sealed class ReceiptDecisionRequest
 public sealed class DeviceReceiptListQuery
 {
     [StringLength(32)] public string? ReceiptCode { get; init; }
-    [StringLength(32)] public string? SupplierCode { get; init; }
+    [StringLength(64)] public string? SupplierCode { get; init; }
     [StringLength(32)] public string? RequestingDepartmentCode { get; init; }
     [StringLength(32)] public string? CreatedByAccountCode { get; init; }
     [EnumDataType(typeof(DeviceReceiptStatus))] public DeviceReceiptStatus? Status { get; init; }

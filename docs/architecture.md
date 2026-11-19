@@ -17,7 +17,7 @@ Giữ tên 4 tầng quen thuộc từ project tham khảo:
 | `CSVC.Infrastructure` | EF Core, PostgreSQL, repository, email và dịch vụ ngoài khi cần | Core, UseCases |
 | `CSVC.API` | HTTP, controller, DI composition, middleware, health và Swagger | UseCases, Infrastructure |
 
-Điều chỉnh so với project tham khảo: `UseCases` không tham chiếu `Infrastructure`; đăng ký DI chia theo tầng; cấu hình DB không chứa credentials trong Git; không chạy migration hoặc tạo admin mặc định lúc API khởi động. AutoMapper 16.2.0 được dùng cho DTO tài khoản và SQL projection; chưa thêm Redis, message broker hoặc MediatR.
+Điều chỉnh so với project tham khảo: `UseCases` không tham chiếu `Infrastructure`; đăng ký DI chia theo tầng; cấu hình DB không chứa credentials trong Git; không chạy migration hoặc tạo admin mặc định lúc API khởi động. AutoMapper 16.3.0 được dùng cho DTO tài khoản và SQL projection; chưa thêm Redis, message broker hoặc MediatR.
 
 Khi thêm nhóm nghiệp vụ, tổ chức code theo nhóm trong mỗi tầng, ví dụ:
 

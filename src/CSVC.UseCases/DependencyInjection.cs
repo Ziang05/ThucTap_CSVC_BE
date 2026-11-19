@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.TryAddSingleton(TimeProvider.System);
         services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
         services.AddScoped<DamageReports.IDamageReportService, DamageReports.DamageReportService>();
+        services.AddScoped<Inventories.IInventoryService, Inventories.InventoryService>();
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<Settings.IEquipmentSettingsService, Settings.EquipmentSettingsService>();
         services.AddScoped<Settings.IEquipmentDepartmentPolicy, Settings.EquipmentDepartmentPolicy>();

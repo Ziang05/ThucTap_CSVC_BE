@@ -83,7 +83,7 @@ public sealed class LoanDeviceOptionsQuery
 {
     [StringLength(32)] public string? LenderDepartmentCode { get; init; }
     [StringLength(200)] public string? Search { get; init; }
-    [StringLength(32)] public string? CategoryCode { get; init; }
+    [StringLength(64)] public string? CategoryCode { get; init; }
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1,100)] public int PageSize { get; init; } = 20;
 }
