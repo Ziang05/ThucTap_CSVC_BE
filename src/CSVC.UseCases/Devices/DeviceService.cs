@@ -1,3 +1,5 @@
+using CSVC.UseCases.ProcurementRequests;
+using CSVC.Core.ProcurementRequests;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
@@ -22,7 +24,7 @@ namespace CSVC.UseCases.Devices;
 
 public sealed class DeviceService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator) : IDeviceService
+    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IProcurementWorkflow procurement) : IDeviceService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex BarcodePattern = new("^BC[A-F0-9]{30}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -144,6 +146,66 @@ public sealed class DeviceService(
             return true;
         }, ct);
 
+    public Task PutIntoUseAsync(string deviceCode, PutDeviceIntoUseRequest request, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireActorAsync(true, token);
+            await PutIntoUseCoreAsync(actor, deviceCode, request, token);
+            await unitOfWork.CommitAsync(token);
+            return true;
+        }, ct);
+
+    public Task PutIntoUseBatchAsync(PutDeviceIntoUseBatchRequest request, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var actor = await RequireActorAsync(true, token);
+            Validate(request);
+            if (request.Items.Any(i => i is null) || request.Items.Select(i => NormalizeCode(i.DeviceCode)).Distinct().Count() != request.Items.Count)
+                throw Validation("Select each internal-use device exactly once.");
+            var bindings = new List<RequestDeviceBinding>();
+            foreach (var item in request.Items)
+            {
+                  await PutIntoUseCoreAsync(actor, item.DeviceCode, item, token, batch: true);
+                var device = (await unitOfWork.Devices.FirstOrDefaultAsync(d => d.DeviceCode == NormalizeCode(item.DeviceCode), token))!;
+                bindings.Add(new(item.SourceLineCode, device.DeviceCode, (await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, token))!.DisplayCode));
+            }
+            await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.InternalUse, CSVC.UseCases.Common.FeatureCode.New("SD"),
+                await equipment.RequireConfiguredAsync(token), bindings, actor.AccountId, token);
+            await unitOfWork.CommitAsync(token);
+            return true;
+        }, ct);
+
+    private async Task PutIntoUseCoreAsync(Actor actor, string deviceCode, PutDeviceIntoUseRequest request, CancellationToken ct, bool batch = false)
+    {
+            if (actor.RoleCode != RoleCodes.EquipmentStaff) throw new UseCaseException(FailureKind.Forbidden, "WORKFLOW_ACTION_FORBIDDEN", "Only equipment staff can confirm internal use.");
+            Validate(request);
+            await equipment.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, ct);
+            var equipmentId = await equipment.RequireConfiguredAsync(ct);
+            var code = ValidateDeviceCode(deviceCode);
+            var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == code, ct) ?? throw Missing();
+            await transaction.LockDevicesAsync([device.Id], ct);
+            if (device.DepartmentId != equipmentId || device.UseState != DeviceUseState.InStorage || device.Quantity != 1
+                || device.Status != EntityStatus.Active || device.Condition != DeviceCondition.Good)
+                throw Conflict("DEVICE_NOT_IN_EQUIPMENT_STORAGE", "Select a received, usable device currently held in equipment storage.");
+            await reservations.RequireAsync(device, false, ct: ct);
+            var responsible = await FindByCodeAsync(unitOfWork.Accounts, request.ResponsibleAccountCode, x => x.AccountCode, "RESPONSIBLE_ACCOUNT_NOT_FOUND", ct);
+            var profile = await unitOfWork.UserProfiles.GetByIdAsync(responsible.UserProfileId, ct);
+            if (responsible.IsLock || profile?.DepartmentId != equipmentId)
+                throw Validation("The responsible account must be active and belong to the equipment department.");
+            var area = string.IsNullOrWhiteSpace(request.AreaCode) ? null
+                : await FindByCodeAsync(unitOfWork.Areas, request.AreaCode, x => x.Code, "AREA_NOT_FOUND", ct);
+            for (var node = area; node is not null; node = node.ParentId is { } parentId ? await unitOfWork.Areas.GetByIdAsync(parentId, ct) : null)
+                if (node.Status != EntityStatus.Active) throw Conflict("AREA_UNAVAILABLE", "The selected area or its ancestor is locked.");
+            var before = JsonSerializer.Serialize(new { useState = device.UseState.ToString(), device.DeviceCode });
+            device.UseState = DeviceUseState.InUse;
+            device.ResponsibleAccountId = responsible.Id;
+            device.AreaId = area?.Id;
+            unitOfWork.Devices.Update(device);
+              await AuditAsync(device, actor.AccountId, "DEVICE_PUT_INTO_USE" + (batch ? "_" + device.DeviceCode : ""), ["useState", "responsibleAccountCode", "areaCode"], before,
+                JsonSerializer.Serialize(new { device.DeviceCode, useState = device.UseState.ToString(), departmentCode = (await unitOfWork.Departments.GetByIdAsync(equipmentId, ct))!.Code,
+                    responsibleAccountCode = responsible.AccountCode, areaCode = area?.Code, notes = Clean(request.Notes) }), ct);
+    }
+
     public async Task SetParentAsync(string deviceCode, string? parentDeviceCode, CancellationToken ct)
         => await transaction.ExecuteAsync(async token =>
         {
@@ -262,7 +324,7 @@ public sealed class DeviceService(
             x.AreaCode, x.Status, x.Condition, Availability(x), x.ResponsibleAccountCode, x.ResponsibleFullName,
             x.ManufacturerCode, x.ManufacturerName, x.Model, x.SerialNumber, x.PurchaseDate, x.PaidInvoiceCode,
             x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, VersionOf(x), x.ParentDeviceCode, x.ParentDeviceName, x.IsComponent, x.Quantity)
-        { ActiveLoanCode = x.ActiveLoanCode, BorrowerDepartmentCode = x.BorrowerDepartmentCode,
+        { UseState = x.UseState, ActiveLoanCode = x.ActiveLoanCode, BorrowerDepartmentCode = x.BorrowerDepartmentCode,
           BorrowerDepartmentName = x.BorrowerDepartmentName, LoanDueAt = x.LoanDueAt };
 
     private static DeviceAvailability Availability(DeviceReadModel x) => !x.HasHold ? x.Quantity == 0 ? DeviceAvailability.NotReceived : DeviceAvailability.Available

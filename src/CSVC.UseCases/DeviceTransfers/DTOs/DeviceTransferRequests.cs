@@ -8,6 +8,7 @@ namespace CSVC.UseCases.DeviceTransfers.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class CreateDeviceTransferRequest
 {
+    [StringLength(32)] public string? SourceRequestCode { get; init; }
     [Required, StringLength(32)] public string SourceDepartmentCode { get; init; } = "";
     [Required, StringLength(32)] public string TargetDepartmentCode { get; init; } = "";
     [Required, StringLength(32)] public string TargetResponsibleAccountCode { get; init; } = "";
@@ -22,6 +23,7 @@ public sealed class UpdateDeviceTransferRequest : CreateDeviceTransferRequest { 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class DeviceTransferDeviceRequest
 {
+    [StringLength(64)] public string? SourceLineCode { get; init; }
     [Required, StringLength(32)] public string DeviceCode { get; init; } = "";
 }
 

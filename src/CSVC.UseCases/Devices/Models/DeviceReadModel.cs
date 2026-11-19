@@ -14,6 +14,7 @@ public sealed class DeviceReadModel
     public required string Barcode { get; init; }
     public required string Name { get; init; }
     public int Quantity { get; init; }
+    public DeviceUseState UseState { get; init; }
     public required string CategoryCode { get; init; }
     public required string CategoryName { get; init; }
     public required string DepartmentCode { get; init; }

@@ -1,3 +1,5 @@
+using CSVC.UseCases.ProcurementRequests;
+using CSVC.Core.ProcurementRequests;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -18,7 +20,7 @@ namespace CSVC.UseCases.DeviceTransfers;
 
 public sealed partial class DeviceTransferService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator) : IDeviceTransferService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement) : IDeviceTransferService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -56,6 +58,13 @@ public sealed partial class DeviceTransferService(
                 Items = devices.Select(device => new DeviceTransferItem { DeviceId = device.Id }).ToList()
             };
             await unitOfWork.DeviceTransfers.AddAsync(transfer, token);
+            if (!string.IsNullOrWhiteSpace(request.SourceRequestCode) && transferType != DeviceTransferType.Allocation)
+                throw Validation("A purchasing request must use QTTB allocation, not inter-department transfer or recovery.");
+            var sourceBindings = new List<RequestDeviceBinding>();
+            foreach (var device in devices)
+                sourceBindings.Add(new(request.Items.SingleOrDefault(i => NormalizeCode(i.DeviceCode) == device.DeviceCode)?.SourceLineCode ?? "", device.DeviceCode,
+                    (await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, token))!.DisplayCode));
+            await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.Allocation, transfer.TransferCode, target.Id, sourceBindings, actor.AccountId, token);
             await AuditAsync(transfer, actor.AccountId, "TRANSFER_CREATED", ["transferCode", "sourceDepartmentCode", "targetDepartmentCode", "targetResponsibleAccountCode", "reason", "items"],
                 null, Snapshot(transfer, source.Code, target.Code, responsible.AccountCode, devices.Select(x => new { x.DeviceCode, x.Name })), token);
             await unitOfWork.CommitAsync(token);
@@ -70,6 +79,9 @@ public sealed partial class DeviceTransferService(
             Validate(request);
             var transfer = await LoadForActorAsync(transferCode, actor, token);
             RequireSourceInitiation(transfer);
+            await procurement.PreventLinkedEditAsync(RequestDocumentKind.Allocation, transfer.TransferCode, token);
+            if (!string.IsNullOrWhiteSpace(request.SourceRequestCode) || request.Items.Any(i => i is not null && !string.IsNullOrWhiteSpace(i.SourceLineCode)))
+                throw Validation("Create a new document from the source request; an existing allocation cannot acquire source bindings through editing.");
             RequireConfirmationPending(transfer);
             if (transfer.CreatorAccountId != actor.AccountId) throw Forbidden("Only the transfer creator may edit it.");
             var oldItems = await unitOfWork.DeviceTransferItems.ListTrackedForTransferAsync(transfer.Id, token);
@@ -192,6 +204,7 @@ public sealed partial class DeviceTransferService(
             Validate(request);
             var transfer = await LoadForActorAsync(transferCode, actor, token);
             if (transfer.Status != DeviceTransferStatus.Approved) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only an approved transfer can be completed.");
+            await procurement.RequireCombinedDeliveryAsync(transfer.TransferCode, token);
             RequireReceiver(transfer, actor);
             if (transfer.InitiationType == TransferInitiationType.EquipmentDepartment)
             {
@@ -240,7 +253,9 @@ public sealed partial class DeviceTransferService(
                 var receivedCondition = input.Condition ?? DeviceCondition.Good;
                 item.ConditionAtHandover = receivedCondition;
                 item.HandoverNote = Clean(input.Note);
+                var previousUseState = device.UseState;
                 device.DepartmentId = transfer.TargetDepartmentId;
+                device.UseState = transfer.TransferType == DeviceTransferType.Recovery ? DeviceUseState.InStorage : DeviceUseState.InUse;
                 device.AreaId = null;
                 device.ResponsibleAccountId = transfer.TargetResponsibleAccountId;
                 device.Condition = receivedCondition;
@@ -250,9 +265,9 @@ public sealed partial class DeviceTransferService(
                 {
                     RequestId = requestContext.RequestId, ActorAccountId = actor.AccountId, DeviceId = device.Id,
                     ActionCode = (transfer.TransferType == DeviceTransferType.Recovery ? "DEVICE_RECOVERY_COMPLETED_" : "DEVICE_TRANSFER_COMPLETED_") + device.DeviceCode, Outcome = AuditOutcome.Success,
-                    OccurredAt = clock.GetUtcNow(), ChangedFields = "[\"departmentCode\",\"areaCode\",\"responsibleAccountCode\",\"condition\"]",
-                    BeforeData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = sourceCode }),
-                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = targetCode, responsibleAccountCode = responsibleCode, condition = receivedCondition.ToString(), transferCode = transfer.TransferCode, transferType = transfer.TransferType.ToString() })
+                    OccurredAt = clock.GetUtcNow(), ChangedFields = "[\"departmentCode\",\"areaCode\",\"responsibleAccountCode\",\"condition\",\"useState\"]",
+                    BeforeData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = sourceCode, useState = previousUseState.ToString() }),
+                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = targetCode, responsibleAccountCode = responsibleCode, condition = receivedCondition.ToString(), useState = device.UseState.ToString(), transferCode = transfer.TransferCode, transferType = transfer.TransferType.ToString() })
                 }, token);
                 if (!await unitOfWork.DeviceOperationHolds.ReleaseAsync(device.DeviceCode, DeviceOperationKind.Transfer, transfer.Id, token))
                     throw Conflict("DEVICE_BUSY", "The transfer no longer owns a device reservation.");

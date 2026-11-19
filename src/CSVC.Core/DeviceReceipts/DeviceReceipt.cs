@@ -19,6 +19,8 @@ public sealed class DeviceReceipt
     public DateOnly DeliveryDate { get; set; }
     public required string DeliveryBatch { get; set; }
     public Guid RequestingDepartmentId { get; set; }
+    public Guid? ReceivingDepartmentId { get; set; }
+    public int WorkflowVersion { get; set; } = 2;
     public string? PaidInvoiceCode { get; set; }
     public Guid CreatorAccountId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

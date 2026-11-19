@@ -1,10 +1,25 @@
 # Kiến trúc base và bối cảnh nghiệp vụ
 
+Task 6 bổ sung [kho vật tư dụng cụ và truy vết can thiệp thiết bị](material-inventory.md). Tồn vật tư độc lập với số lượng thiết bị; chứng từ và bằng chứng sử dụng/can thiệp có giao dịch và lịch sử. Nhận yêu cầu PMMS vẫn là giả lập.
+
 ## Nguồn tham khảo và phạm vi
 
 Đã đọc `Documents/Danh sách nghiệp vụ.xlsx` (danh sách tổng và 4 sheet đặc tả), `Documents/qltb_4nhom.dbml`, xem phần mô tả tổng quan trong 4 SRS cũ, và tham khảo cấu trúc `D:/Git_Project/Do_An_1/src`. Workbook và DBML là cơ sở cho 4 nhóm được ưu tiên. Tài liệu SRS, activity và sequence cũ chỉ cung cấp bối cảnh hệ thống thiết bị; không dùng để ghi đè 4 nhóm đã chỉnh sửa.
 
 Base đã có hạ tầng, 12 entity, repository riêng và migration `InitialFourModules` hoàn thiện các ràng buộc DB cho 4 nhóm. Đã triển khai API/use case quản lý tài khoản và người dùng, AutoMapper, audit giao dịch, quên mật khẩu qua SMTP và kiểm tra phiên DB; xem [accounts-api.md](accounts-api.md). Nhóm 2 đã có đăng nhập/cấp phiên, đăng xuất, throttle theo email và expiration worker; xem [authentication-api.md](authentication-api.md). Nhóm 3 có DTO/AutoMapper/service/controller phòng ban và audit giao dịch; xem [departments-api.md](departments-api.md). Nhóm 4 có cây khu vực, chuyển nhánh, trạng thái hiệu lực và audit đường dẫn; xem [areas-api.md](areas-api.md). Chưa có tài khoản mặc định hoặc bootstrap. Thiết bị và xử lý phiếu triển khai riêng; các ràng buộc DB được liệt kê trong phần schema. Tài liệu gốc ở `Documents/` được Git ignore theo yêu cầu; ghi chú phát triển được giữ trong `docs/`.
+
+## Bổ sung từ phần mua sắm và kho vật tư
+
+Nền tảng ban đầu gồm 12 entity và migration `InitialFourModules` cho bốn nhóm tài khoản, xác thực, phòng ban và khu vực. Các module thiết bị, nhập, mượn, điều chuyển/cấp phát/thu hồi, báo hỏng, bảo trì/sửa chữa và xuất/nhận lại đã được bổ sung; xem tài liệu API theo module. Tài liệu gốc ở `Documents/` được Git ignore; ghi chú phát triển được giữ trong `docs/`.
+
+## Nghiệp vụ đích và hướng mở rộng
+
+- Kho vật tư dụng cụ: nhóm riêng theo loại, đơn vị tính và số lượng nhiều; liên kết xuất dùng đến phiếu nghiệp vụ/thiết bị. Xem [module vật tư](material-inventory.md).
+- Task 3 đã tách đơn vị đề xuất và QTTB tiếp nhận trên phiếu mới. Nhập mới về QTTB/InStorage, cấp phát riêng và xác nhận thực nhận mới chuyển InUse; QTTB tự dùng có sự kiện riêng. Phiếu cũ có phiên bản 1 giữ nghĩa trước đây; xem [migration và tương thích](receipt-custody-release.md).
+- Yêu cầu nguồn và chứng từ là các khái niệm riêng. Hoàn tất toàn bộ yêu cầu một lần; hủy bị chặn sau phát sinh thực hiện. Phân công công việc do thành viên khác phụ trách.
+- PMMS dùng adapter giả lập trong Infrastructure, có thể thay khi có API thật. Phải thông báo chủ project trước khi tạo/chạy giả lập; chưa có tích hợp thật. Xem [hợp đồng giả lập](pmms-simulation.md).
+- KHTC&ĐT phụ trách hợp đồng/thanh toán, PMQTTB theo dõi công việc và thiết bị. Mượn trả giữ như chức năng bổ sung; điều chuyển giữa hai đơn vị chưa bị loại bỏ.
+- Nhập–xuất–tồn toàn trường phân biệt chuyển nội bộ, xuất tạm dịch vụ và xuất vĩnh viễn. Kiểm kê, thanh lý, lịch bảo trì và timeline đầy đủ được triển khai theo backlog.
 
 ## Tổ chức solution
 
@@ -132,6 +147,8 @@ Migration có Down để xóa trigger/function, bảng và enum; rollback/reappl
 Các nghiệp vụ thiết bị, mượn trả, cấp phát, điều chuyển, sửa chữa và thanh lý được bổ sung sau khi có yêu cầu đã chỉnh sửa; tài liệu cũ chỉ cho thấy cần giữ khả năng mở rộng liên kết thiết bị/phòng ban/khu vực và lịch sử.
 
 ## Tài liệu kỹ thuật
+
+Phân công nhân viên và kiểm kê do thành viên khác phụ trách. Phần này xử lý theo quyền vai trò và liên kết chứng từ trực tiếp.
 
 - [.NET support policy](https://dotnet.microsoft.com/en-us/platform/support/policy)
 - [Npgsql EF Core 10 release notes](https://www.npgsql.org/efcore/release-notes/10.0.html)

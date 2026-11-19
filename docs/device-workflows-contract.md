@@ -2,9 +2,15 @@
 
 Trạng thái: **Phase 0 hoàn tất; contract baseline cho implementation**. Tài liệu này cụ thể hóa quyết định tại [backend-device-workflows-plan.md](plan/backend-device-workflows-plan.md) và là đầu vào cho [implementation plan](plan/backend-device-workflows-implementation-plan.md). Nếu có khác biệt với tài liệu SRS/sơ đồ cũ thì ưu tiên contract này. Các endpoint dưới đây là contract dự kiến để implement, không khẳng định API đã tồn tại.
 
+## Bổ sung từ phần mua sắm và kho vật tư
+
+Trạng thái: **baseline lịch sử, một số quy tắc đã được thay thế về nghiệp vụ đích**. Dùng [Hợp đồng nghiệp vụ PMQTTB](pmqttb-business-contract.md) cho phạm vi và quy tắc mới; dùng tài liệu API từng module cho hành vi code hiện tại. Tài liệu này giữ quyết định thiết kế trước đây để đối chiếu, không phải xác nhận mọi endpoint bên dưới đã tồn tại hoặc vẫn là thiết kế đích.
+
+Phân công nhân viên và kiểm kê do thành viên khác phụ trách. Phần này xử lý theo quyền vai trò và liên kết chứng từ trực tiếp.
+
 ## 1. Quy ước chung
 
-### Bổ sung ngày 2026-11-02: tiếp nhận từng thiết bị
+### Tiếp nhận từng thiết bị
 
 Quy tắc này ưu tiên các mô tả cũ về tạo thiết bị tại các mục dưới:
 
@@ -216,7 +222,7 @@ Create request:
 
 Supplier, deliveryDate, deliveryBatch, requestingDepartment và ít nhất một item bắt buộc. Carrier/request code/invoice code/notes tùy chọn. Mỗi item là một thiết bị vật lý; item có `categoryCode`, `name`, `deviceCode` optional, serial optional. Barcode không cần client gửi: sinh sau khi backend có device code. Response/detail trả item code và barcode đã reserve, số lượng tự đếm theo category và tổng item count. Edit chỉ khi PendingApproval; toàn bộ items được validate lại.
 
-Approve/reject request có `{ "reason": "..." }` tùy chọn, reason tối đa 1000 ký tự; response 204. Complete không nhận device payload: tất cả metadata đã ở receipt items; transaction tạo một device per item, nhận department theo `requestingDepartment`, condition `Good`, status `Active`, responsible person null nếu chưa được khai báo qua contract sau này.
+Approve/reject request có `{ "reason": "..." }` tùy chọn, reason tối đa 1000 ký tự; response 204. Complete không nhận device payload: transaction tiếp nhận toàn bộ vào QTTB đã lưu trên phiếu mới và ghi InStorage; chỉ phiếu phiên bản 1 tiếp tục nhận theo `requestingDepartment`. Chi tiết người phụ trách, khai báo có sẵn và migration theo [API nhập hiện hành](device-receipts-api.md).
 
 ### 5.3. Loans
 

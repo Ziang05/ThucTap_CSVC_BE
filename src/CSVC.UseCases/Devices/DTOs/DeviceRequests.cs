@@ -47,6 +47,7 @@ public enum DeviceWorkflowEligibility { Loan, Transfer, Recovery }
 
 public sealed class DeviceListQuery
 {
+    [EnumDataType(typeof(DeviceUseState))] public DeviceUseState? UseState { get; init; }
     [EnumDataType(typeof(DeviceWorkflowEligibility))] public DeviceWorkflowEligibility? EligibleFor { get; init; }
     [StringLength(32)] public string? ParentDeviceCode { get; set; }
     [StringLength(200)] public string? Search { get; init; }
@@ -74,4 +75,25 @@ public sealed class DeviceHistoryQuery
     public DateTimeOffset? ToDate { get; init; }
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1, 100)] public int PageSize { get; init; } = 20;
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public class PutDeviceIntoUseRequest
+{
+    [Required, StringLength(32)] public string ResponsibleAccountCode { get; init; } = "";
+    [StringLength(32)] public string? AreaCode { get; init; }
+    [StringLength(1000)] public string? Notes { get; init; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class PutDeviceIntoUseBatchRequest
+{
+    [Required, StringLength(32)] public string SourceRequestCode { get; init; } = "";
+    [Required, MinLength(1), MaxLength(200)] public List<PutDeviceIntoUseItem> Items { get; init; } = [];
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class PutDeviceIntoUseItem : PutDeviceIntoUseRequest
+{
+    [Required, StringLength(32)] public string DeviceCode { get; init; } = "";
+    [Required, StringLength(64)] public string SourceLineCode { get; init; } = "";
 }

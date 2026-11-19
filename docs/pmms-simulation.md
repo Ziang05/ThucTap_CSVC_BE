@@ -1,0 +1,101 @@
+# Task 4 — Tiếp nhận yêu cầu PMMS giả lập
+
+## Phạm vi đã triển khai
+
+Backend và frontend có module **Yêu cầu PMMS** tại `/requests`. Nguồn cố định là `PMMS_SIMULATED`; chưa có kết nối, tài khoản tích hợp hay API của phần mềm mua sắm thật. Chủ project đã được thông báo trước khi triển khai giả lập. Không tự sinh dữ liệu khi khởi động, không gửi dữ liệu ra PMMS.
+
+Màn hình giả lập tạo sự kiện mua sắm hoặc sửa chữa/nâng cấp với đơn vị đề xuất, liên hệ, tham chiếu hợp đồng KHTC&ĐT, nhà cung cấp và các dòng hàng/công việc. Người dùng chọn đơn vị, danh mục, thiết bị từ danh sách. Các phiếu được tạo sau đó là chứng từ PMQTTB thực trong database đang sử dụng; nhãn giả lập không có nghĩa mọi thao tác kho đều bị vô hiệu hóa.
+
+Mỗi dòng giữ mã dòng nguồn, mô tả, loại thiết bị/vật tư/dịch vụ, số lượng, đơn vị tính, danh mục, thiết bị cần sửa và báo hỏng tùy chọn. Phân loại thông dụng/chuyên dụng độc lập với cách thực hiện tại chỗ/bên ngoài. Giao diện mặc định đề xuất xử lý bên ngoài cho thiết bị chuyên dụng; QTTB theo dõi việc phối hợp, không xây quy trình đấu thầu, hợp đồng hoặc thanh toán.
+
+## Luồng sử dụng
+
+1. Mở **Yêu cầu PMMS → Tạo yêu cầu giả lập**, điền nội dung và gửi. Màn hình hiển thị kết quả tiếp nhận hoặc thông tin cần đối chiếu.
+2. Yêu cầu mua sắm: chọn **Chọn từ tồn / cấp phát toàn bộ** để xem thiết bị sẵn sàng ở QTTB, có tìm kiếm/phân trang và lọc theo danh mục từng dòng. Nếu đủ tồn, lập một phiếu cấp phát đủ toàn bộ yêu cầu.
+3. Nếu thiếu tồn, lập một phiếu nhập cho phần cần mua. Từng thiết bị mới có hồ sơ riêng và số lượng `0/1`. Duyệt, hoàn tất phiếu nhập trong màn hình phiếu nhập để đưa hàng về QTTB. Sau đó chọn đủ cả hàng mới và hàng tồn, lập cấp phát riêng cho toàn bộ yêu cầu. Tất cả thiết bị nhập theo yêu cầu phải nằm trong phiếu cấp phát của yêu cầu đó.
+4. Nếu QTTB là đơn vị sử dụng cuối, chọn đủ thiết bị từ tồn và ghi nhận sử dụng toàn bộ trong một giao dịch, chọn người chịu trách nhiệm. Không tạo phiếu điều chuyển cùng phòng. Quy tắc sẵn sàng và trạng thái `InStorage` vẫn áp dụng.
+5. Yêu cầu sửa chữa/nâng cấp: **Lập phiếu sửa chữa** tự mang theo thiết bị, mã dòng, mô tả và báo hỏng nguồn nếu có. Duyệt, ghi kết quả, xuất/nhận lại bên ngoài qua module sửa chữa hiện có.
+6. Chỉ **Hoàn tất toàn bộ yêu cầu** khi đủ chứng từ cuối: đơn vị đã thực nhận cấp phát, QTTB đã đưa vào sử dụng, hoặc tất cả dòng sửa chữa có kết quả và không còn giữ chỗ/thiết bị chưa nhận về. Không có API hoàn thành từng dòng hay bàn giao từng phần theo yêu cầu.
+Phân công nhân viên và kiểm kê do thành viên khác phụ trách. Phần này xử lý theo quyền vai trò và liên kết chứng từ trực tiếp.
+
+Trường hợp không thực hiện được, phải ghi lý do và kết thúc toàn bộ với kết quả `Failed`; không được còn chứng từ mở hoặc giữ chỗ sửa chữa. Kết quả sửa chữa có dòng thất bại được lưu `CompletedWithIssues`, không đổi thành hủy nguồn.
+
+## Gửi lại, cập nhật và hủy
+
+- `eventId` là UUID sự kiện; định danh yêu cầu là cặp `(source, externalCode)`. `sourceVersion` là số nguyên tăng dần. Mã được chuẩn hóa, có giới hạn độ dài/ký tự và mã dòng không trùng. Lịch sử cho xem lại nội dung nguồn tại từng lần tiếp nhận, gồm cả đề xuất thay đổi không được áp dụng.
+- Gửi lại cùng sự kiện hoặc cùng phiên bản và nội dung chuẩn hóa trả kết quả đã lưu, không tạo yêu cầu/phiếu/lịch sử nguồn trùng. Dùng lại định danh với nội dung khác bị `409 PMMS_EVENT_CONFLICT`.
+- Phiên bản chưa từng nhận nhưng thấp hơn phiên bản hiện tại được ghi lịch sử `IgnoredStale`, không ghi đè phạm vi đang có. Yêu cầu đã kết thúc không được mở lại bởi sự kiện mới (`IgnoredTerminal`).
+- Đơn vị, danh mục, thiết bị sửa hoặc báo hỏng không đối chiếu được vẫn có hồ sơ `NeedsMapping` để xử lý, nhưng không thể tạo phiếu. Sửa tham chiếu bằng sự kiện cập nhật mới.
+- Chưa có chứng từ đang mở/đã thực hiện: cập nhật được phạm vi, giữ toàn bộ snapshot nguồn trong lịch sử. Đã có chứng từ: lưu snapshot chờ xem xét, không thay đổi các dòng đang thực hiện hoặc chứng từ. Quản lý QTTB có thể ghi lý do tiếp tục phạm vi đã thống nhất. Nếu muốn áp dụng phạm vi mới trước thực hiện, hủy các phiếu dự thảo rồi gửi phiên bản cập nhật mới.
+- Hủy được áp dụng khi chưa thực hiện và không còn phiếu đang mở. Có dự thảo thì hủy dự thảo, giải phóng giữ chỗ qua luồng thông thường trước. Đã nhập hàng, cấp phát/sử dụng hoặc bắt đầu sửa chữa thì ghi `CancelRejected`; QTTB xử lý kết thúc nghiệp vụ. Không nhận hủy rồi hoàn tác dữ liệu kho.
+- Liên kết yêu cầu, dòng nguồn và phiếu được ghi cùng giao dịch tạo phiếu. Không cho sửa phạm vi phiếu đã liên kết; hủy dự thảo và tạo lại từ yêu cầu để giữ đúng đối chiếu. Quyền duyệt, thực hiện và xác nhận nhận hàng của phiếu vẫn được kiểm tra như trước.
+
+## API
+
+Chỉ tài khoản QTTB được đọc module; thao tác ghi cần thuộc phòng QTTB được cấu hình. Chỉ quản lý được xác nhận giữ phạm vi sau thay đổi nguồn. Không có endpoint tích hợp PMMS thật.
+
+| API | Công dụng |
+| --- | --- |
+| `GET /api/v1/procurement-requests` | Tìm kiếm, lọc loại/trạng thái/cần xem xét và phân trang |
+| `GET /api/v1/procurement-requests/{code}` | Phạm vi đã tiếp nhận, liên kết phiếu và trạng thái thực tế |
+| `GET /api/v1/procurement-requests/{code}/history` | Lịch sử nguồn/thao tác, phân trang |
+| `POST /api/v1/procurement-requests/simulated-events` | Gửi sự kiện `Create`, `Update`, `Cancel` giả lập |
+| `POST /api/v1/procurement-requests/{code}/status` | Cập nhật tiến độ với `version` hiện tại |
+| `POST /api/v1/procurement-requests/{code}/review-source-update` | Quản lý giữ phạm vi hiện tại, bắt buộc lý do và `version` |
+| `POST /api/v1/procurement-requests/{code}/complete` | Đóng toàn bộ sau đối chiếu kết quả; `failureReason` nếu không thực hiện được |
+| `POST /api/v1/devices/put-into-use` | QTTB tự dùng toàn bộ thiết bị của một yêu cầu trong cùng giao dịch |
+
+Ví dụ payload gửi giả lập, thay các mã tham chiếu bằng dữ liệu trong môi trường:
+
+```json
+{
+  "eventId": "80634a35-4e40-4651-9245-449b73ca4f3b",
+  "externalCode": "PMMS-DEMO-001",
+  "sourceVersion": 1,
+  "action": "Create",
+  "request": {
+    "requestType": "Purchase",
+    "title": "Trang bị thiết bị cho đơn vị",
+    "requestingDepartmentCode": "PB_DONVI",
+    "sourceStatus": "Submitted",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "lines": [
+      {
+        "sourceLineCode": "L1",
+        "kind": "Equipment",
+        "description": "Máy tính làm việc",
+        "quantity": 2,
+        "unit": "Cái",
+        "categoryCode": "CAT_MAYTINH",
+        "specialization": "Common"
+      }
+    ]
+  }
+}
+```
+
+Phiếu nhập/cấp phát/sửa chữa nhận thêm `sourceRequestCode` (mã nội bộ `YC...`) và `items[].sourceLineCode`. Frontend tự truyền từ yêu cầu, không yêu cầu người dùng nhập lại. `requestCode` dạng chữ trên phiếu nhập cũ vẫn là thông tin tham chiếu, không thay cho liên kết có kiểm tra. Phiếu cũ không có nguồn tiếp tục dùng như trước.
+
+## Ranh giới adapter và phần phụ thuộc
+
+`IPmmsRequestSource` hiện được cài bởi `SimulatedPmmsSource` để chuẩn hóa/kiểm tra payload. `ProcurementRequestService` xử lý nhận lại, phiên bản, mapping và lịch sử; `ProcurementWorkflow` kiểm tra liên kết/kết quả chứng từ. Khi PMMS có API, bổ sung adapter và cơ chế xác thực/đồng bộ theo hợp đồng thật, kiểm thử mapping, namespace nguồn và định danh sự kiện trước khi thay đăng ký DI. Không đổi nguồn dữ liệu giả lập thành dữ liệu thật bằng cách đổi nhãn.
+
+Task 6 đã bổ sung [chứng từ vật tư và truy vết can thiệp có cấu trúc](material-inventory.md). Dòng vật tư có nhập/xuất riêng, liên kết mã dòng nguồn, kiểm tra đơn vị và số lượng; không biểu diễn bằng thiết bị. Yêu cầu vật tư hoàn tất sau khi đơn vị xác nhận nhận đủ. Với yêu cầu có cả thiết bị và vật tư, xác nhận thực nhận cả hai trong cùng giao dịch tại phiếu xuất vật tư; chặn bàn giao riêng từng nhóm. Dịch vụ độc lập vẫn cần chứng từ kết quả từ module tương ứng. Task 12 hợp nhất timeline toàn vòng đời. Không tạo thiết bị con cho vật tư thay thế.
+
+## Triển khai
+
+Migration `SimulatedPmmsRequests` chỉ bổ sung bốn bảng `procurement_requests`, `procurement_request_lines`, `procurement_request_events`, `procurement_document_links` và các ràng buộc. Không biến phiếu cũ thành yêu cầu giả lập. Cần triển khai migration task 3 (`ReceiptEquipmentCustody`) trước theo thứ tự EF.
+
+Migration được kiểm thử trên database tạm; **chưa áp dụng vào database/API đang chạy**. Sau khi cập nhật database và image API, triển khai frontend cùng phiên bản để dùng `/requests`. Không cần và không tự seed dữ liệu giả lập vào database thật.
+
+## Kiểm tra
+
+- 6 kiểm thử PostgreSQL cho gửi lại/đồng thời/phiên bản cũ, mapping và snapshot lịch sử, phân quyền, nhập phần thiếu rồi cấp phát đủ, dùng tồn, tự dùng tại QTTB, sửa chữa và từ chối hủy sau thực hiện. Có kiểm tra rollback cả chứng từ, liên kết và giữ chỗ khi ghi audit lỗi.
+- Bộ backend tổng 284 test đã chạy; kiểm thử schema được cập nhật để bao gồm bốn bảng mới. 47 kiểm thử liên quan đều đạt sau các sửa đổi; 6 kiểm thử module tiếp tục đạt sau bổ sung snapshot lịch sử.
+- 62 kiểm thử hợp đồng frontend đạt, gồm nhãn giả lập, quyền truy cập, payload tự liên kết dòng nguồn, lựa chọn từ tồn đủ số lượng, sửa chữa kế thừa thiết bị/báo hỏng, lịch sử nguồn và mở chi tiết chứng từ từ liên kết. Build đạt; lint không có lỗi, còn một cảnh báo Fast Refresh có sẵn ở màn hình danh mục.
+
+
+## Trạng thái Docker local
+
+Migration và image API local đã được cập nhật; xem [biên bản đồng bộ và kiểm tra](local-runtime-sync.md). Ghi chú chưa triển khai ở phần trước mô tả thời điểm hoàn thành mã nguồn; trạng thái môi trường hiện tại theo mục này.

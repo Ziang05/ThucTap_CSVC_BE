@@ -8,6 +8,7 @@ namespace CSVC.UseCases.ServiceOrders.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CreateServiceOrderRequest
 {
+    [StringLength(32)] public string? SourceRequestCode { get; init; }
     public Guid RequestId { get; init; }
     [EnumDataType(typeof(ServiceOrderType))] public ServiceOrderType OrderType { get; init; }
     [Required, MinLength(1), MaxLength(100)] public List<ServiceItemRequest> Items { get; init; } = [];
@@ -17,6 +18,7 @@ public sealed class CreateServiceOrderRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ServiceItemRequest
 {
+    [StringLength(64)] public string? SourceLineCode { get; init; }
     [Required, StringLength(32)] public string DeviceCode { get; init; } = "";
     [EnumDataType(typeof(ExecutionMethod))] public ExecutionMethod ExecutionMethod { get; init; }
     [StringLength(64)] public string? DamageReportCode { get; init; }

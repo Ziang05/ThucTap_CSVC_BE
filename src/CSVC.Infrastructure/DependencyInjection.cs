@@ -105,7 +105,10 @@ public static class DependencyInjection
         services.AddScoped<IDeviceTransferItemRepository, DeviceTransferItemRepository>();
         services.AddScoped<IDeviceTransferHistoryRepository, DeviceTransferHistoryRepository>();
         services.AddScoped<IServiceOrderRepository, ServiceOrderRepository>();
+        services.AddScoped<CSVC.UseCases.ProcurementRequests.IPmmsRequestSource, CSVC.Infrastructure.ProcurementRequests.SimulatedPmmsSource>();
+        services.AddScoped<CSVC.UseCases.ProcurementRequests.IProcurementRequestRepository, ProcurementRequestRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<CSVC.UseCases.Materials.IMaterialStore, MaterialStore>();
         services.AddHealthChecks().AddCheck<DatabaseHealthCheck>(
             "postgresql", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
 

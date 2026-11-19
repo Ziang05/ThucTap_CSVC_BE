@@ -16,6 +16,7 @@ public sealed class DeviceReceiptConfiguration : IEntityTypeConfiguration<Device
     {
         builder.ToTable("device_receipts", table =>
         {
+            table.HasCheckConstraint("ck_receipts_receiving_department", "(workflow_version = 1 AND receiving_department_id IS NULL) OR (workflow_version = 2 AND receiving_department_id IS NOT NULL)");
             table.HasCheckConstraint("ck_device_receipts_receipt_code", "btrim(receipt_code) <> ''");
             table.HasCheckConstraint("ck_device_receipts_delivery_batch", "btrim(delivery_batch) <> ''");
         });
@@ -28,6 +29,9 @@ public sealed class DeviceReceiptConfiguration : IEntityTypeConfiguration<Device
         builder.Property(x => x.RequestCode).HasColumnName("request_code").HasColumnType("varchar(64)").HasMaxLength(64);
         builder.Property(x => x.DeliveryDate).HasColumnName("delivery_date").HasColumnType("date");
         builder.Property(x => x.DeliveryBatch).HasColumnName("delivery_batch").HasColumnType("varchar(100)").HasMaxLength(100);
+        builder.Property(x => x.WorkflowVersion).HasColumnName("workflow_version").HasDefaultValue(2);
+        builder.Property(x => x.ReceivingDepartmentId).HasColumnName("receiving_department_id").HasColumnType("uuid");
+        builder.HasOne<Department>().WithMany().HasForeignKey(x => x.ReceivingDepartmentId).OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.RequestingDepartmentId).HasColumnName("requesting_department_id").HasColumnType("uuid");
         builder.Property(x => x.PaidInvoiceCode).HasColumnName("paid_invoice_code").HasColumnType("varchar(64)").HasMaxLength(64);
         builder.Property(x => x.CreatorAccountId).HasColumnName("creator_account_id").HasColumnType("uuid");

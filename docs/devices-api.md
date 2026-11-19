@@ -4,6 +4,8 @@ API quản lý hồ sơ tài sản thiết bị, được implement theo contrac
 
 Base path: `/api/v1/devices`
 
+Task 3 thêm `useState=Unspecified|InStorage|InUse` vào list/detail/barcode và filter `useState` trước phân trang. Sau nhập mới, thiết bị ở QTTB/InStorage; cấp phát thực nhận mới chuyển InUse. Dữ liệu cũ không tự suy diễn phân loại. `POST /{deviceCode}/put-into-use` cho staff ghi nhận QTTB tự sử dụng, có chọn người/vị trí và audit riêng; chi tiết payload, quyền và migration tại [hướng dẫn](receipt-custody-release.md).
+
 ## Số lượng theo từng thiết bị
 
 - Mỗi mã là một thiết bị riêng, `quantity` chỉ nhận `0` hoặc `1` và do backend quản lý.
