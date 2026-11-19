@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<IDamageReportTransaction, DamageReportTransaction>();
         services.AddScoped<IDamageReportRepository, DamageReportRepository>();
         services.AddSingleton<IReportEvidenceStore, LocalReportEvidenceStore>();
+        services.AddScoped<CSVC.UseCases.Inventories.IEquipmentInventoryRepository, EquipmentInventoryRepository>();
         services.AddScoped<IInventoryTransaction, InventoryTransaction>();
         services.AddScoped<IBusinessCodeGenerator, BusinessCodeGenerator>();
         services.AddScoped<IAccountPasswordHasher, AccountPasswordHasher>();

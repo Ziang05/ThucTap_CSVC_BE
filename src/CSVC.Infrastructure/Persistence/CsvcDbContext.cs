@@ -19,6 +19,14 @@ namespace CSVC.Infrastructure.Persistence;
 public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
     : DbContext(options)
 {
+    public DbSet<CSVC.Core.Inventories.InventorySlip> InventorySlips => Set<CSVC.Core.Inventories.InventorySlip>();
+    public DbSet<CSVC.Core.Inventories.InventoryPlanRevision> InventoryPlanRevisions => Set<CSVC.Core.Inventories.InventoryPlanRevision>();
+    public DbSet<CSVC.Core.Inventories.InventoryPlanItem> InventoryPlanItems => Set<CSVC.Core.Inventories.InventoryPlanItem>();
+    public DbSet<CSVC.Core.Inventories.InventoryResult> InventoryResults => Set<CSVC.Core.Inventories.InventoryResult>();
+    public DbSet<CSVC.Core.Inventories.InventoryItemHistory> InventoryItemHistories => Set<CSVC.Core.Inventories.InventoryItemHistory>();
+    public DbSet<CSVC.Core.Inventories.InventoryHistory> InventoryHistories => Set<CSVC.Core.Inventories.InventoryHistory>();
+    public DbSet<CSVC.Core.Inventories.InventoryNotification> InventoryNotifications => Set<CSVC.Core.Inventories.InventoryNotification>();
+
     public DbSet<DamageReport> DamageReports => Set<DamageReport>();
 
     public DbSet<Role> Roles => Set<Role>();

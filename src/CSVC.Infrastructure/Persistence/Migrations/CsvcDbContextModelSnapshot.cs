@@ -1947,7 +1947,7 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_device_transfers_reason", "btrim(reason) <> ''");
 
-                            t.HasCheckConstraint("ck_equipment_recovery_workflow", "initiation_type IN ('SourceDepartment','EquipmentDepartment') AND\r\n(initiation_type = 'SourceDepartment' OR (\r\n    transfer_type = 'Recovery' AND create_request_id IS NOT NULL AND create_request_id <> '00000000-0000-0000-0000-000000000000'::uuid\r\n    AND create_request_hash IS NOT NULL AND create_request_hash ~ '^[0-9A-F]{64}$'\r\n    AND receiver_confirmed_account_id IS NULL AND receiver_confirmed_at IS NULL\r\n    AND receiver_rejected_account_id IS NULL AND receiver_rejected_at IS NULL\r\n    AND decision_account_id IS NULL AND decided_at IS NULL\r\n    AND (source_accepted_by_account_id IS NULL) = (source_accepted_at IS NULL)\r\n    AND (source_rejected_by_account_id IS NULL) = (source_rejected_at IS NULL)\r\n    AND (source_handover_confirmed_by_account_id IS NULL) = (source_handover_confirmed_at IS NULL)\r\n    AND (source_accepted_at IS NULL OR source_accepted_at >= created_at)\r\n    AND (source_rejected_at IS NULL OR source_rejected_at >= created_at)\r\n    AND (source_handover_confirmed_at IS NULL OR (source_accepted_at IS NOT NULL AND source_handover_confirmed_at >= source_accepted_at))\r\n    AND (status::text NOT IN ('APPROVED','COMPLETED') OR source_accepted_at IS NOT NULL)\r\n    AND (status::text NOT IN ('PENDING_CONFIRMATION','CANCELLED','REJECTED') OR source_accepted_at IS NULL)\r\n    AND (status::text <> 'REJECTED' OR (source_rejected_at IS NOT NULL AND source_rejection_reason IS NOT NULL AND btrim(source_rejection_reason) <> ''))\r\n    AND (status::text = 'REJECTED' OR source_rejected_at IS NULL)\r\n    AND (status::text <> 'COMPLETED' OR (source_handover_confirmed_at IS NOT NULL AND completed_at IS NOT NULL\r\n        AND target_handover_account_id IS NOT NULL AND completed_at >= source_handover_confirmed_at))\r\n    AND status::text IN ('PENDING_CONFIRMATION','APPROVED','COMPLETED','REJECTED','CANCELLED')\r\n))");
+                            t.HasCheckConstraint("ck_equipment_recovery_workflow", "initiation_type IN ('SourceDepartment','EquipmentDepartment') AND\n(initiation_type = 'SourceDepartment' OR (\n    transfer_type = 'Recovery' AND create_request_id IS NOT NULL AND create_request_id <> '00000000-0000-0000-0000-000000000000'::uuid\n    AND create_request_hash IS NOT NULL AND create_request_hash ~ '^[0-9A-F]{64}$'\n    AND receiver_confirmed_account_id IS NULL AND receiver_confirmed_at IS NULL\n    AND receiver_rejected_account_id IS NULL AND receiver_rejected_at IS NULL\n    AND decision_account_id IS NULL AND decided_at IS NULL\n    AND (source_accepted_by_account_id IS NULL) = (source_accepted_at IS NULL)\n    AND (source_rejected_by_account_id IS NULL) = (source_rejected_at IS NULL)\n    AND (source_handover_confirmed_by_account_id IS NULL) = (source_handover_confirmed_at IS NULL)\n    AND (source_accepted_at IS NULL OR source_accepted_at >= created_at)\n    AND (source_rejected_at IS NULL OR source_rejected_at >= created_at)\n    AND (source_handover_confirmed_at IS NULL OR (source_accepted_at IS NOT NULL AND source_handover_confirmed_at >= source_accepted_at))\n    AND (status::text NOT IN ('APPROVED','COMPLETED') OR source_accepted_at IS NOT NULL)\n    AND (status::text NOT IN ('PENDING_CONFIRMATION','CANCELLED','REJECTED') OR source_accepted_at IS NULL)\n    AND (status::text <> 'REJECTED' OR (source_rejected_at IS NOT NULL AND source_rejection_reason IS NOT NULL AND btrim(source_rejection_reason) <> ''))\n    AND (status::text = 'REJECTED' OR source_rejected_at IS NULL)\n    AND (status::text <> 'COMPLETED' OR (source_handover_confirmed_at IS NOT NULL AND completed_at IS NOT NULL\n        AND target_handover_account_id IS NOT NULL AND completed_at >= source_handover_confirmed_at))\n    AND status::text IN ('PENDING_CONFIRMATION','APPROVED','COMPLETED','REJECTED','CANCELLED')\n))");
                         });
                 });
 
@@ -2352,6 +2352,755 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_device_operation_holds_operation");
 
                     b.ToTable("device_operation_holds", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid?>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("AfterData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after_data");
+
+                    b.Property<string>("BeforeData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before_data");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("ReasonCode")
+                        .HasColumnType("text")
+                        .HasColumnName("reason_code");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<string>("ResponseData")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("response_data");
+
+                    b.Property<Guid>("SlipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("slip_id");
+
+                    b.Property<string>("TargetKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("target_key");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("SlipId", "OccurredAt", "Id");
+
+                    b.ToTable("inventory_history", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_history_action", "action_code IN ('CREATE','UPDATE_PLAN','PROPOSE_PLAN','PUBLISH','REJECT_PLAN','START','COMPLETE','CANCEL') AND (target_key = 'SLIP' OR target_key LIKE 'REVISION:%')");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryItemHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("action_code");
+
+                    b.Property<Guid>("ActorAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_account_id");
+
+                    b.Property<string>("ActorNameSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("actor_name_snapshot");
+
+                    b.Property<bool>("AfterExists")
+                        .HasColumnType("boolean")
+                        .HasColumnName("after_exists");
+
+                    b.Property<bool?>("BeforeExists")
+                        .HasColumnType("boolean")
+                        .HasColumnName("before_exists");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<string>("ResponseData")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("response_data");
+
+                    b.Property<Guid>("ResultId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("result_id");
+
+                    b.Property<int>("VersionAfter")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_after");
+
+                    b.Property<int?>("VersionBefore")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_before");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("ResultId", "VersionAfter")
+                        .IsUnique();
+
+                    b.ToTable("inventory_item_history", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_item_history_shape", "(action_code = 'RESULT_RECORDED' AND before_exists IS NULL AND version_before IS NULL AND version_after = 0 AND reason IS NULL) OR (action_code = 'RESULT_CORRECTED' AND before_exists IS NOT NULL AND before_exists <> after_exists AND version_before IS NOT NULL AND version_before >= 0 AND version_after = version_before + 1 AND reason IS NOT NULL AND btrim(reason) <> '')");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryNoticePolicy", b =>
+                {
+                    b.Property<short>("Id")
+                        .HasColumnType("smallint")
+                        .HasColumnName("id");
+
+                    b.Property<int>("MinimumNoticeDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("minimum_notice_days");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_account_id");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByAccountId");
+
+                    b.ToTable("inventory_notice_policies", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_policy", "id = 1 AND minimum_notice_days BETWEEN 1 AND 365 AND version >= 0");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = (short)1,
+                            MinimumNoticeDays = 3,
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 11, 19, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Version = 0
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryNoticePolicyHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at");
+
+                    b.Property<Guid>("ChangedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("changed_by_account_id");
+
+                    b.Property<int>("NewDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("new_days");
+
+                    b.Property<short>("PolicyId")
+                        .HasColumnType("smallint")
+                        .HasColumnName("policy_id");
+
+                    b.Property<int>("PreviousDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("previous_days");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<string>("ResponseData")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("response_data");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangedByAccountId");
+
+                    b.HasIndex("PolicyId");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.ToTable("inventory_notice_policy_history", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_policy_change", "previous_days BETWEEN 1 AND 365 AND new_days BETWEEN 1 AND 365 AND previous_days <> new_days AND btrim(reason) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("DeliveryStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("delivery_status");
+
+                    b.Property<string>("EventKey")
+                        .IsRequired()
+                        .HasMaxLength(180)
+                        .HasColumnType("character varying(180)")
+                        .HasColumnName("event_key");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_attempt_at");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasColumnType("text")
+                        .HasColumnName("last_error_code");
+
+                    b.Property<string>("PayloadSnapshot")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_snapshot");
+
+                    b.Property<DateTimeOffset>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<DateTimeOffset?>("ReadAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("read_at");
+
+                    b.Property<Guid>("RecipientAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recipient_account_id");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("revision_id");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at");
+
+                    b.Property<Guid>("SlipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("slip_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventKey")
+                        .IsUnique();
+
+                    b.HasIndex("RevisionId");
+
+                    b.HasIndex("SlipId");
+
+                    b.HasIndex("RecipientAccountId", "PublishedAt", "Id");
+
+                    b.ToTable("inventory_notifications", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_notification", "attempts >= 0 AND event_type IN ('PLAN_PUBLISHED','PLAN_UPDATED','PLAN_CANCELED','REMINDER') AND delivery_status IN ('PENDING','SENT','FAILED')");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryPlanItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AreaIdSnapshot")
+                        .HasColumnType("uuid")
+                        .HasColumnName("area_id_snapshot");
+
+                    b.Property<string>("AreaPathSnapshot")
+                        .HasColumnType("text")
+                        .HasColumnName("area_path_snapshot");
+
+                    b.Property<DateTimeOffset>("CapturedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("captured_at");
+
+                    b.Property<Guid>("DepartmentIdSnapshot")
+                        .HasColumnType("uuid")
+                        .HasColumnName("department_id_snapshot");
+
+                    b.Property<string>("DeviceCodeSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("device_code_snapshot");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("DeviceNameSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("device_name_snapshot");
+
+                    b.Property<int>("QuantitySnapshot")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity_snapshot");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("revision_id");
+
+                    b.Property<string>("SerialSnapshot")
+                        .HasColumnType("text")
+                        .HasColumnName("serial_snapshot");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AreaIdSnapshot");
+
+                    b.HasIndex("DepartmentIdSnapshot");
+
+                    b.HasIndex("DeviceId");
+
+                    b.HasIndex("RevisionId", "DeviceId")
+                        .IsUnique();
+
+                    b.ToTable("inventory_plan_items", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_item_quantity", "quantity_snapshot >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryPlanRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_at");
+
+                    b.Property<Guid?>("ApprovedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by_account_id");
+
+                    b.Property<string>("ChangeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("change_reason");
+
+                    b.Property<string>("DiffData")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("diff_data");
+
+                    b.Property<int?>("NoticeDaysSnapshot")
+                        .HasColumnType("integer")
+                        .HasColumnName("notice_days_snapshot");
+
+                    b.Property<DateTimeOffset?>("PlannedEndAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("planned_end_at");
+
+                    b.Property<DateTimeOffset>("PlannedStartAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("planned_start_at");
+
+                    b.Property<DateTimeOffset>("ProposedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("proposed_at");
+
+                    b.Property<Guid>("ProposedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("proposed_by_account_id");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("rejected_at");
+
+                    b.Property<Guid?>("RejectedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rejected_by_account_id");
+
+                    b.Property<string>("RejectionReason")
+                        .HasColumnType("text")
+                        .HasColumnName("rejection_reason");
+
+                    b.Property<int>("RevisionNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("revision_no");
+
+                    b.Property<Guid>("SlipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("slip_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByAccountId");
+
+                    b.HasIndex("ProposedByAccountId");
+
+                    b.HasIndex("RejectedByAccountId");
+
+                    b.HasIndex("SlipId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_inv_one_draft_per_slip")
+                        .HasFilter("status = 'DRAFT'");
+
+                    b.HasIndex("SlipId", "RevisionNo")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "PlannedStartAt");
+
+                    b.ToTable("inventory_plan_revisions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_revision_notice", "status <> 'PUBLISHED' OR (approved_at IS NOT NULL AND approved_by_account_id IS NOT NULL AND published_at IS NOT NULL AND notice_days_snapshot >= 1 AND notice_days_snapshot IS NOT NULL AND planned_start_at >= published_at + notice_days_snapshot * interval '24 hours')");
+
+                            t.HasCheckConstraint("ck_inv_revision_reason", "revision_no = 1 OR (change_reason IS NOT NULL AND btrim(change_reason) <> '')");
+
+                            t.HasCheckConstraint("ck_inv_revision_state", "status IN ('DRAFT','PUBLISHED','REJECTED') AND revision_no >= 1 AND version >= 0");
+
+                            t.HasCheckConstraint("ck_inv_revision_time", "planned_end_at IS NULL OR planned_end_at > planned_start_at");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CheckedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("checked_at");
+
+                    b.Property<Guid>("CheckedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("checked_by_account_id");
+
+                    b.Property<string>("CheckerCodeSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("checker_code_snapshot");
+
+                    b.Property<string>("CheckerNameSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("checker_name_snapshot");
+
+                    b.Property<bool>("Exists")
+                        .HasColumnType("boolean")
+                        .HasColumnName("exists");
+
+                    b.Property<Guid>("InitialRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("initial_request_id");
+
+                    b.Property<DateTimeOffset?>("LastCorrectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_corrected_at");
+
+                    b.Property<Guid?>("LastCorrectedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_corrected_by_account_id");
+
+                    b.Property<Guid>("PlanItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plan_item_id");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InitialRequestId")
+                        .IsUnique();
+
+                    b.HasIndex("LastCorrectedByAccountId");
+
+                    b.HasIndex("PlanItemId")
+                        .IsUnique();
+
+                    b.HasIndex("CheckedByAccountId", "CheckedAt");
+
+                    b.ToTable("inventory_results", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_result_editor", "(last_corrected_by_account_id IS NULL) = (last_corrected_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_inv_result_version", "version >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryRevisionAssignee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AccountCodeSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("account_code_snapshot");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("account_id");
+
+                    b.Property<DateTimeOffset>("AssignedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("assigned_at");
+
+                    b.Property<Guid>("AssignedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assigned_by_account_id");
+
+                    b.Property<string>("NameSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name_snapshot");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("revision_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("AssignedByAccountId");
+
+                    b.HasIndex("RevisionId", "AccountId")
+                        .IsUnique();
+
+                    b.ToTable("inventory_revision_assignees", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventorySlip", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_at");
+
+                    b.Property<Guid?>("ApprovedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by_account_id");
+
+                    b.Property<string>("CancelReason")
+                        .HasColumnType("text")
+                        .HasColumnName("cancel_reason");
+
+                    b.Property<DateTimeOffset?>("CanceledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("canceled_at");
+
+                    b.Property<Guid?>("CanceledByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("canceled_by_account_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<Guid?>("CompletedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("completed_by_account_id");
+
+                    b.Property<Guid>("CreateRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("create_request_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_account_id");
+
+                    b.Property<string>("CreatorCodeSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("creator_code_snapshot");
+
+                    b.Property<string>("CreatorNameSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("creator_name_snapshot");
+
+                    b.Property<string>("DepartmentCodeSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("department_code_snapshot");
+
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("department_id");
+
+                    b.Property<string>("DepartmentNameSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("department_name_snapshot");
+
+                    b.Property<string>("DisplayCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("display_code");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid?>("StartedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("started_by_account_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByAccountId");
+
+                    b.HasIndex("CanceledByAccountId");
+
+                    b.HasIndex("CompletedByAccountId");
+
+                    b.HasIndex("CreateRequestId")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedByAccountId");
+
+                    b.HasIndex("DisplayCode")
+                        .IsUnique();
+
+                    b.HasIndex("StartedByAccountId");
+
+                    b.HasIndex("DepartmentId", "Status", "CreatedAt");
+
+                    b.ToTable("inventory_slips", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inv_cancel_reason", "status <> 'CANCELED' OR (cancel_reason IS NOT NULL AND btrim(cancel_reason) <> '')");
+
+                            t.HasCheckConstraint("ck_inv_slip_status", "status IN ('PENDING_APPROVAL','PREPARING','IN_PROGRESS','COMPLETED','CANCELED')");
+
+                            t.HasCheckConstraint("ck_inv_slip_version", "version >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CSVC.Core.Manufacturers.Manufacturer", b =>
@@ -4280,6 +5029,206 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Inventories.InventorySlip", null)
+                        .WithMany()
+                        .HasForeignKey("SlipId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryItemHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ActorAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Inventories.InventoryResult", null)
+                        .WithMany()
+                        .HasForeignKey("ResultId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryNoticePolicy", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryNoticePolicyHistory", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ChangedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Inventories.InventoryNoticePolicy", null)
+                        .WithMany()
+                        .HasForeignKey("PolicyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryNotification", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Inventories.InventoryPlanRevision", null)
+                        .WithMany()
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Inventories.InventorySlip", null)
+                        .WithMany()
+                        .HasForeignKey("SlipId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryPlanItem", b =>
+                {
+                    b.HasOne("CSVC.Core.Areas.Area", null)
+                        .WithMany()
+                        .HasForeignKey("AreaIdSnapshot")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("DepartmentIdSnapshot")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Inventories.InventoryPlanRevision", null)
+                        .WithMany("Items")
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryPlanRevision", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ProposedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("RejectedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Inventories.InventorySlip", null)
+                        .WithMany("Revisions")
+                        .HasForeignKey("SlipId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryResult", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CheckedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("LastCorrectedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Inventories.InventoryPlanItem", null)
+                        .WithOne("Result")
+                        .HasForeignKey("CSVC.Core.Inventories.InventoryResult", "PlanItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryRevisionAssignee", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Inventories.InventoryPlanRevision", null)
+                        .WithMany("Assignees")
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventorySlip", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CanceledByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CompletedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Departments.Department", null)
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("StartedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("CSVC.Core.Manufacturers.ManufacturerHistory", b =>
                 {
                     b.HasOne("CSVC.Core.Accounts.Account", null)
@@ -4622,6 +5571,23 @@ namespace CSVC.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("CSVC.Core.DeviceTransfers.DeviceTransfer", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryPlanItem", b =>
+                {
+                    b.Navigation("Result");
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventoryPlanRevision", b =>
+                {
+                    b.Navigation("Assignees");
+
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("CSVC.Core.Inventories.InventorySlip", b =>
+                {
+                    b.Navigation("Revisions");
                 });
 
             modelBuilder.Entity("CSVC.Core.ServiceOrders.ExportReturnSlip", b =>
