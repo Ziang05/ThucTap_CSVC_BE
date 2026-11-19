@@ -1,0 +1,249 @@
+// Nhóm 19 — integrated PostgreSQL schema, generated from EF migration 20261119051005.
+// Extension only: accounts, departments, devices, areas are existing tables.
+// Status/action text columns have CHECK constraints; see InventoryIntegritySql for triggers/views.
+// Read together with inventory-api.md. Do not execute the original V3 SQL after this migration.
+
+Table inventory_notice_policies {
+  id smallint [pk, not null]
+  minimum_notice_days integer [not null]
+  version integer [not null]
+  updated_by_account_id uuid
+  updated_at timestamptz [not null]
+  indexes {
+    (updated_by_account_id) [name: "IX_inventory_notice_policies_updated_by_account_id"]
+  }
+}
+
+Table inventory_slips {
+  id uuid [pk, not null]
+  display_code varchar(64) [not null]
+  create_request_id uuid [not null]
+  department_id uuid [not null]
+  department_code_snapshot text [not null]
+  department_name_snapshot text [not null]
+  status text [not null]
+  created_by_account_id uuid [not null]
+  creator_code_snapshot text [not null]
+  creator_name_snapshot text [not null]
+  created_at timestamptz [not null]
+  approved_by_account_id uuid
+  approved_at timestamptz
+  started_by_account_id uuid
+  started_at timestamptz
+  completed_by_account_id uuid
+  completed_at timestamptz
+  canceled_by_account_id uuid
+  canceled_at timestamptz
+  cancel_reason text
+  notes text
+  version integer [not null]
+  indexes {
+    (approved_by_account_id) [name: "IX_inventory_slips_approved_by_account_id"]
+    (canceled_by_account_id) [name: "IX_inventory_slips_canceled_by_account_id"]
+    (completed_by_account_id) [name: "IX_inventory_slips_completed_by_account_id"]
+    (create_request_id) [name: "IX_inventory_slips_create_request_id", unique]
+    (created_by_account_id) [name: "IX_inventory_slips_created_by_account_id"]
+    (department_id, status, created_at) [name: "IX_inventory_slips_department_id_status_created_at"]
+    (display_code) [name: "IX_inventory_slips_display_code", unique]
+    (started_by_account_id) [name: "IX_inventory_slips_started_by_account_id"]
+  }
+}
+
+Table inventory_notice_policy_history {
+  id uuid [pk, not null]
+  policy_id smallint [not null]
+  request_id uuid [not null]
+  request_hash varchar(64) [not null]
+  response_data jsonb [not null]
+  previous_days integer [not null]
+  new_days integer [not null]
+  changed_by_account_id uuid [not null]
+  changed_at timestamptz [not null]
+  reason text [not null]
+  indexes {
+    (changed_by_account_id) [name: "IX_inventory_notice_policy_history_changed_by_account_id"]
+    (policy_id) [name: "IX_inventory_notice_policy_history_policy_id"]
+    (request_id) [name: "IX_inventory_notice_policy_history_request_id", unique]
+  }
+}
+
+Table inventory_history {
+  id uuid [pk, not null]
+  slip_id uuid [not null]
+  request_id uuid [not null]
+  request_hash varchar(64) [not null]
+  response_data jsonb [not null]
+  target_key text [not null]
+  action_code text [not null]
+  outcome text [not null]
+  actor_account_id uuid
+  occurred_at timestamptz [not null]
+  reason_code text
+  before_data jsonb
+  after_data jsonb
+  indexes {
+    (actor_account_id) [name: "IX_inventory_history_actor_account_id"]
+    (request_id) [name: "IX_inventory_history_request_id", unique]
+    (slip_id, occurred_at, id) [name: "IX_inventory_history_slip_id_occurred_at_id"]
+  }
+}
+
+Table inventory_plan_revisions {
+  id uuid [pk, not null]
+  slip_id uuid [not null]
+  revision_no integer [not null]
+  status text [not null]
+  planned_start_at timestamptz [not null]
+  planned_end_at timestamptz
+  notice_days_snapshot integer
+  change_reason text
+  diff_data jsonb
+  proposed_by_account_id uuid [not null]
+  proposed_at timestamptz [not null]
+  approved_by_account_id uuid
+  approved_at timestamptz
+  published_at timestamptz
+  rejected_by_account_id uuid
+  rejected_at timestamptz
+  rejection_reason text
+  version integer [not null]
+  indexes {
+    (approved_by_account_id) [name: "IX_inventory_plan_revisions_approved_by_account_id"]
+    (proposed_by_account_id) [name: "IX_inventory_plan_revisions_proposed_by_account_id"]
+    (rejected_by_account_id) [name: "IX_inventory_plan_revisions_rejected_by_account_id"]
+    (slip_id, revision_no) [name: "IX_inventory_plan_revisions_slip_id_revision_no", unique]
+    (status, planned_start_at) [name: "IX_inventory_plan_revisions_status_planned_start_at"]
+    (slip_id) [name: "uq_inv_one_draft_per_slip", unique, note: 'Partial: DRAFT only']
+  }
+}
+
+Table inventory_notifications {
+  id uuid [pk, not null]
+  event_key varchar(180) [not null]
+  slip_id uuid [not null]
+  revision_id uuid [not null]
+  recipient_account_id uuid [not null]
+  event_type text [not null]
+  payload_snapshot jsonb [not null]
+  published_at timestamptz [not null]
+  read_at timestamptz
+  delivery_status text [not null]
+  attempts integer [not null]
+  last_attempt_at timestamptz
+  sent_at timestamptz
+  last_error_code text
+  indexes {
+    (event_key) [name: "IX_inventory_notifications_event_key", unique]
+    (recipient_account_id, published_at, id) [name: "IX_inventory_notifications_recipient_account_id_published_at_id"]
+    (revision_id) [name: "IX_inventory_notifications_revision_id"]
+    (slip_id) [name: "IX_inventory_notifications_slip_id"]
+  }
+}
+
+Table inventory_plan_items {
+  id uuid [pk, not null]
+  revision_id uuid [not null]
+  device_id uuid [not null]
+  device_code_snapshot text [not null]
+  device_name_snapshot text [not null]
+  serial_snapshot text
+  quantity_snapshot integer [not null]
+  department_id_snapshot uuid [not null]
+  area_id_snapshot uuid
+  area_path_snapshot text
+  captured_at timestamptz [not null]
+  indexes {
+    (area_id_snapshot) [name: "IX_inventory_plan_items_area_id_snapshot"]
+    (department_id_snapshot) [name: "IX_inventory_plan_items_department_id_snapshot"]
+    (device_id) [name: "IX_inventory_plan_items_device_id"]
+    (revision_id, device_id) [name: "IX_inventory_plan_items_revision_id_device_id", unique]
+  }
+}
+
+Table inventory_revision_assignees {
+  id uuid [pk, not null]
+  revision_id uuid [not null]
+  account_id uuid [not null]
+  account_code_snapshot text [not null]
+  name_snapshot text [not null]
+  assigned_by_account_id uuid [not null]
+  assigned_at timestamptz [not null]
+  indexes {
+    (account_id) [name: "IX_inventory_revision_assignees_account_id"]
+    (assigned_by_account_id) [name: "IX_inventory_revision_assignees_assigned_by_account_id"]
+    (revision_id, account_id) [name: "IX_inventory_revision_assignees_revision_id_account_id", unique]
+  }
+}
+
+Table inventory_results {
+  id uuid [pk, not null]
+  plan_item_id uuid [not null]
+  exists boolean [not null]
+  checked_by_account_id uuid [not null]
+  checker_code_snapshot text [not null]
+  checker_name_snapshot text [not null]
+  checked_at timestamptz [not null]
+  initial_request_id uuid [not null]
+  last_corrected_by_account_id uuid
+  last_corrected_at timestamptz
+  version integer [not null]
+  indexes {
+    (checked_by_account_id, checked_at) [name: "IX_inventory_results_checked_by_account_id_checked_at"]
+    (initial_request_id) [name: "IX_inventory_results_initial_request_id", unique]
+    (last_corrected_by_account_id) [name: "IX_inventory_results_last_corrected_by_account_id"]
+    (plan_item_id) [name: "IX_inventory_results_plan_item_id", unique]
+  }
+}
+
+Table inventory_item_history {
+  id uuid [pk, not null]
+  result_id uuid [not null]
+  action_code text [not null]
+  request_id uuid [not null]
+  request_hash varchar(64) [not null]
+  response_data jsonb [not null]
+  before_exists boolean
+  after_exists boolean [not null]
+  version_before integer
+  version_after integer [not null]
+  actor_account_id uuid [not null]
+  actor_name_snapshot text [not null]
+  occurred_at timestamptz [not null]
+  reason text
+  indexes {
+    (actor_account_id) [name: "IX_inventory_item_history_actor_account_id"]
+    (request_id) [name: "IX_inventory_item_history_request_id", unique]
+    (result_id, version_after) [name: "IX_inventory_item_history_result_id_version_after", unique]
+  }
+}
+
+Ref: inventory_notice_policies.updated_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_slips.approved_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_slips.canceled_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_slips.completed_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_slips.created_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_slips.started_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_slips.department_id > departments.id [delete: restrict]
+Ref: inventory_notice_policy_history.changed_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_notice_policy_history.policy_id > inventory_notice_policies.id [delete: restrict]
+Ref: inventory_history.actor_account_id > accounts.id [delete: restrict]
+Ref: inventory_history.slip_id > inventory_slips.id [delete: restrict]
+Ref: inventory_plan_revisions.approved_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_plan_revisions.proposed_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_plan_revisions.rejected_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_plan_revisions.slip_id > inventory_slips.id [delete: restrict]
+Ref: inventory_notifications.recipient_account_id > accounts.id [delete: restrict]
+Ref: inventory_notifications.revision_id > inventory_plan_revisions.id [delete: restrict]
+Ref: inventory_notifications.slip_id > inventory_slips.id [delete: restrict]
+Ref: inventory_plan_items.area_id_snapshot > areas.id [delete: restrict]
+Ref: inventory_plan_items.department_id_snapshot > departments.id [delete: restrict]
+Ref: inventory_plan_items.device_id > devices.id [delete: restrict]
+Ref: inventory_plan_items.revision_id > inventory_plan_revisions.id [delete: restrict]
+Ref: inventory_revision_assignees.account_id > accounts.id [delete: restrict]
+Ref: inventory_revision_assignees.assigned_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_revision_assignees.revision_id > inventory_plan_revisions.id [delete: restrict]
+Ref: inventory_results.checked_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_results.last_corrected_by_account_id > accounts.id [delete: restrict]
+Ref: inventory_results.plan_item_id > inventory_plan_items.id [delete: restrict]
+Ref: inventory_item_history.actor_account_id > accounts.id [delete: restrict]
+Ref: inventory_item_history.result_id > inventory_results.id [delete: restrict]
