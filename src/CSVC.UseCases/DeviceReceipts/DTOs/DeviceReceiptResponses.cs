@@ -11,7 +11,12 @@ public sealed record DeviceReceiptDto(string ReceiptCode, string SupplierCode, s
     string? RequestCode, DateOnly DeliveryDate, string DeliveryBatch, string RequestingDepartmentCode,
     string RequestingDepartmentName, string? PaidInvoiceCode, DeviceReceiptStatus Status, string CreatorAccountCode,
     DateTimeOffset CreatedAt, string? DecisionAccountCode, DateTimeOffset? DecidedAt, DateTimeOffset? CompletedAt,
-    string? DecisionReason, string? Notes, int ItemCount, int Version, IReadOnlyList<DeviceReceiptItemDto>? Items = null);
+    string? DecisionReason, string? Notes, int ItemCount, int Version, IReadOnlyList<DeviceReceiptItemDto>? Items = null)
+{
+    public int WorkflowVersion { get; init; }
+    public string? ReceivingDepartmentCode { get; init; }
+    public string? ReceivingDepartmentName { get; init; }
+}
 
 public sealed record DeviceReceiptHistoryDto(string ActionCode, string Outcome, DateTimeOffset OccurredAt,
     string? ActorAccountCode, string? ActorFullName, string? ReasonCode, string? ChangedFields, string? BeforeData, string? AfterData);

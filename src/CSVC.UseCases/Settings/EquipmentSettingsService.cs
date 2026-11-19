@@ -11,7 +11,8 @@ namespace CSVC.UseCases.Settings;
 
 public sealed class EquipmentSettingsService(IRepository<EquipmentSettings> settings,
     IRepository<EquipmentSettingsHistory> history, IUnitOfWork uow, IInventoryTransaction transaction,
-    ICurrentAccount current, IRequestContext requestContext, TimeProvider clock) : IEquipmentSettingsService
+    ICurrentAccount current, IRequestContext requestContext, TimeProvider clock,
+    IRepository<CSVC.Core.Materials.MaterialBalance> materialBalances) : IEquipmentSettingsService
 {
     public async Task<EquipmentSettingsDto> GetAsync(CancellationToken ct)
     {
@@ -53,7 +54,14 @@ public sealed class EquipmentSettingsService(IRepository<EquipmentSettings> sett
             if (config?.EquipmentDepartmentId is not null && await uow.DeviceTransfers.ExistsAsync(x =>
                 x.Status == DeviceTransferStatus.PendingConfirmation || x.Status == DeviceTransferStatus.PendingApproval || x.Status == DeviceTransferStatus.Approved, token))
                 throw new UseCaseException(FailureKind.Conflict, "EQUIPMENT_DEPARTMENT_HAS_OPEN_TRANSFERS", "Finish or cancel open transfers before changing the equipment department.");
+            if (config?.EquipmentDepartmentId is { } oldId && (
+                await uow.DeviceReceipts.ExistsAsync(x => x.WorkflowVersion == 2 && x.ReceivingDepartmentId == oldId
+                    && (x.Status == CSVC.Core.DeviceReceipts.DeviceReceiptStatus.PendingApproval || x.Status == CSVC.Core.DeviceReceipts.DeviceReceiptStatus.Approved), token)
+                || await uow.Devices.ExistsAsync(x => x.DepartmentId == oldId && x.UseState == CSVC.Core.Devices.DeviceUseState.InStorage, token)))
+                throw new UseCaseException(FailureKind.Conflict, "EQUIPMENT_DEPARTMENT_HAS_RECEIVING_WORK", "Finish incoming receipts and resolve stored devices before changing the equipment department.");
             var previous = config?.EquipmentDepartmentId;
+            if (previous is not null && await materialBalances.ExistsAsync(b => b.Quantity != 0, token))
+                throw new UseCaseException(FailureKind.Conflict, "EQUIPMENT_DEPARTMENT_HAS_MATERIAL_STOCK", "Resolve material stock before changing the equipment department.");
             if (config is null) { config = new(); await settings.AddAsync(config, token); }
             config.EquipmentDepartmentId = department.Id;
             config.Version++;

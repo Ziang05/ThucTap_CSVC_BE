@@ -6,6 +6,9 @@ namespace CSVC.UseCases.DeviceReceipts.Models;
 
 public sealed class DeviceReceiptReadModel
 {
+    public int WorkflowVersion { get; init; }
+    public string? ReceivingDepartmentCode { get; init; }
+    public string? ReceivingDepartmentName { get; init; }
     public Guid Id { get; init; }
     public required string ReceiptCode { get; init; }
     public required string SupplierCode { get; init; }

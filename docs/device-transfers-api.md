@@ -1,6 +1,10 @@
 # Device transfers API
 
+Phân công nhân viên và kiểm kê do thành viên khác phụ trách. Phần này xử lý theo quyền vai trò và liên kết chứng từ trực tiếp.
+
 Base path: `/api/v1/device-transfers`. All routes require an authenticated active session.
+
+Sau task 3, hoàn tất cấp phát/điều chuyển ghi `useState=InUse`, hoàn tất thu hồi ghi `InStorage`; bước đồng ý/duyệt chưa đổi phòng hoặc phân loại sử dụng. QTTB tự dùng thiết bị được ghi bằng API riêng thay cho phiếu chuyển cùng phòng; xem [hướng dẫn nhập và cấp phát](receipt-custody-release.md).
 
 ## Permissions and scope
 

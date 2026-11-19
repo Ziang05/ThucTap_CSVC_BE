@@ -1,5 +1,7 @@
 # Device Receipts API
 
+Phân công nhân viên và kiểm kê do thành viên khác phụ trách. Phần này xử lý theo quyền vai trò và liên kết chứng từ trực tiếp.
+
 API nhập thiết bị theo contract tại [device-workflows-contract.md](device-workflows-contract.md). Mọi route yêu cầu session bearer hiện tại. Actor lấy từ database/session; client không được chọn creator, người duyệt hoặc actor history. Không nhận upload file/ảnh; `paidInvoiceCode` chỉ là mã tham chiếu tùy chọn.
 
 Base path: `/api/v1/device-receipts`
@@ -53,6 +55,10 @@ Supplier, ngày giao, đợt giao, phòng ban yêu cầu và ít nhất một it
 
 - Chọn thiết bị có sẵn: gửi `existingDeviceCode`; thiết bị phải Active, có `quantity=0` và cùng phòng ban với phiếu. Backend lấy tên, loại, serial, quan hệ cha và barcode từ hồ sơ; không cần gửi lại metadata. Nếu gửi metadata khác hồ sơ thì trả 400, cần sửa tại trang thiết bị. Không gửi đồng thời `existingDeviceCode` và `deviceCode`. `deviceCode` trỏ mã hồ sơ có sẵn cũng được hỗ trợ cho client cũ.
 - Tạo thiết bị mới ngay trong phiếu: gửi `categoryCode`, `name`, serial/parent tùy chọn; `deviceCode` tùy chọn. Backend sinh mã nếu để trống và sinh barcode riêng, reserve vào registry. Hồ sơ mới được tạo khi complete thành công. Tên/model giống nhau vẫn có mã riêng. Mã/barcode được giữ khi sửa phiếu và không được tái sử dụng cho thiết bị khác sau khi bỏ/hủy.
+
+## Bổ sung từ phần mua sắm và kho vật tư
+
+- Chọn thiết bị có sẵn: gửi `existingDeviceCode`; thiết bị phải Active, có `quantity=0` và chưa bị giữ chỗ. Phiếu mới có thể chọn hồ sơ khai báo ở phòng khác, vì chưa có tiếp nhận vật lý; lúc complete mới đưa về QTTB. Chỉ phiếu cũ phiên bản 1 còn yêu cầu cùng phòng trên phiếu. Backend giữ mã/barcode và metadata, không sao chép quan hệ cha sang dòng nhập mới. Nếu gửi metadata khác hồ sơ thì trả 400. Không gửi đồng thời `existingDeviceCode` và `deviceCode`; mã khai báo cũ trỏ hồ sơ có sẵn vẫn được hỗ trợ.
 - Form tạo thiết bị đầy đủ trên giao diện dùng cùng API `POST /devices` như trang Thiết bị, sau đó gửi `existingDeviceCode` vào phiếu. Hồ sơ được lưu ngay với số lượng 0, tự thêm vào danh sách tiếp nhận; hoàn tất phiếu mới tăng lên 1 và giữ nguyên metadata. Nếu đóng/hủy phiếu, hồ sơ đã tạo vẫn nằm trong danh sách thiết bị với số lượng 0. Dropdown thiết bị có sẵn là tùy chọn, lọc theo loại và phòng ban; có thể thêm nhiều thiết bị khác mã vào cùng nhóm. Payload khai báo trực tiếp ở dòng trên vẫn được hỗ trợ cho phiếu/client cũ.
 - Một phiếu có thể gồm cả thiết bị có sẵn và thiết bị mới. Thiết bị có sẵn giữ nguyên ID, mã, barcode và metadata khi tiếp nhận; số lượng chỉ đổi 0 → 1 lúc complete.
 - Phiếu Pending/Rejected/Cancelled không làm tăng số lượng. Thiết bị có sẵn từ phiếu bị hủy/từ chối có thể được chọn lại trong phiếu khác. Các phiếu pending có thể cùng chọn một thiết bị, nhưng chỉ một phiếu được duyệt giữ mã đó; phiếu còn lại trả `409 DEVICE_BUSY`, hoặc `DEVICE_ALREADY_RECEIVED` nếu thiết bị đã hoàn tất tiếp nhận.
@@ -61,10 +67,12 @@ Supplier, ngày giao, đợt giao, phòng ban yêu cầu và ít nhất một it
 
 1. QTTB Staff tạo phiếu ở `PendingApproval`. Chỉ creator được sửa/hủy ở trạng thái này.
 2. QTTB Manager approve hoặc reject toàn phiếu. Approve tạo operation hold cho mọi item trong cùng transaction; không có duyệt từng phần.
-3. QTTB Staff complete phiếu Approved một lần. Item có sẵn được liên kết vào đúng device và tăng `quantity` lên 1; item mới tạo một device với `quantity=1`, department lấy từ requesting department, tình trạng `Good`, trạng thái `Active`. Mỗi thiết bị và phiếu có history. Tất cả quantity/device/item/history và giải phóng hold commit nguyên tử; lỗi audit rollback toàn bộ.
+3. QTTB Staff complete phiếu Approved một lần. Với phiếu mới, item có sẵn liên kết đúng device và tăng `quantity` lên 1; mọi thiết bị được đưa về QTTB đã lưu trên phiếu, `useState=InStorage`. Item mới có tình trạng `Good`, trạng thái `Active`; người phụ trách giữ mặc định là người tiếp nhận nếu chưa có người cùng phòng phù hợp. Phiếu cũ phiên bản 1 vẫn nhập theo requesting department và giữ phân loại Unspecified. Mỗi thiết bị và phiếu có history. Quantity/phòng/người phụ trách/device/item/history và giải phóng hold commit nguyên tử; lỗi audit rollback toàn bộ.
 4. Phiếu Approved không thể hủy. Phiếu Completed/Rejected/Cancelled không nhận mutation. Complete lặp trả `409 INVALID_WORKFLOW_TRANSITION`.
 
 Create/detail response gồm `receiptCode`, nhà cung cấp, phòng ban yêu cầu, status, audit metadata, `itemCount`, `version`; detail có từng item với category/name/deviceCode/barcode/code source/serial và cờ completed. `existingDeviceCode` trên item cho biết mã đã có hồ sơ tại thời điểm đọc (null nếu item mới chưa complete), giúp form sửa phiếu pending khôi phục lựa chọn có sẵn. Không trả UUID/FK.
+
+Response thêm `workflowVersion`, `receivingDepartmentCode/Name`. `requestingDepartmentCode/Name` là đơn vị đề xuất trên phiếu mới, không phải phòng tự nhận tài sản khi hoàn tất nhập. Client không được gửi phòng tiếp nhận hoặc phiên bản luồng; backend lấy QTTB từ Settings và kiểm tra thành viên phòng khi ghi phiếu mới. Cấp phát cho đơn vị đề xuất dùng chứng từ riêng; QTTB tự sử dụng dùng API [đưa vào sử dụng](receipt-custody-release.md).
 
 ## Error codes
 

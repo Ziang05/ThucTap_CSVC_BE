@@ -8,6 +8,7 @@ namespace CSVC.UseCases.DeviceReceipts.DTOs;
 public class CreateDeviceReceiptRequest
 {
     [Required, StringLength(64)] public string SupplierCode { get; init; } = "";
+    [StringLength(32)] public string? SourceRequestCode { get; init; }
     [StringLength(200)] public string? CarrierName { get; init; }
     [StringLength(64)] public string? RequestCode { get; init; }
     public DateOnly DeliveryDate { get; init; }
@@ -24,6 +25,7 @@ public sealed class UpdateDeviceReceiptRequest : CreateDeviceReceiptRequest { }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class DeviceReceiptItemRequest
 {
+    [StringLength(64)] public string? SourceLineCode { get; init; }
     [StringLength(32)] public string? ExistingDeviceCode { get; init; }
     [StringLength(64)] public string? CategoryCode { get; init; }
     [StringLength(200)] public string? Name { get; init; }

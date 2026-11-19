@@ -2,6 +2,8 @@
 
 Phòng QTTB được chọn từ phòng ban hiện hữu, lưu bằng FK `EquipmentDepartmentId`. Tên phòng và role người lập không dùng để phân loại phiếu. Không seed phòng QTTB mặc định.
 
+Sau task 3, phiếu nhập mới và ghi nhận QTTB tự sử dụng cũng kiểm tra cấu hình và thành viên QTTB. Không đổi phòng QTTB khi còn phiếu nhập phiên bản 2 PendingApproval/Approved hoặc thiết bị InStorage tại phòng hiện tại: trả `409 EQUIPMENT_DEPARTMENT_HAS_RECEIVING_WORK`. Phiếu nhập cũ giữ cách xử lý trước đây; xem [hướng dẫn](receipt-custody-release.md).
+
 ## API
 
 | Method | Route | Quyền |

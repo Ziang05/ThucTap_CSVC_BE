@@ -20,3 +20,5 @@ public enum DeviceCodeSource
     Manual,
     Generated
 }
+
+public enum DeviceUseState { Unspecified, InStorage, InUse }

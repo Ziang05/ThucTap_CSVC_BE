@@ -11,9 +11,15 @@ public static class DependencyInjection
     public static IServiceCollection AddUseCases(this IServiceCollection services)
     {
         services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<Materials.MaterialAccess>();
+        services.AddScoped<Materials.MaterialDeliveryScope>();
+        services.AddScoped<Materials.IMaterialService, Materials.MaterialService>();
+        services.AddScoped<Materials.IMaterialWorkflow, Materials.MaterialWorkflow>();
         services.AddAutoMapper(_ => { }, typeof(AccountMappingProfile));
         services.AddScoped<DamageReports.IDamageReportService, DamageReports.DamageReportService>();
         services.AddScoped<Inventories.IInventoryService, Inventories.InventoryService>();
+        services.AddScoped<ProcurementRequests.IProcurementRequestService, ProcurementRequests.ProcurementRequestService>();
+        services.AddScoped<ProcurementRequests.IProcurementWorkflow, ProcurementRequests.ProcurementWorkflow>();
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<Settings.IEquipmentSettingsService, Settings.EquipmentSettingsService>();
         services.AddScoped<Settings.IEquipmentDepartmentPolicy, Settings.EquipmentDepartmentPolicy>();

@@ -54,6 +54,18 @@ public sealed class DevicesController(IDeviceService devices) : AuthenticatedApi
         return NoContent();
     }
 
+    [HttpPost("put-into-use")]
+    public async Task<IActionResult> PutIntoUseBatch(PutDeviceIntoUseBatchRequest request, CancellationToken ct)
+    { await devices.PutIntoUseBatchAsync(request, ct); return NoContent(); }
+
+    [HttpPost("{deviceCode}/put-into-use")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> PutIntoUse(string deviceCode, PutDeviceIntoUseRequest request, CancellationToken ct)
+    {
+        await devices.PutIntoUseAsync(deviceCode, request, ct);
+        return NoContent();
+    }
+
     [HttpPut("{deviceCode}/parent")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> SetParent(string deviceCode, DeviceParentUpdateRequest request, CancellationToken cancellationToken)

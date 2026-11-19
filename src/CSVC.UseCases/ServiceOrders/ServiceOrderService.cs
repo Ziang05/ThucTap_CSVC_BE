@@ -1,3 +1,5 @@
+using CSVC.UseCases.ProcurementRequests;
+using CSVC.Core.ProcurementRequests;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
@@ -21,7 +23,7 @@ public sealed partial class ServiceOrderService(
     IRepository<ServiceOrderDeviceHold> holds, IRepository<ExportDeviceGuard> guards,
     IRepository<ExportSlipItem> exportItems, IRepository<ExportReturnSlip> returns,
     IRepository<ExportReturnSlipItem> returnItems, IRepository<ExportReturnHistory> returnHistory,
-    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, IBusinessCodeGenerator codeGenerator) : IServiceOrderService
+    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow) : IServiceOrderService
 {
     public async Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct)
     {
@@ -84,6 +86,17 @@ public sealed partial class ServiceOrderService(
                 order.Items.Add(item);
             }
             await orders.AddAsync(order, token);
+            if (request.SourceRequestCode is not null && order.OrderType != ServiceOrderType.Repair) throw Validation("Use a Repair order for the source repair or upgrade request.");
+            var sourceBindings = new List<RequestDeviceBinding>();
+            foreach (var input in request.Items)
+            {
+                var device = devices.Single(d => d.DeviceCode == Code(input.DeviceCode));
+                sourceBindings.Add(new(input.SourceLineCode ?? "", device.DeviceCode,
+                    (await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, token))!.DisplayCode,
+                    input.ExecutionMethod.ToString(), Clean(input.DamageReportCode) is null ? null : Code(input.DamageReportCode)));
+            }
+            await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.Repair, order.DisplayCode, Guid.Empty,
+                sourceBindings, actor, token);
             await AuditAsync(order, request.RequestId, actor, "SERVICE_CREATED", null, null, null, token);
             return ToDto(order, await AccountCodesAsync([order], token));
         }, ct);
@@ -170,6 +183,7 @@ public sealed partial class ServiceOrderService(
             var selected = request.Items.Select(input => order.Items.SingleOrDefault(x => x.ItemNo == input.ItemNo)
                 ?? throw Validation("The result item does not belong to this order.")).ToArray();
             await transaction.LockDevicesAsync(selected.Select(x => x.DeviceId), token);
+            await materialWorkflow.RequireServiceReconciledAsync(order, selected.Select(x => x.DeviceId).ToArray(), token);
             foreach (var item in selected)
             {
                 if (item.ExecutionStatus != ServiceItemStatus.InProgress) throw InvalidTransition();
@@ -188,6 +202,7 @@ public sealed partial class ServiceOrderService(
                 await AuditAsync(order, request.RequestId, actor, "ITEM_" + input.Result.ToString().ToUpperInvariant(),
                     ServiceItemStatus.InProgress, item, null, token);
             }
+            await materialWorkflow.ValidateServiceResultsAsync(order, selected, token);
             order.Version++;
             await CompleteIfFinishedAsync(order, request.RequestId, actor, null, token);
             return true;
@@ -326,10 +341,15 @@ public sealed partial class ServiceOrderService(
     }
 
     private static string Fingerprint(CreateServiceOrderRequest r)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Clean(r.SourceRequestCode) is null && r.Items.All(i => Clean(i.SourceLineCode) is null) ? (object)new
         {
             r.OrderType, notes = Clean(r.Notes),
             items = r.Items.Select(i => new { deviceCode = Code(i.DeviceCode), i.ExecutionMethod,
+                workDescription = Clean(i.WorkDescription), notes = Clean(i.Notes), damageReportCode = Clean(i.DamageReportCode) is null ? null : Code(i.DamageReportCode) })
+        } : new
+        {
+            sourceRequestCode = Clean(r.SourceRequestCode), r.OrderType, notes = Clean(r.Notes),
+            items = r.Items.Select(i => new { sourceLineCode = Clean(i.SourceLineCode), deviceCode = Code(i.DeviceCode), i.ExecutionMethod,
                 workDescription = Clean(i.WorkDescription), notes = Clean(i.Notes), damageReportCode = Clean(i.DamageReportCode) is null ? null : Code(i.DamageReportCode) })
         }))));
     private static void Validate(object value)

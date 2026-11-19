@@ -48,7 +48,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
                HasParent = device.ParentDeviceId != null,
                CategoryCode = category.DisplayCode, CategoryName = category.Name,
                DepartmentCode = department.Code, DepartmentName = department.Name, AreaCode = area == null ? null : area.Code,
-               Status = device.Status, Condition = device.Condition, Quantity = device.Quantity,
+               Status = device.Status, Condition = device.Condition, Quantity = device.Quantity, UseState = device.UseState,
                ResponsibleAccountCode = account == null ? null : account.AccountCode,
                ResponsibleFullName = profile == null ? null : profile.FullName,
                ManufacturerCode = manufacturer == null ? null : manufacturer.DisplayCode,
@@ -144,6 +144,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
     public async Task<PagedResult<DeviceReadModel>> ListAsync(DeviceListQuery query, Guid? departmentScope, CancellationToken ct = default)
     {
         var source = ReadModels();
+        if (query.UseState is { } useState) source = source.Where(x => x.UseState == useState);
         if (query.EligibleFor is { } workflow)
         {
             var unavailable = Unavailable(workflow == DeviceWorkflowEligibility.Recovery, true);
@@ -355,11 +356,15 @@ public sealed class DeviceReceiptRepository(CsvcDbContext context) : GenericRepo
         => from receipt in _context.DeviceReceipts.AsNoTracking()
            join supplier in _context.Suppliers.AsNoTracking() on receipt.SupplierId equals supplier.Id
            join department in _context.Departments.AsNoTracking() on receipt.RequestingDepartmentId equals department.Id
+           join receiving0 in _context.Departments.AsNoTracking() on receipt.ReceivingDepartmentId equals receiving0.Id into receivingDepartments
+           from receiving in receivingDepartments.DefaultIfEmpty()
            join creator in _context.Accounts.AsNoTracking() on receipt.CreatorAccountId equals creator.Id
            join decision0 in _context.Accounts.AsNoTracking() on receipt.DecisionAccountId equals decision0.Id into decisions
            from decision in decisions.DefaultIfEmpty()
            select new DeviceReceiptReadModel
            {
+               WorkflowVersion = receipt.WorkflowVersion, ReceivingDepartmentCode = receiving == null ? null : receiving.Code,
+               ReceivingDepartmentName = receiving == null ? null : receiving.Name,
                Id = receipt.Id, ReceiptCode = receipt.ReceiptCode, SupplierCode = supplier.DisplayCode, SupplierName = supplier.Name,
                CarrierName = receipt.CarrierName, RequestCode = receipt.RequestCode, DeliveryDate = receipt.DeliveryDate,
                DeliveryBatch = receipt.DeliveryBatch, DepartmentCode = department.Code, DepartmentName = department.Name,

@@ -41,7 +41,7 @@ public sealed class DeviceTimelineTests
                 var supplier = new Supplier { DisplayCode = "SUP_TIMELINE", Name = "Timeline supplier" };
                 var receipt = new DeviceReceipt
                 {
-                    ReceiptCode = "PN-TIMELINE", SupplierId = supplier.Id, RequestingDepartmentId = seed.Department,
+                    WorkflowVersion = 1, ReceiptCode = "PN-TIMELINE", SupplierId = supplier.Id, RequestingDepartmentId = seed.Department,
                     CreatorAccountId = seed.Staff, CreatedAt = now.AddDays(-1), DeliveryDate = DateOnly.FromDateTime(now.UtcDateTime), DeliveryBatch = "1",
                     Status = DeviceReceiptStatus.Completed, CompletedAt = now
                 };

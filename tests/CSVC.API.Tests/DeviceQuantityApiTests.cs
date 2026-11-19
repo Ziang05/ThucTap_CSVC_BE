@@ -55,7 +55,7 @@ public sealed class DeviceQuantityApiTests
         await f.Approve(receipt.ReceiptCode);
         Assert.Equal(0, (await f.GetDevice(created.DeviceCode)).Quantity);
         await f.Complete(receipt.ReceiptCode);
-        Assert.Equal(registered with { Quantity = 1, Availability = DeviceAvailability.Available }, await f.GetDevice(created.DeviceCode));
+        Assert.Equal(registered with { Quantity = 1, Availability = DeviceAvailability.Available, UseState = CSVC.Core.Devices.DeviceUseState.InStorage }, await f.GetDevice(created.DeviceCode));
     }
 
     [PostgreSqlFact]
@@ -286,6 +286,7 @@ public sealed class DeviceQuantityApiTests
                 {
                     db.Add(new DeviceCategory { DisplayCode = "CAT_QTY", Name = "Quantity test" });
                     db.Add(new Supplier { DisplayCode = "SUP_QTY", Name = "Supplier" });
+                    (await db.EquipmentSettings.SingleAsync()).EquipmentDepartmentId = seed.Department;
                     await db.SaveChangesAsync();
                 });
                 return fixture;

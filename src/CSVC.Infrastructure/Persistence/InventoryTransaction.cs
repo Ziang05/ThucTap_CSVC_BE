@@ -14,6 +14,8 @@ public sealed class InventoryTransaction(CsvcDbContext context) : IInventoryTran
 
     public async Task<T> ExecuteAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken = default)
     {
+        // Combined deliveries compose existing workflows under the outer inventory transaction.
+        if (context.Database.CurrentTransaction is not null) return await action(cancellationToken);
         await using var transaction = await BeginAsync(cancellationToken);
         try
         {

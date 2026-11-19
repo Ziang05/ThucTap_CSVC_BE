@@ -2,6 +2,10 @@
 
 Cập nhật ngày 04/11/2026. Tài liệu này thay thế hợp đồng API cũ tạo PX cùng nguồn và ghi kết quả xuất ở header.
 
+## Bổ sung từ phần mua sắm và kho vật tư
+
+Phân công nhân viên và kiểm kê do thành viên khác phụ trách. Phần này xử lý theo quyền vai trò và liên kết chứng từ trực tiếp.
+
 ## 1. Nguồn và phạm vi
 
 - Thiết kế dữ liệu: `CSVC_v9.dbml` được người dùng cung cấp.
