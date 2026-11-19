@@ -42,7 +42,7 @@ public sealed class DepartmentService(
             Validate(request);
             await RequireUniqueNameAsync(request.Name, null, ct);
             var department = mapper.Map<Department>(request);
-            department.Code = request.Code ?? await codes.NextDepartmentCodeAsync(ct);
+            department.Code = request.Code ?? await codes.NextAsync(BusinessCodeKind.Department, ct);
             await RequireUniqueCodeAsync(department.Code, null, ct);
             department.Status = EntityStatus.Active;
             await unitOfWork.Departments.AddAsync(department, ct);

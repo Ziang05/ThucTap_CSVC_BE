@@ -1,4 +1,3 @@
-using System.Globalization;
 using CSVC.Core.ServiceOrders;
 using CSVC.UseCases.Abstractions.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -10,16 +9,12 @@ public sealed class BusinessCodeGenerator(CsvcDbContext context, TimeProvider cl
     internal const string SequenceName = "business_code_seq";
     private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
 
-    public Task<string> NextAccountCodeAsync(CancellationToken cancellationToken)
-        => NextUndatedAsync("account_code_seq", "TK", true, cancellationToken);
-
-    public Task<string> NextDepartmentCodeAsync(CancellationToken cancellationToken)
-        => NextUndatedAsync("department_code_seq", "PB", false, cancellationToken);
-
     public async Task<string> NextAsync(BusinessCodeKind kind, CancellationToken cancellationToken, IReadOnlySet<string>? excludedCodes = null)
     {
         var prefix = kind switch
         {
+            BusinessCodeKind.Account => "TK",
+            BusinessCodeKind.Department => "PB",
             BusinessCodeKind.Area => "KV",
             BusinessCodeKind.DeviceCategory => "DM",
             BusinessCodeKind.Manufacturer => "HSX",
@@ -40,7 +35,8 @@ public sealed class BusinessCodeGenerator(CsvcDbContext context, TimeProvider cl
         var date = clock.GetUtcNow().ToOffset(VietnamUtcOffset);
         while (true)
         {
-            var number = await NextNumberAsync(SequenceName, cancellationToken);
+            var number = await context.Database.SqlQuery<long>(
+                $"SELECT nextval({SequenceName}::regclass) AS \"Value\"").SingleAsync(cancellationToken);
             var code = FormattableString.Invariant($"{prefix}-{date:yyyyMMdd}-{number:D4}");
             if (excludedCodes?.Contains(code) != true && !await ExistsAsync(kind, code, cancellationToken))
                 return code;
@@ -52,6 +48,8 @@ public sealed class BusinessCodeGenerator(CsvcDbContext context, TimeProvider cl
         var normalized = code.ToLowerInvariant();
         return kind switch
         {
+            BusinessCodeKind.Account => context.Accounts.AnyAsync(x => EF.Property<string>(x, "NormalizedCode") == normalized, ct),
+            BusinessCodeKind.Department => context.Departments.AnyAsync(x => EF.Property<string>(x, "NormalizedCode") == normalized, ct),
             BusinessCodeKind.Area => context.Areas.AnyAsync(x => x.Code == code, ct),
             BusinessCodeKind.DeviceCategory => CatalogCodeExistsAsync(context.DeviceCategories, normalized, ct),
             BusinessCodeKind.Manufacturer => CatalogCodeExistsAsync(context.Manufacturers, normalized, ct),
@@ -71,22 +69,4 @@ public sealed class BusinessCodeGenerator(CsvcDbContext context, TimeProvider cl
 
     private static Task<bool> CatalogCodeExistsAsync<T>(DbSet<T> entries, string normalized, CancellationToken ct) where T : class
         => entries.AnyAsync(x => EF.Property<string>(x, "NormalizedDisplayCode") == normalized, ct);
-
-    private Task<long> NextNumberAsync(string sequence, CancellationToken ct)
-        => context.Database.SqlQuery<long>($"SELECT nextval({sequence}::regclass) AS \"Value\"").SingleAsync(ct);
-
-    private async Task<string> NextUndatedAsync(string sequence, string prefix, bool account, CancellationToken ct)
-    {
-        while (true)
-        {
-            var number = await NextNumberAsync(sequence, ct);
-            var code = prefix + number.ToString("D6", CultureInfo.InvariantCulture);
-            var key = code.ToLowerInvariant();
-            var exists = account
-                ? await context.Accounts.AnyAsync(a => EF.Property<string>(a, "NormalizedCode") == key, ct)
-                : await context.Departments.AnyAsync(d => EF.Property<string>(d, "NormalizedCode") == key, ct);
-            // A manually supplied code may already occupy a number in the generated range.
-            if (!exists) return code;
-        }
-    }
 }

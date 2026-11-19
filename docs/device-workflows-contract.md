@@ -46,12 +46,13 @@ Ngày trong mã là ngày tạo theo giờ Việt Nam (UTC+7). Số thứ tự c
 
 | Đối tượng | Tiền tố |
 |---|---|
+| Tài khoản và phòng ban | `TK` tài khoản, `PB` phòng ban |
 | Danh mục | `KV` khu vực, `DM` loại thiết bị, `HSX` hãng sản xuất, `NCC` nhà cung cấp |
 | Thiết bị và luân chuyển | `TB` thiết bị, `PN` phiếu nhập, `MT` phiếu mượn, `DC` điều chuyển, `TH` thu hồi |
 | Bảo trì và sửa chữa | `BH` báo hỏng, `BT` bảo trì, `SC` sửa chữa, `PX` phiếu xuất, `NL` phiếu nhập lại |
 | Kiểm kê | `KK` phiếu kiểm kê |
 
-Tài khoản và phòng ban tiếp tục dùng mã tự sinh dạng `TK000001` và `PB000001`. Migration `ReadableBusinessCodes` tạo sequence `business_code_seq` để cấp mã mới. Mã từng cấp vẫn tra cứu được theo đường dẫn API cũ.
+Migration `ReadableBusinessCodes` tạo sequence `business_code_seq` để cấp mã mới. Mã từng cấp vẫn tra cứu được theo đường dẫn API cũ.
 
 ## 3. State machines
 

@@ -47,9 +47,9 @@ Tạo tài khoản:
 }
 ```
 
-`accountCode` là trường tùy chọn khi tạo. Không gửi, null hoặc chuỗi trắng thì server cấp mã `TK000001`, `TK000002`… bằng PostgreSQL sequence; mã nhập tay được trim và viết hoa. Mã dài tối đa 32 ký tự, bắt đầu bằng chữ A–Z hoặc số; phần còn lại cho phép chữ, số, `.`, `_`, `/`, `-`. Ví dụ `NV.QTTB/2026-01`. Mã không trùng với tài khoản khác, không phân biệt hoa/thường và khoảng trắng đầu/cuối, kể cả tài khoản đã khóa.
+`accountCode` là trường tùy chọn khi tạo. Không gửi, null hoặc chuỗi trắng thì server cấp mã dạng `TK-YYYYMMDD-NNNN`, ví dụ `TK-20261119-0042`; mã nhập tay được trim và viết hoa. Mã dài tối đa 32 ký tự, bắt đầu bằng chữ A–Z hoặc số; phần còn lại cho phép chữ, số, `.`, `_`, `/`, `-`. Ví dụ `NV.QTTB/2026-01`. Mã không trùng với tài khoản khác, không phân biệt hoa/thường và khoảng trắng đầu/cuối, kể cả tài khoản đã khóa.
 
-Sequence tăng độc lập cho tài khoản và phòng ban, không reset theo năm; tối thiểu 6 chữ số, tự tăng độ dài khi vượt 999999. Nếu mã nhập tay chiếm số tự sinh, server bỏ qua số đó. Số đã cấp không thu hồi sau rollback nên có thể có khoảng trống; mã không phải số thứ tự liên tục để đếm bản ghi. Mã legacy hiện có không bị đổi tự động.
+Ngày trong mã tính theo giờ Việt Nam (UTC+7). Phần số có ít nhất 4 chữ số và lấy từ sequence PostgreSQL dùng chung cho các nghiệp vụ. Nếu mã nhập tay đã chiếm số, server bỏ qua mã đó. Sequence có thể có khoảng trống sau rollback. Mã từng cấp như `TK000001` vẫn dùng được.
 
 Vai trò phải là một trong ba role hiện có; phòng ban phải tồn tại và hoạt động. Mật khẩu khởi tạo bằng email chuẩn hóa theo yêu cầu nghiệp vụ, chỉ lưu bằng PasswordHasher của ASP.NET Core Identity (không sử dụng hệ thống quản lý user/role Identity).
 
