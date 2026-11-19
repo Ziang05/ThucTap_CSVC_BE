@@ -143,14 +143,12 @@ Migration: `20261119051005_EquipmentInventoryGroup19`, tiếp sau `2026110503245
 Không chạy migration tự động khi API startup. Áp dụng theo quy trình triển khai hiện có của dự án. Không áp dụng thử vào database đang sử dụng; test dùng database riêng có tên ngẫu nhiên rồi tự xóa.
 
 ```bash
-dotnet restore CSVC.sln -p:WarningsNotAsErrors=NU1903
-dotnet build CSVC.sln --no-restore -p:WarningsNotAsErrors=NU1903
+dotnet restore CSVC.sln
+dotnet build CSVC.sln --no-restore
 CSVC_POSTGRES_TEST_CONNECTION='<disposable-database-admin-connection>' \
   DOTNET_PROCESSOR_COUNT=2 DOTNET_USE_POLLING_FILE_WATCHER=1 \
-  dotnet test CSVC.sln --no-restore -p:WarningsNotAsErrors=NU1903
+  dotnet test CSVC.sln --no-restore
 ```
-
-`WarningsNotAsErrors=NU1903` chỉ là tham số lệnh kiểm chứng: AutoMapper 16.2.0 có sẵn trong repo bị NuGet audit báo lỗ hổng mức high. Tham số giữ cảnh báo hiển thị, không sửa package hoặc tắt audit trong cấu hình dự án. Build mặc định với TreatWarningsAsErrors vẫn bị chặn tới khi xử lý dependency này trong công việc riêng.
 
 `InventoryApiTests` kiểm chứng lifecycle đủ UC, PB scope, owner/manager/assigned RBAC, revision, notice/policy, export snapshot, idempotency, stale version, concurrent insert/correction/completion, rollback khi audit/notification lỗi, SQL guards và reminders. Test schema chung kiểm đúng 62 entity gồm 10 bảng mới, FK Restrict; không nới logic của nhóm khác.
 
