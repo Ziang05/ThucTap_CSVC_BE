@@ -191,6 +191,7 @@ public class CsvcDbContext(DbContextOptions<CsvcDbContext> options)
         base.OnModelCreating(modelBuilder);
         modelBuilder.HasSequence<long>("account_code_seq");
         modelBuilder.HasSequence<long>("department_code_seq");
+        modelBuilder.HasSequence<long>(BusinessCodeGenerator.SequenceName);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CsvcDbContext).Assembly);
     }
 }

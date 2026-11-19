@@ -16,7 +16,7 @@ namespace CSVC.UseCases.Areas;
 
 public sealed class AreaService(
     IUnitOfWork unitOfWork, IAreaTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<AreaService> logger) : IAreaService
+    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<AreaService> logger, IBusinessCodeGenerator codeGenerator) : IAreaService
 {
     public async Task<PagedResult<AreaListItemDto>> ListAsync(AreaListQuery query, CancellationToken cancellationToken)
     {
@@ -52,7 +52,7 @@ public sealed class AreaService(
             await RequireParentAsync(request.ParentId, null, ct);
             await RequireUniqueNameAsync(request.Name, request.ParentId, null, ct);
             var area = mapper.Map<Area>(request);
-            area.Code = "KV" + Guid.NewGuid().ToString("N")[..30];
+            area.Code = await codeGenerator.NextAsync(BusinessCodeKind.Area, ct);
             area.ParentId = request.ParentId;
             area.Status = EntityStatus.Active;
             await unitOfWork.Areas.AddAsync(area, ct);

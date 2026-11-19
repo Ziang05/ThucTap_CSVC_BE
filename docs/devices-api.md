@@ -82,7 +82,7 @@ Response dạng `{ "items": [], "totalCount": 0, "page": 1, "pageSize": 20 }`. F
 }
 ```
 
-`name`, `categoryCode`, `departmentCode` bắt buộc. `deviceCode` tùy chọn; khi vắng mặt server sinh mã theo format `TB` + 30 ký tự hex. Barcode luôn được sinh server-side theo format `BC` + 30 ký tự hex, duy nhất và không đổi. Category, department, area, manufacturer và người chịu trách nhiệm nếu gửi phải tồn tại và đang dùng được; người chịu trách nhiệm phải thuộc phòng ban đã chọn. Người chịu trách nhiệm có thể bỏ trống. Thiết bị bắt đầu ở `Active`; tình trạng mặc định là `Good`.
+`name`, `categoryCode`, `departmentCode` bắt buộc. `deviceCode` tùy chọn; khi vắng mặt backend sinh mã dạng `TB-YYYYMMDD-NNNN`. Barcode luôn được sinh server-side theo format `BC` + 30 ký tự hex, duy nhất và không đổi. Category, department, area, manufacturer và người chịu trách nhiệm nếu gửi phải tồn tại và đang dùng được; người chịu trách nhiệm phải thuộc phòng ban đã chọn. Người chịu trách nhiệm có thể bỏ trống. Thiết bị bắt đầu ở `Active`; tình trạng mặc định là `Good`.
 
 ### Update metadata
 

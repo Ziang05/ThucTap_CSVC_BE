@@ -22,7 +22,7 @@ namespace CSVC.UseCases.Devices;
 
 public sealed class DeviceService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations) : IDeviceService
+    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator) : IDeviceService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex BarcodePattern = new("^BC[A-F0-9]{30}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -88,9 +88,9 @@ public sealed class DeviceService(
                 if (profile?.DepartmentId != department.Id) throw Validation("Responsible account must belong to the selected department.");
             }
 
-            var code = string.IsNullOrWhiteSpace(request.DeviceCode) ? BusinessCode.NewRandom("TB") : NormalizeCode(request.DeviceCode);
+            var code = string.IsNullOrWhiteSpace(request.DeviceCode) ? await codeGenerator.NextAsync(BusinessCodeKind.Device, token) : NormalizeCode(request.DeviceCode);
             if (!DeviceCodePattern.IsMatch(code)) throw Validation("Device code format is invalid.");
-            var barcode = BusinessCode.NewRandom("BC");
+            var barcode = BusinessCode.NewBarcode();
             var identity = new DeviceIdentity { DeviceCode = code, Barcode = barcode, ReservedAt = clock.GetUtcNow() };
             var device = new Device
             {

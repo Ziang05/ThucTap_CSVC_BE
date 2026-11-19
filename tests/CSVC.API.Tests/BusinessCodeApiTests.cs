@@ -16,6 +16,32 @@ namespace CSVC.API.Tests;
 public sealed class BusinessCodeApiTests
 {
     [PostgreSqlFact]
+    public async Task Dated_codes_use_Vietnam_date_skip_manual_codes_and_are_unique_across_concurrent_creates()
+    {
+        await using var database = await AccountTestDatabase.CreateAsync();
+        await using var factory = new AccountApiTestHost(database.ConnectionString);
+        var seed = await factory.SeedAsync();
+        using var manager = Client(factory, seed.ManagerToken);
+        const string root = "/api/v1/device-categories";
+
+        async Task<string> Create(string name, string? code = null)
+        {
+            using var response = await manager.PostAsJsonAsync(root, new { name, displayCode = code });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            return body.GetProperty("displayCode").GetString()!;
+        }
+
+        Assert.Equal("DM-20261021-0001", await Create("Manual", " dm-20261021-0001 "));
+        Assert.Equal("DM-20261021-0002", await Create("Automatic"));
+        factory.Clock.Advance(TimeSpan.FromHours(5)); // 17:00 UTC is midnight in Vietnam.
+        var codes = await Task.WhenAll(Enumerable.Range(0, 4).Select(i => Create($"Concurrent {i}")));
+        Assert.Equal(4, codes.Distinct().Count());
+        Assert.All(codes, code => Assert.Matches(@"^DM-20261022-\d{4,}$", code));
+        Assert.Equal(HttpStatusCode.OK, (await manager.GetAsync($"{root}/DM-20261021-0001")).StatusCode);
+    }
+
+    [PostgreSqlFact]
     public async Task Manual_codes_are_normalized_and_automatic_codes_skip_occupied_numbers()
     {
         await using var database = await AccountTestDatabase.CreateAsync();

@@ -17,7 +17,7 @@ public sealed partial class InventoryService(IEquipmentInventoryRepository repo,
     IRepository<InventorySlip> slips, IRepository<InventoryPlanRevision> revisions,
     IRepository<InventoryResult> results, IRepository<InventoryHistory> history,
     IRepository<InventoryItemHistory> itemHistory, IRepository<InventoryNoticePolicy> policies,
-    IRepository<InventoryNoticePolicyHistory> policyHistory, IRepository<InventoryNotification> notifications) : IInventoryService
+    IRepository<InventoryNoticePolicyHistory> policyHistory, IRepository<InventoryNotification> notifications, IBusinessCodeGenerator codeGenerator) : IInventoryService
 {
     private sealed record Actor(Guid Id, string Code, string Name, Guid DepartmentId, string Role)
     {
@@ -73,7 +73,7 @@ public sealed partial class InventoryService(IEquipmentInventoryRepository repo,
         {
             var department = await DepartmentAsync(request.DepartmentId, token);
             var now = clock.GetUtcNow();
-            var slip = new InventorySlip { DisplayCode = BusinessCode.NewRandom("KK"), CreateRequestId = request.RequestId,
+            var slip = new InventorySlip { DisplayCode = await codeGenerator.NextAsync(BusinessCodeKind.InventorySlip, token), CreateRequestId = request.RequestId,
                 DepartmentId = department.Id, DepartmentCodeSnapshot = department.Code, DepartmentNameSnapshot = department.Name,
                 CreatedByAccountId = actor.Id, CreatorCodeSnapshot = actor.Code, CreatorNameSnapshot = actor.Name,
                 CreatedAt = now, Notes = Clean(request.Notes) };

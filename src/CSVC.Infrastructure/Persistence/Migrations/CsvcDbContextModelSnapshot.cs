@@ -39,6 +39,8 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
             modelBuilder.HasSequence("account_code_seq");
 
+            modelBuilder.HasSequence("business_code_seq");
+
             modelBuilder.HasSequence("department_code_seq");
 
             modelBuilder.Entity("CSVC.Core.Accounts.Account", b =>

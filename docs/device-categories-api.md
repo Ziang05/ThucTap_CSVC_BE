@@ -38,7 +38,7 @@ POST mẫu:
 
 Tên bắt buộc, tối đa 200 ký tự sau chuẩn hóa Unicode NFC, trim và gộp khoảng trắng. Tên không được trùng sau chuẩn hóa/không phân biệt hoa thường, kể cả danh mục Locked. Description và Notes là hai trường độc lập; tùy chọn, tối đa 4000 ký tự mỗi trường, trim, chuỗi trắng thành null. Giới hạn 4000 là giới hạn payload API, DB vẫn là text. Khi PUT, bỏ qua/null/chuỗi trắng xóa trường tùy chọn về null.
 
-DisplayCode tùy chọn khi tạo. Bỏ qua/null/chuỗi trắng sẽ sinh `DM` + 32 ký tự hex viết hoa, kiểm tra trùng trước khi lưu và có unique index bảo vệ. Bộ cấp mã không dùng sequence hoặc thêm migration; không cam kết số thứ tự liên tiếp. Mã nhập tay được trim/viết hoa, tối đa 64 ký tự, bắt đầu bằng A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Mã của danh mục Locked vẫn giữ chỗ.
+DisplayCode tùy chọn khi tạo. Bỏ qua/null/chuỗi trắng sẽ sinh mã dạng `DM-YYYYMMDD-NNNN` bằng sequence PostgreSQL và bỏ qua mã thủ công đã tồn tại. Số thứ tự có thể có khoảng trống. Mã nhập tay được trim/viết hoa, tối đa 64 ký tự, bắt đầu bằng A–Z hoặc số, phần sau cho phép A–Z/0–9 và `.`, `_`, `/`, `-`. Mã của danh mục Locked vẫn giữ chỗ.
 
 **DisplayCode bất biến sau khi tạo.** PUT chỉ nhận name/description/notes và version tùy chọn. Trường ngoài hợp đồng như id/displayCode/status/actorAccountId bị từ chối 400. AutoMapper chỉ map nội dung; ID/mã/trạng thái được bảo toàn. Danh mục mới luôn Active; danh mục Locked phải mở khóa trước khi sửa.
 

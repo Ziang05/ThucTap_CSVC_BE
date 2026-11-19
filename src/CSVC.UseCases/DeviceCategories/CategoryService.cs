@@ -19,7 +19,7 @@ namespace CSVC.UseCases.DeviceCategories;
 
 public sealed class CategoryService(
     IUnitOfWork unitOfWork, ICategoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<CategoryService> logger) : ICategoryService
+    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<CategoryService> logger, IBusinessCodeGenerator codeGenerator) : ICategoryService
 {
     private static readonly string[] SnapshotFields = ["display_code", "name", "description", "notes", "status"];
 
@@ -53,7 +53,7 @@ public sealed class CategoryService(
             Validate(request);
             await RequireUniqueNameAsync(request.Name, null, token);
             var category = mapper.Map<DeviceCategory>(request);
-            category.DisplayCode = request.DisplayCode ?? await GenerateCodeAsync(token);
+            category.DisplayCode = request.DisplayCode ?? await codeGenerator.NextAsync(BusinessCodeKind.DeviceCategory, token);
             if (await unitOfWork.DeviceCategories.DisplayCodeExistsAsync(category.DisplayCode, null, token))
                 throw Error(FailureKind.Conflict, "CATEGORY_CODE_CONFLICT", "A category with this display code already exists.");
             category.Status = EntityStatus.Active;
@@ -195,16 +195,6 @@ public sealed class CategoryService(
     {
         if (await unitOfWork.DeviceCategories.NameExistsAsync(name, id, ct))
             throw Error(FailureKind.Conflict, "CATEGORY_NAME_CONFLICT", "A category with this name already exists.");
-    }
-
-    private async Task<string> GenerateCodeAsync(CancellationToken ct)
-    {
-        for (var attempt = 0; attempt < 32; attempt++)
-        {
-            var code = "DM" + Guid.NewGuid().ToString("N").ToUpperInvariant();
-            if (!await unitOfWork.DeviceCategories.DisplayCodeExistsAsync(code, null, ct)) return code;
-        }
-        throw Unavailable();
     }
 
     private Task AuditAsync(string action, DeviceCategory category, Guid actor, string? before, string? after, AuditOutcome outcome, CancellationToken ct)

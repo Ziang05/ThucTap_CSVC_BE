@@ -20,7 +20,7 @@ namespace CSVC.UseCases.DeviceReceipts;
 
 public sealed class DeviceReceiptService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations) : IDeviceReceiptService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator) : IDeviceReceiptService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -48,7 +48,7 @@ public sealed class DeviceReceiptService(
             var (supplier, department, items) = await ValidateHeaderAndBuildItemsAsync(request, [], token);
             var receipt = new DeviceReceipt
             {
-                ReceiptCode = BusinessCode.NewRandom("PN"),
+                ReceiptCode = await codeGenerator.NextAsync(BusinessCodeKind.DeviceReceipt, token),
                 SupplierId = supplier.Id, CarrierName = Clean(request.CarrierName), RequestCode = Clean(request.RequestCode),
                 DeliveryDate = request.DeliveryDate, DeliveryBatch = TextNormalization.Name(request.DeliveryBatch),
                 RequestingDepartmentId = department.Id, PaidInvoiceCode = Clean(request.PaidInvoiceCode),
@@ -256,6 +256,9 @@ public sealed class DeviceReceiptService(
         if (supplier.Status != EntityStatus.Active) throw Conflict("SUPPLIER_UNAVAILABLE", "The selected supplier is locked.");
         if (department.Status != EntityStatus.Active) throw Conflict("DEPARTMENT_UNAVAILABLE", "The selected department is locked.");
 
+        var requestedCodes = request.Items
+            .Select(item => BusinessCode.Normalize(item?.ExistingDeviceCode) ?? BusinessCode.Normalize(item?.DeviceCode))
+            .OfType<string>().ToHashSet(StringComparer.Ordinal);
         var codes = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<DeviceReceiptItem>(request.Items.Count);
         foreach (var input in request.Items)
@@ -264,9 +267,8 @@ public sealed class DeviceReceiptService(
             Validate(input);
             if (!string.IsNullOrWhiteSpace(input.ExistingDeviceCode) && !string.IsNullOrWhiteSpace(input.DeviceCode))
                 throw Validation("Use existingDeviceCode to select a device or deviceCode to declare a new one.");
-            var selectedCode = string.IsNullOrWhiteSpace(input.ExistingDeviceCode) ? input.DeviceCode : input.ExistingDeviceCode;
-            var requestedCode = string.IsNullOrWhiteSpace(selectedCode) ? null : selectedCode.Trim().ToUpperInvariant();
-            var code = requestedCode ?? BusinessCode.NewRandom("TB");
+            var requestedCode = BusinessCode.Normalize(input.ExistingDeviceCode) ?? BusinessCode.Normalize(input.DeviceCode);
+            var code = requestedCode ?? await codeGenerator.NextAsync(BusinessCodeKind.Device, ct, requestedCodes);
             if (code.Length > 32 || !DeviceCodePattern.IsMatch(code)) throw Validation("Device code format is invalid.");
             if (!codes.Add(code)) throw Conflict("DEVICE_CODE_CONFLICT", "The receipt contains a duplicate device code.");
             var existing = existingItems.FirstOrDefault(x => x.DeviceCode == code);
@@ -293,7 +295,7 @@ public sealed class DeviceReceiptService(
                 || !string.IsNullOrWhiteSpace(input.SerialNumber) && Clean(input.SerialNumber) != device.SerialNumber
                 || !string.IsNullOrWhiteSpace(input.ParentDeviceCode) && !string.Equals(input.ParentDeviceCode.Trim(), parentCode, StringComparison.OrdinalIgnoreCase)))
                 throw Validation("Existing device metadata must be edited on the device record before receipt.");
-            var item = existing ?? new DeviceReceiptItem { DeviceCode = code, Barcode = device?.Barcode ?? BusinessCode.NewRandom("BC"), Name = name };
+            var item = existing ?? new DeviceReceiptItem { DeviceCode = code, Barcode = device?.Barcode ?? BusinessCode.NewBarcode(), Name = name };
             item.CategoryId = category.Id;
             item.Name = name;
             item.DeviceCode = code;

@@ -19,7 +19,7 @@ namespace CSVC.UseCases.Manufacturers;
 
 public sealed class ManufacturerService(
     IUnitOfWork unitOfWork, IManufacturerTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<ManufacturerService> logger) : IManufacturerService
+    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<ManufacturerService> logger, IBusinessCodeGenerator codeGenerator) : IManufacturerService
 {
     private static readonly string[] SnapshotFields = ["display_code", "name", "description", "country", "website", "short_name", "contact_info", "notes", "status"];
 
@@ -60,7 +60,7 @@ public sealed class ManufacturerService(
             Validate(request);
             await RequireUniqueNameAsync(request.Name, null, token);
             var manufacturer = mapper.Map<Manufacturer>(request);
-            manufacturer.DisplayCode = request.DisplayCode ?? await GenerateCodeAsync(token);
+            manufacturer.DisplayCode = request.DisplayCode ?? await codeGenerator.NextAsync(BusinessCodeKind.Manufacturer, token);
             if (await unitOfWork.Manufacturers.DisplayCodeExistsAsync(manufacturer.DisplayCode, null, token))
                 throw Error(FailureKind.Conflict, "MANUFACTURER_CODE_CONFLICT", "A manufacturer with this display code already exists.");
             manufacturer.Status = EntityStatus.Active;
@@ -202,16 +202,6 @@ public sealed class ManufacturerService(
     {
         if (await unitOfWork.Manufacturers.NameExistsAsync(name, id, ct))
             throw Error(FailureKind.Conflict, "MANUFACTURER_NAME_CONFLICT", "A manufacturer with this name already exists.");
-    }
-
-    private async Task<string> GenerateCodeAsync(CancellationToken ct)
-    {
-        for (var attempt = 0; attempt < 32; attempt++)
-        {
-            var code = "HSX" + Guid.NewGuid().ToString("N").ToUpperInvariant();
-            if (!await unitOfWork.Manufacturers.DisplayCodeExistsAsync(code, null, ct)) return code;
-        }
-        throw Unavailable();
     }
 
     private Task AuditAsync(string action, Manufacturer manufacturer, Guid actor, string? before, string? after, AuditOutcome outcome, CancellationToken ct)

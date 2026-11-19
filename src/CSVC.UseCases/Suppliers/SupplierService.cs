@@ -19,7 +19,7 @@ namespace CSVC.UseCases.Suppliers;
 
 public sealed class SupplierService(
     IUnitOfWork unitOfWork, ISupplierTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<SupplierService> logger) : ISupplierService
+    IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<SupplierService> logger, IBusinessCodeGenerator codeGenerator) : ISupplierService
 {
     private static readonly string[] SnapshotFields = ["display_code", "name", "description", "tax_code", "address", "phone", "email", "notes", "status"];
 
@@ -61,7 +61,7 @@ public sealed class SupplierService(
             await RequireUniqueNameAsync(request.Name, null, token);
             await RequireUniqueTaxCodeAsync(request.TaxCode, null, token);
             var supplier = mapper.Map<Supplier>(request);
-            supplier.DisplayCode = request.DisplayCode ?? await GenerateCodeAsync(token);
+            supplier.DisplayCode = request.DisplayCode ?? await codeGenerator.NextAsync(BusinessCodeKind.Supplier, token);
             if (await unitOfWork.Suppliers.DisplayCodeExistsAsync(supplier.DisplayCode, null, token))
                 throw Error(FailureKind.Conflict, "SUPPLIER_CODE_CONFLICT", "A supplier with this display code already exists.");
             supplier.Status = EntityStatus.Active;
@@ -210,16 +210,6 @@ public sealed class SupplierService(
     {
         if (taxCode is not null && await unitOfWork.Suppliers.TaxCodeExistsAsync(taxCode, id, ct))
             throw Error(FailureKind.Conflict, "SUPPLIER_TAX_CODE_CONFLICT", "A supplier with this tax code already exists.");
-    }
-
-    private async Task<string> GenerateCodeAsync(CancellationToken ct)
-    {
-        for (var attempt = 0; attempt < 32; attempt++)
-        {
-            var code = "NCC" + Guid.NewGuid().ToString("N").ToUpperInvariant();
-            if (!await unitOfWork.Suppliers.DisplayCodeExistsAsync(code, null, ct)) return code;
-        }
-        throw Unavailable();
     }
 
     private Task AuditAsync(string action, Supplier supplier, Guid actor, string? before, string? after, AuditOutcome outcome, CancellationToken ct)

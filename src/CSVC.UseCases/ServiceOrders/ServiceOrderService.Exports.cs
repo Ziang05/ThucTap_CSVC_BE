@@ -5,6 +5,7 @@ using CSVC.Core.Accounts;
 using CSVC.Core.Common;
 using CSVC.Core.Devices;
 using CSVC.Core.ServiceOrders;
+using CSVC.UseCases.Abstractions.Persistence;
 using CSVC.UseCases.Common;
 using CSVC.UseCases.Exceptions;
 using CSVC.UseCases.ServiceOrders.DTOs;
@@ -56,7 +57,7 @@ public sealed partial class ServiceOrderService
             await transaction.LockDevicesAsync(selected.Select(i => i.DeviceId), token);
             foreach (var item in selected) await ValidateExportItemAsync(order, item, null, token);
             var now = clock.GetUtcNow();
-            var slip = new ExportSlip { ServiceOrderId = order.Id, DisplayCode = BusinessCode.NewRandom("PX"),
+            var slip = new ExportSlip { ServiceOrderId = order.Id, DisplayCode = await codeGenerator.NextAsync(BusinessCodeKind.ExportSlip, token),
                 SequenceNo = order.ExportSlips.Select(e => e.SequenceNo).DefaultIfEmpty(0).Max() + 1,
                 CreateRequestId = request.RequestId, CreateRequestHash = hash, CreatedByAccountId = actor, CreatedAt = now,
                 FacilityId = facility.Id, Facility = facility, FacilityNameSnapshot = facility.Name, FacilityAddressSnapshot = Clean(facility.Address),

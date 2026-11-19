@@ -21,7 +21,7 @@ public sealed partial class ServiceOrderService(
     IRepository<ServiceOrderDeviceHold> holds, IRepository<ExportDeviceGuard> guards,
     IRepository<ExportSlipItem> exportItems, IRepository<ExportReturnSlip> returns,
     IRepository<ExportReturnSlipItem> returnItems, IRepository<ExportReturnHistory> returnHistory,
-    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports) : IServiceOrderService
+    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, IBusinessCodeGenerator codeGenerator) : IServiceOrderService
 {
     public async Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct)
     {
@@ -52,9 +52,10 @@ public sealed partial class ServiceOrderService(
                 return ToDto(existing, await AccountCodesAsync([existing], token));
             }
             var now = clock.GetUtcNow();
+            var codeKind = request.OrderType == ServiceOrderType.Maintenance ? BusinessCodeKind.MaintenanceOrder : BusinessCodeKind.RepairOrder;
             var order = new ServiceOrder
             {
-                DisplayCode = BusinessCode.NewRandom(request.OrderType == ServiceOrderType.Maintenance ? "BT" : "SC"),
+                DisplayCode = await codeGenerator.NextAsync(codeKind, token),
                 OrderType = request.OrderType, CreateRequestId = request.RequestId, CreateRequestHash = hash,
                 CreatedByAccountId = actor, CreatedAt = now, Notes = Clean(request.Notes)
             };

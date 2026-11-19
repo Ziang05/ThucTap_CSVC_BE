@@ -128,6 +128,20 @@ public sealed class DeviceQuantityApiTests
     }
 
     [PostgreSqlFact]
+    public async Task Receipt_generation_skips_a_manual_device_code_in_a_later_row()
+    {
+        await using var f = await Fixture.CreateAsync();
+        const string manualCode = "TB-20261021-0001";
+        var receipt = await f.CreateReceipt(
+            new DeviceReceiptItemRequest { Name = "Automatic", CategoryCode = "CAT_QTY" },
+            new DeviceReceiptItemRequest { Name = "Manual", CategoryCode = "CAT_QTY", DeviceCode = manualCode });
+
+        Assert.Matches(@"^PN-20261021-\d{4,}$", receipt.ReceiptCode);
+        Assert.Equal(manualCode, receipt.Items!.Single(item => item.Name == "Manual").DeviceCode);
+        Assert.Equal("TB-20261021-0002", receipt.Items!.Single(item => item.Name == "Automatic").DeviceCode);
+    }
+
+    [PostgreSqlFact]
     public async Task Pending_edits_cancel_and_reject_keep_zero_quantity_and_allow_another_receipt()
     {
         await using var f = await Fixture.CreateAsync();

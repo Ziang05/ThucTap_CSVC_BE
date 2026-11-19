@@ -51,8 +51,11 @@ public sealed class InventoryApiTests
         await using var f = await Fixture.CreateAsync();
         var request = f.CreateBody();
         var slip = await Body<InventorySlipDto>(await f.Staff.PostAsJsonAsync(Root, request), HttpStatusCode.Created);
+        Assert.Matches(@"^KK-20261021-\d{4,}$", slip.Plan.DisplayCode);
         var retry = await Body<InventorySlipDto>(await f.Staff.PostAsJsonAsync(Root, request), HttpStatusCode.Created);
-        Assert.Equal(slip.Plan.SlipId, retry.Plan.SlipId); Assert.Empty(slip.Progress.Inspectors);
+        Assert.Equal(slip.Plan.SlipId, retry.Plan.SlipId);
+        Assert.Equal(slip.Plan.DisplayCode, retry.Plan.DisplayCode);
+        Assert.Empty(slip.Progress.Inspectors);
         var id = slip.Plan.SlipId; var route = Route(id);
         await Expect(await f.Pb.GetAsync(route), HttpStatusCode.NotFound);
         slip = await f.Publish(slip);
