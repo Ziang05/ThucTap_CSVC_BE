@@ -9,12 +9,12 @@ public sealed class CreateDeviceRequest
 {
     [StringLength(32)] public string? DeviceCode { get; init; }
     [Required, StringLength(200)] public string Name { get; init; } = "";
-    [Required, StringLength(32)] public string CategoryCode { get; init; } = "";
+    [Required, StringLength(64)] public string CategoryCode { get; init; } = "";
     [Required, StringLength(32)] public string DepartmentCode { get; init; } = "";
     [StringLength(32)] public string? ResponsibleAccountCode { get; init; }
     [EnumDataType(typeof(DeviceCondition))] public DeviceCondition Condition { get; init; } = DeviceCondition.Good;
     [StringLength(100)] public string? SerialNumber { get; init; }
-    [StringLength(32)] public string? ManufacturerCode { get; init; }
+    [StringLength(64)] public string? ManufacturerCode { get; init; }
     [StringLength(120)] public string? Model { get; init; }
     public DateOnly? PurchaseDate { get; init; }
     [StringLength(64)] public string? PaidInvoiceCode { get; init; }
@@ -29,7 +29,7 @@ public sealed class UpdateDeviceRequest
 {
     [Required, StringLength(200)] public string Name { get; init; } = "";
     [StringLength(100)] public string? SerialNumber { get; init; }
-    [StringLength(32)] public string? ManufacturerCode { get; init; }
+    [StringLength(64)] public string? ManufacturerCode { get; init; }
     [StringLength(120)] public string? Model { get; init; }
     public DateOnly? PurchaseDate { get; init; }
     [StringLength(64)] public string? PaidInvoiceCode { get; init; }
@@ -50,7 +50,7 @@ public sealed class DeviceListQuery
     [EnumDataType(typeof(DeviceWorkflowEligibility))] public DeviceWorkflowEligibility? EligibleFor { get; init; }
     [StringLength(32)] public string? ParentDeviceCode { get; set; }
     [StringLength(200)] public string? Search { get; init; }
-    [StringLength(32)] public string? CategoryCode { get; init; }
+    [StringLength(64)] public string? CategoryCode { get; init; }
     [EnumDataType(typeof(DeviceStatusFilter))] public DeviceStatusFilter? Status { get; init; }
     [EnumDataType(typeof(DeviceCondition))] public DeviceCondition? Condition { get; init; }
     [StringLength(32)] public string? DepartmentCode { get; init; }
