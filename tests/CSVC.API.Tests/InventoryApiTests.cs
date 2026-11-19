@@ -27,6 +27,25 @@ public sealed class InventoryApiTests
     private static CorrectInventoryResultRequest Correction(int version, bool value = false) => new() { RequestId = Guid.NewGuid(), ExpectedVersion = version, NewExists = value, Reason = "Verified again" };
 
     [PostgreSqlFact]
+    public async Task Plan_options_are_scoped_and_return_usable_identifiers()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var devices = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<InventoryDeviceOption>>(
+            $"{Root}/options/devices?departmentId={f.TargetId}&pageSize=1");
+        Assert.NotNull(devices);
+        Assert.Equal(f.DeviceIds.Count, devices.TotalCount);
+        Assert.Contains(Assert.Single(devices.Items).Id, f.DeviceIds);
+
+        var people = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<InventoryAssigneeOption>>(
+            $"{Root}/options/assignees");
+        Assert.NotNull(people);
+        Assert.Contains(people.Items, item => item.Id == f.StaffId);
+        Assert.DoesNotContain(people.Items, item => item.Id == f.PbId);
+        await Expect(await f.Pb.GetAsync($"{Root}/options/devices?departmentId={f.TargetId}"), HttpStatusCode.Forbidden);
+        await Expect(await f.Pb.GetAsync($"{Root}/options/assignees"), HttpStatusCode.Forbidden);
+    }
+
+    [PostgreSqlFact]
     public async Task Full_lifecycle_preserves_original_inspectors_replays_and_official_snapshot()
     {
         await using var f = await Fixture.CreateAsync();

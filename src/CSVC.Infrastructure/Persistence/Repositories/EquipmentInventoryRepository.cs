@@ -111,6 +111,30 @@ public sealed class EquipmentInventoryRepository(CsvcDbContext db) : IEquipmentI
     public Task<PagedResult<InventoryPolicyHistoryDto>> PolicyHistoryAsync(int page, int size, CancellationToken ct)
         => PageAsync(db.Set<InventoryNoticePolicyHistory>().AsNoTracking().OrderByDescending(x => x.ChangedAt).ThenBy(x => x.Id)
             .Select(x => new InventoryPolicyHistoryDto(x.PreviousDays, x.NewDays, x.ChangedByAccountId, x.ChangedAt, x.Reason)), page, size, ct);
+    public Task<PagedResult<InventoryDeviceOption>> DeviceOptionsAsync(Guid departmentId, string? search, int page, int size, CancellationToken ct)
+    {
+        var query = db.Devices.AsNoTracking().Where(d => d.DepartmentId == departmentId);
+        if (!string.IsNullOrEmpty(search))
+            query = query.Where(d => d.DeviceCode.ToLower().Contains(search) || d.Name.ToLower().Contains(search)
+                || (d.SerialNumber != null && d.SerialNumber.ToLower().Contains(search)));
+        return PageAsync(query.OrderBy(d => d.DeviceCode).ThenBy(d => d.Id)
+            .Select(d => new InventoryDeviceOption(d.Id, d.DeviceCode, d.Name, d.SerialNumber)), page, size, ct);
+    }
+
+    public Task<PagedResult<InventoryAssigneeOption>> AssigneeOptionsAsync(Guid departmentId, string? search, int page, int size, CancellationToken ct)
+    {
+        var query = from account in db.Accounts.AsNoTracking()
+            join profile in db.UserProfiles on account.UserProfileId equals profile.Id
+            join role in db.Roles on account.RoleId equals role.Id
+            where profile.DepartmentId == departmentId && !account.IsLock
+                && (role.Code == CSVC.Core.Accounts.RoleCodes.EquipmentManager || role.Code == CSVC.Core.Accounts.RoleCodes.EquipmentStaff)
+            select new { account.Id, Code = account.AccountCode, Name = profile.FullName };
+        if (!string.IsNullOrEmpty(search))
+            query = query.Where(a => a.Code.ToLower().Contains(search) || a.Name.ToLower().Contains(search));
+        return PageAsync(query.OrderBy(a => a.Name).ThenBy(a => a.Id)
+            .Select(a => new InventoryAssigneeOption(a.Id, a.Code, a.Name)), page, size, ct);
+    }
+
     private static async Task<PagedResult<T>> PageAsync<T>(IQueryable<T> query, int page, int size, CancellationToken ct)
         => new(await query.Skip((page - 1) * size).Take(size).ToListAsync(ct), await query.CountAsync(ct), page, size);
 }

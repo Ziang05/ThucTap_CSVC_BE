@@ -7,6 +7,16 @@ namespace CSVC.API.Controllers;
 [Route("api/v1/inventory-slips")]
 public sealed class InventorySlipsController(IInventoryService service) : AuthenticatedApiControllerBase
 {
+    [HttpGet("options/devices")]
+    public async Task<ActionResult<PagedResult<InventoryDeviceOption>>> DeviceOptions([FromQuery] Guid departmentId,
+        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        => Ok(await service.DeviceOptionsAsync(departmentId, search, page, pageSize, ct));
+
+    [HttpGet("options/assignees")]
+    public async Task<ActionResult<PagedResult<InventoryAssigneeOption>>> AssigneeOptions([FromQuery] string? search,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        => Ok(await service.AssigneeOptionsAsync(search, page, pageSize, ct));
+
     [HttpGet] public async Task<ActionResult<PagedResult<InventorySummaryDto>>> List([FromQuery] InventoryListQuery query, CancellationToken ct) => Ok(await service.ListAsync(query, ct));
     [HttpGet("{id:guid}")] public async Task<IActionResult> Get(Guid id, CancellationToken ct) => Ok(await service.GetAsync(id, ct));
     [HttpGet("{id:guid}/plan")] public async Task<ActionResult<InventoryPlanDto>> Plan(Guid id, CancellationToken ct) => Ok(await service.PlanAsync(id, ct));

@@ -95,6 +95,8 @@ public sealed record InventoryNotificationDto(Guid Id, Guid SlipId, Guid Revisio
 
 public interface IInventoryService
 {
+    Task<PagedResult<InventoryDeviceOption>> DeviceOptionsAsync(Guid departmentId, string? search, int page, int size, CancellationToken ct);
+    Task<PagedResult<InventoryAssigneeOption>> AssigneeOptionsAsync(string? search, int page, int size, CancellationToken ct);
     Task<PagedResult<InventorySummaryDto>> ListAsync(InventoryListQuery query, CancellationToken ct);
     Task<object> GetAsync(Guid id, CancellationToken ct);
     Task<InventoryPlanDto> PlanAsync(Guid id, CancellationToken ct);
@@ -125,6 +127,8 @@ public sealed record InventoryRequestReceipt(Guid? ActorId, string Action, strin
 
 public interface IEquipmentInventoryRepository
 {
+    Task<PagedResult<InventoryDeviceOption>> DeviceOptionsAsync(Guid departmentId, string? search, int page, int size, CancellationToken ct);
+    Task<PagedResult<InventoryAssigneeOption>> AssigneeOptionsAsync(Guid departmentId, string? search, int page, int size, CancellationToken ct);
     Task<InventorySlip?> LoadAsync(Guid id, bool tracked, CancellationToken ct);
     Task<PagedResult<InventorySummaryDto>> ListAsync(InventoryListQuery query, Guid? departmentScope, CancellationToken ct);
     Task<InventoryRequestReceipt?> RequestAsync(Guid requestId, CancellationToken ct);
