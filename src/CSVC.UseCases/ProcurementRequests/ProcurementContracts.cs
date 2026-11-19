@@ -62,7 +62,10 @@ public sealed record ProcurementSummary(string DisplayCode, string Source, strin
 public sealed record ProcurementLineDto(string SourceLineCode, ProcurementLineKind Kind, string Description, decimal Quantity,
     string Unit, string? CategoryCode, string? DeviceCode, string? DamageReportCode, EquipmentSpecialization Specialization);
 public sealed record RequestDeviceBinding(string SourceLineCode, string DeviceCode, string? CategoryCode = null,
-    string? ExecutionMethod = null, string? DamageReportCode = null);
+    string? ExecutionMethod = null, string? DamageReportCode = null)
+{
+    public string? SpecializedHandlingReason { get; init; }
+}
 public sealed record RequestDocumentDto(RequestDocumentKind Kind, string DocumentCode, string Status, bool Executed, bool Open,
     IReadOnlyList<RequestDeviceBinding> Bindings, IReadOnlyList<RequestMaterialBinding>? MaterialBindings = null);
 public sealed record RequestMaterialBinding(string? SourceLineCode, string MaterialCode, decimal Quantity, string Unit);
@@ -71,7 +74,43 @@ public sealed record ProcurementEventDto(Guid? ExternalEventId, int? SourceVersi
 public sealed record ProcurementDetail(ProcurementSummary Summary, bool IsSimulated, string? Contact, string? ContractReference,
     string? SupplierReference, string SourceStatus, DateTimeOffset SourceCreatedAt, DateTimeOffset SourceUpdatedAt,
     string? Notes, string? MappingIssue, string? PendingSourcePayload, string? Result, string? ResultReason, DateTimeOffset? ClosedAt,
-    IReadOnlyList<ProcurementLineDto> Lines, IReadOnlyList<RequestDocumentDto> Documents, bool CanCancel);
+    IReadOnlyList<ProcurementLineDto> Lines, IReadOnlyList<RequestDocumentDto> Documents, bool CanCancel)
+{
+    public ServiceEvidenceDto? ServiceEvidence { get; init; }
+    public ResultAcceptanceDto? Acceptance { get; init; }
+    public bool RequiresResultAcceptance { get; init; }
+    public bool CanAcceptResults { get; init; }
+    public IReadOnlyList<RepairResultDto> RepairResults { get; init; } = [];
+}
+public sealed record RepairResultDto(string DeviceCode, string? Outcome, string? Description, DateTimeOffset? RecordedAt);
+public enum ServiceEvidenceOutcome { Completed, Failed, NotExecuted }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class RecordServiceEvidence
+{
+    public Guid RequestId { get; init; }
+    [Range(1, int.MaxValue)] public int Version { get; init; }
+    [Required, MinLength(1), MaxLength(100)] public List<ServiceEvidenceLine> Lines { get; init; } = [];
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class ServiceEvidenceLine
+{
+    [Required, StringLength(64)] public string SourceLineCode { get; init; } = "";
+    [EnumDataType(typeof(ServiceEvidenceOutcome))] public ServiceEvidenceOutcome Outcome { get; init; }
+    [Required, StringLength(200)] public string Provider { get; init; } = "";
+    [Required, StringLength(200)] public string EvidenceReference { get; init; } = "";
+    [Required, StringLength(4000)] public string Description { get; init; } = "";
+    public DateTimeOffset? PerformedAt { get; init; }
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class AcceptRequestResults
+{
+    public Guid RequestId { get; init; }
+    [Range(1, int.MaxValue)] public int Version { get; init; }
+    public bool Accepted { get; init; }
+    [StringLength(1000)] public string? Reason { get; init; }
+}
+public sealed record ServiceEvidenceDto(IReadOnlyList<ServiceEvidenceLine> Lines, string RecordedByAccountCode, DateTimeOffset RecordedAt);
+public sealed record ResultAcceptanceDto(string Decision, string? Reason, string AccountCode, DateTimeOffset OccurredAt);
 public sealed record PmmsEventResult(string DisplayCode, string Outcome, string? Reason, int SourceVersion, int Version);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -96,7 +135,7 @@ public interface IProcurementRequestRepository
 {
     Task<ProcurementRequest?> GetAsync(string code, bool tracked, CancellationToken ct);
     Task<ProcurementRequest?> GetBySourceAsync(string source, string externalCode, CancellationToken ct);
-    Task<PagedResult<ProcurementSummary>> ListAsync(ProcurementQuery query, CancellationToken ct);
+    Task<PagedResult<ProcurementSummary>> ListAsync(ProcurementQuery query, CancellationToken ct, string? departmentCode = null);
     Task<PagedResult<ProcurementEventDto>> HistoryAsync(Guid id, int page, int pageSize, CancellationToken ct);
 }
 public interface IProcurementRequestService
@@ -108,6 +147,8 @@ public interface IProcurementRequestService
     Task TransitionAsync(string code, ProcurementTransition request, CancellationToken ct);
     Task ReviewAsync(string code, ProcurementTransition request, CancellationToken ct);
     Task CompleteAsync(string code, ProcurementClose request, CancellationToken ct);
+    Task RecordServicesAsync(string code, RecordServiceEvidence request, CancellationToken ct);
+    Task AcceptResultsAsync(string code, AcceptRequestResults request, CancellationToken ct);
 }
 public interface IProcurementWorkflow
 {

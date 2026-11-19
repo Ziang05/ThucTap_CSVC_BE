@@ -169,8 +169,6 @@ public sealed class DeviceReceiptService(
             var departmentCode = await DepartmentCodeAsync(receivingId, token);
             var requestingDepartmentCode = await DepartmentCodeAsync(receipt.RequestingDepartmentId, token);
             var beforeStates = new Dictionary<string, string>();
-            var deviceByCode = new Dictionary<string, Device>(StringComparer.Ordinal);
-            var linkedCodes = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in items)
             {
                 if (!await unitOfWork.DeviceOperationHolds.IsOwnedByAsync(item.DeviceCode, DeviceOperationKind.Receipt, receipt.Id, token))
@@ -181,7 +179,6 @@ public sealed class DeviceReceiptService(
                     await transaction.LockDevicesAsync([device.Id], token);
                     RequireReceivable(device, receipt.WorkflowVersion == 1 ? receipt.RequestingDepartmentId : null);
                     await reservations.RequireAsync(device, false, DeviceOperationKind.Receipt, receipt.Id, token);
-                    linkedCodes.Add(device.DeviceCode);
                     beforeStates[item.DeviceCode] = JsonSerializer.Serialize(new { device.Quantity, departmentCode = await DepartmentCodeAsync(device.DepartmentId, token), useState = device.UseState.ToString() });
                     if (receipt.WorkflowVersion == 2)
                     {
@@ -205,25 +202,13 @@ public sealed class DeviceReceiptService(
                     };
                     await unitOfWork.Devices.AddAsync(device, token);
                 }
-                deviceByCode.Add(device.DeviceCode, device);
                 item.DeviceId = device.Id;
                 unitOfWork.DeviceReceiptItems.Update(item);
                 created.Add(device);
             }
             foreach (var item in items)
             {
-                var device = deviceByCode[item.DeviceCode];
-                if (!linkedCodes.Contains(item.DeviceCode) && !string.IsNullOrWhiteSpace(item.ParentDeviceCode))
-                {
-                    if (deviceByCode.TryGetValue(item.ParentDeviceCode, out var pendingParent)) device.ParentDeviceId = pendingParent.Id;
-                    else
-                    {
-                        var parent = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == item.ParentDeviceCode, token)
-                            ?? throw new UseCaseException(FailureKind.NotFound, "PARENT_DEVICE_NOT_FOUND", "Parent device was not found.");
-                        if (parent.DepartmentId != receipt.RequestingDepartmentId) throw Conflict("DEVICE_PARENT_DEPARTMENT_MISMATCH", "Parent and child must belong to the receipt department.");
-                        device.ParentDeviceId = parent.Id;
-                    }
-                }
+                var device = created.Single(d => d.DeviceCode == item.DeviceCode);
                 await unitOfWork.DeviceHistories.AddAsync(new DeviceHistory
                 {
                     RequestId = requestContext.RequestId, ActorAccountId = actor.AccountId, DeviceId = device.Id,
@@ -329,7 +314,9 @@ public sealed class DeviceReceiptService(
             item.DeviceCode = code;
             item.DeviceCodeSource = requestedCode is null ? DeviceCodeSource.Generated : existing?.DeviceCodeSource ?? DeviceCodeSource.Manual;
             item.SerialNumber = device?.SerialNumber ?? Clean(input.SerialNumber);
-            item.ParentDeviceCode = device is not null ? parentCode : string.IsNullOrWhiteSpace(input.ParentDeviceCode) ? null : input.ParentDeviceCode.Trim().ToUpperInvariant();
+            if (!string.IsNullOrWhiteSpace(input.ParentDeviceCode) && !string.Equals(input.ParentDeviceCode.Trim(), existing?.ParentDeviceCode, StringComparison.OrdinalIgnoreCase))
+                throw Conflict("DEVICE_COMPONENT_RELATIONSHIPS_RETIRED", "New receipt items cannot create component references.");
+            item.ParentDeviceCode = existing?.ParentDeviceCode;
             if (item.ParentDeviceCode == code) throw Validation("A device cannot be its own parent.");
             result.Add(item);
         }

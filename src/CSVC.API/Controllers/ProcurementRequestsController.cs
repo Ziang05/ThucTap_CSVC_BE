@@ -24,4 +24,10 @@ public sealed class ProcurementRequestsController(IProcurementRequestService ser
     [HttpPost("{code}/complete")]
     public async Task<IActionResult> Complete(string code, ProcurementClose input, CancellationToken ct)
     { await service.CompleteAsync(code, input, ct); return NoContent(); }
+    [HttpPost("{code}/service-evidence")]
+    public async Task<IActionResult> ServiceEvidence(string code, RecordServiceEvidence input, CancellationToken ct)
+    { await service.RecordServicesAsync(code, input, ct); return NoContent(); }
+    [HttpPost("{code}/accept-results")]
+    public async Task<IActionResult> AcceptResults(string code, AcceptRequestResults input, CancellationToken ct)
+    { await service.AcceptResultsAsync(code, input, ct); return NoContent(); }
 }

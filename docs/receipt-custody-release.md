@@ -53,3 +53,9 @@ Build backend và frontend đạt. Toàn solution backend đã chạy qua 277 ki
 ## Trạng thái Docker local
 
 Migration và image API local đã được cập nhật; xem [biên bản đồng bộ và kiểm tra](local-runtime-sync.md). Ghi chú chưa triển khai ở phần trước mô tả thời điểm hoàn thành mã nguồn; trạng thái môi trường hiện tại theo mục này.
+
+## Nghiệm thu lại ở CV-05
+
+Đã chạy lại kiểm thử tiếp nhận/cấp phát sau CV-02, gồm giữ nghĩa phiếu phiên bản 1, chọn hồ sơ chưa tiếp nhận, giữ mã/mã vạch/metadata, quyền/cấu hình QTTB, duyệt chưa đổi trách nhiệm, thực nhận mới đổi phòng, dùng tồn, QTTB tự dùng và rollback. Các phiếu nhiều dòng vẫn xử lý đủ; chọn thiết bị không tự mở rộng cây tham chiếu cũ.
+
+Kịch bản trình duyệt dùng API/PostgreSQL thật kiểm tra nhập mới về QTTB/InStorage, chặn đóng sớm và hủy sau nhập, cấp phát riêng, thực nhận/InUse rồi mới đóng yêu cầu; đồng thời kiểm tra QTTB tự dùng. Chỉ dùng PMMS giả lập trong database kiểm thử riêng sau khi thông báo. Kết quả tại [biên bản CV-02–CV-05](cv02-05-validation.md).

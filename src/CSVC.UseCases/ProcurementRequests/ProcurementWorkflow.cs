@@ -47,6 +47,11 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
         foreach (var binding in bindings)
         {
             var line = request.Lines.SingleOrDefault(l => l.SourceLineCode == binding.SourceLineCode) ?? throw Invalid("Every item needs a valid sourceLineCode.");
+            if (kind == RequestDocumentKind.Repair && line.Specialization == EquipmentSpecialization.Specialized && binding.ExecutionMethod == "OnSite")
+            {
+                if (string.IsNullOrWhiteSpace(binding.SpecializedHandlingReason))
+                    throw Invalid("Specialized equipment defaults to external handling. Record the on-site exception reason for manager approval.");
+            }
             if (line.Kind != ProcurementLineKind.Equipment) throw Invalid("Equipment documents cannot represent consumable materials or standalone services.");
             if (kind == RequestDocumentKind.Repair && line.DeviceCode != binding.DeviceCode) throw Invalid("Repair must reference the source device.");
             if (kind == RequestDocumentKind.Repair && line.DamageReportCode is not null && line.DamageReportCode != binding.DamageReportCode) throw Invalid("Retain the damage report referenced by the source repair line.");
@@ -117,6 +122,8 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
             }
             result.Add(new(link.Kind, link.DocumentCode, status, executed, open, ProcurementJson.Read<RequestDeviceBinding[]>(link.BindingsJson)));
         }
+        if (request.ServiceEvidenceJson is not null)
+            result.Add(new(RequestDocumentKind.ServiceEvidence, request.DisplayCode + "-DV", "Recorded", true, false, []));
         result.AddRange(await materialWorkflow.RequestDocumentsAsync(request, ct));
         return result;
     }

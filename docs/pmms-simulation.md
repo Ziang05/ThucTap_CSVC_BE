@@ -32,7 +32,7 @@ Trường hợp không thực hiện được, phải ghi lý do và kết thúc
 
 ## API
 
-Chỉ tài khoản QTTB được đọc module; thao tác ghi cần thuộc phòng QTTB được cấu hình. Chỉ quản lý được xác nhận giữ phạm vi sau thay đổi nguồn. Không có endpoint tích hợp PMMS thật.
+QTTB được đọc module; nhân viên đơn vị chỉ xem yêu cầu/lịch sử của chính đơn vị mình và xác nhận kết quả. Nhân viên QTTB ghi bằng chứng dịch vụ; quản lý duyệt phiếu, xem ngoại lệ chuyên dụng và xử lý kết thúc không thành công khi đơn vị từ chối. Không có endpoint tích hợp PMMS thật.
 
 | API | Công dụng |
 | --- | --- |
@@ -43,6 +43,8 @@ Chỉ tài khoản QTTB được đọc module; thao tác ghi cần thuộc phò
 | `POST /api/v1/procurement-requests/{code}/status` | Cập nhật tiến độ với `version` hiện tại |
 | `POST /api/v1/procurement-requests/{code}/review-source-update` | Quản lý giữ phạm vi hiện tại, bắt buộc lý do và `version` |
 | `POST /api/v1/procurement-requests/{code}/complete` | Đóng toàn bộ sau đối chiếu kết quả; `failureReason` nếu không thực hiện được |
+| `POST /api/v1/procurement-requests/{code}/service-evidence` | Nhân viên QTTB ghi đủ mọi dòng dịch vụ, có `requestId`, `version`, bên thực hiện, chứng từ và kết quả |
+| `POST /api/v1/procurement-requests/{code}/accept-results` | Nhân viên đơn vị yêu cầu xác nhận hoặc từ chối toàn bộ kết quả; từ chối bắt buộc lý do |
 | `POST /api/v1/devices/put-into-use` | QTTB tự dùng toàn bộ thiết bị của một yêu cầu trong cùng giao dịch |
 
 Ví dụ payload gửi giả lập, thay các mã tham chiếu bằng dữ liệu trong môi trường:
@@ -81,18 +83,28 @@ Phiếu nhập/cấp phát/sửa chữa nhận thêm `sourceRequestCode` (mã n�
 
 `IPmmsRequestSource` hiện được cài bởi `SimulatedPmmsSource` để chuẩn hóa/kiểm tra payload. `ProcurementRequestService` xử lý nhận lại, phiên bản, mapping và lịch sử; `ProcurementWorkflow` kiểm tra liên kết/kết quả chứng từ. Khi PMMS có API, bổ sung adapter và cơ chế xác thực/đồng bộ theo hợp đồng thật, kiểm thử mapping, namespace nguồn và định danh sự kiện trước khi thay đăng ký DI. Không đổi nguồn dữ liệu giả lập thành dữ liệu thật bằng cách đổi nhãn.
 
-Task 6 đã bổ sung [chứng từ vật tư và truy vết can thiệp có cấu trúc](material-inventory.md). Dòng vật tư có nhập/xuất riêng, liên kết mã dòng nguồn, kiểm tra đơn vị và số lượng; không biểu diễn bằng thiết bị. Yêu cầu vật tư hoàn tất sau khi đơn vị xác nhận nhận đủ. Với yêu cầu có cả thiết bị và vật tư, xác nhận thực nhận cả hai trong cùng giao dịch tại phiếu xuất vật tư; chặn bàn giao riêng từng nhóm. Dịch vụ độc lập vẫn cần chứng từ kết quả từ module tương ứng. Task 12 hợp nhất timeline toàn vòng đời. Không tạo thiết bị con cho vật tư thay thế.
+Task 6 đã bổ sung [chứng từ vật tư và truy vết can thiệp có cấu trúc](material-inventory.md). Dòng vật tư có nhập/xuất riêng, liên kết mã dòng nguồn, kiểm tra đơn vị và số lượng; không biểu diễn bằng thiết bị. Yêu cầu vật tư hoàn tất sau khi đơn vị xác nhận nhận đủ. Với yêu cầu có cả thiết bị và vật tư, xác nhận thực nhận cả hai trong cùng giao dịch tại phiếu xuất vật tư; chặn bàn giao riêng từng nhóm. Dịch vụ độc lập dùng bằng chứng và bước xác nhận dưới đây. Task 12 hợp nhất timeline toàn vòng đời. Không tạo thiết bị con cho vật tư thay thế.
+
+## Bằng chứng dịch vụ và xác nhận kết quả
+
+- Mỗi lần ghi phải bao phủ đúng mọi dòng dịch vụ với toàn bộ số lượng nguồn: `sourceLineCode`, `outcome=Completed|Failed|NotExecuted`, `provider`, `evidenceReference`, `description`. `performedAt` có thể bỏ trống để lấy thời điểm hiện tại; nếu cung cấp phải nằm giữa lúc PMQTTB tiếp nhận và hiện tại. Không ghi nhận hoàn tất một phần.
+- Sau khi đủ chứng từ, kết quả sửa chữa và bàn giao, nhân viên thuộc đơn vị đề xuất xác nhận toàn bộ kết quả. Với yêu cầu của chính QTTB, nhân viên QTTB của phòng đó được xác nhận. Quản lý không xác nhận thay đơn vị sử dụng. Bước này áp dụng cho yêu cầu có dịch vụ và yêu cầu sửa chữa mới (`workflowVersion=2`); yêu cầu sửa chữa cũ giữ phiên bản 1, không tự bổ sung nghĩa vụ nghiệm thu vào hồ sơ đang thực hiện.
+- Xác nhận gắn với phạm vi/kết quả cụ thể, có tài khoản và thời điểm. Không đóng yêu cầu đã thực hiện bằng cách ghi lý do thất bại để bỏ qua nghiệm thu. Kết quả dịch vụ không đạt vẫn cho xác nhận đã xem xét; khi đóng trả `CompletedWithIssues`, không biến thành thành công.
+- Đơn vị từ chối phải ghi lý do. QTTB có thể ghi lại bằng chứng dịch vụ, giữ bản cũ trong lịch sử và yêu cầu xác nhận lại; bản đã được chấp nhận không được ghi đè. Chỉ quản lý được kết thúc kết quả bị từ chối thành `Failed` kèm lý do. Kết quả phiếu sửa chữa đã kết thúc không ghi đè; phát sinh xử lý tiếp theo dùng yêu cầu mới.
+- `requestId` UUID chống ghi lặp cho bằng chứng/xác nhận; gửi lại cùng nội dung và tài khoản không thêm sự kiện. Dùng lại cho nội dung/tài khoản khác bị từ chối. Ghi kết quả, phiên bản và sự kiện cùng giao dịch; lỗi audit rollback toàn bộ.
+- Có bằng chứng thực hiện thì hủy nguồn bị từ chối. Cập nhật phạm vi được lưu chờ quản lý xem xét, không đổi nội dung đã làm.
+
+Thiết bị chuyên dụng mặc định đề xuất xử lý bên ngoài. Có thể làm tại chỗ khi phiếu có `specializedHandlingReason`; lý do hiển thị cho quản lý trước khi duyệt. Phân loại chuyên dụng không tự ép mọi tình huống ra ngoài. Không thay đổi quyền duyệt của phiếu sửa chữa.
 
 ## Triển khai
 
 Migration `SimulatedPmmsRequests` chỉ bổ sung bốn bảng `procurement_requests`, `procurement_request_lines`, `procurement_request_events`, `procurement_document_links` và các ràng buộc. Không biến phiếu cũ thành yêu cầu giả lập. Cần triển khai migration task 3 (`ReceiptEquipmentCustody`) trước theo thứ tự EF.
 
-Migration được kiểm thử trên database tạm; **chưa áp dụng vào database/API đang chạy**. Sau khi cập nhật database và image API, triển khai frontend cùng phiên bản để dùng `/requests`. Không cần và không tự seed dữ liệu giả lập vào database thật.
+Migration mới `ProcurementFulfillmentAcceptance` bổ sung dữ liệu bằng chứng, xác nhận, định danh lệnh và lý do chuyên dụng. Giữ nguyên yêu cầu/phiếu/lịch sử cũ. Trạng thái môi trường và kết quả nâng cấp hiện tại theo [biên bản CV-02–CV-05](cv02-05-validation.md). Không tự seed dữ liệu giả lập vào database đang sử dụng.
 
 ## Kiểm tra
 
-- 6 kiểm thử PostgreSQL cho gửi lại/đồng thời/phiên bản cũ, mapping và snapshot lịch sử, phân quyền, nhập phần thiếu rồi cấp phát đủ, dùng tồn, tự dùng tại QTTB, sửa chữa và từ chối hủy sau thực hiện. Có kiểm tra rollback cả chứng từ, liên kết và giữ chỗ khi ghi audit lỗi.
-- Bộ backend tổng 284 test đã chạy; kiểm thử schema được cập nhật để bao gồm bốn bảng mới. 47 kiểm thử liên quan đều đạt sau các sửa đổi; 6 kiểm thử module tiếp tục đạt sau bổ sung snapshot lịch sử.
+Các test `ProcurementRequestTests`, `ProcurementFulfillmentTests` và kiểm thử vật tư bao phủ phiên bản/sự kiện/đồng thời, snapshot, quyền đơn vị, tiếp nhận/cấp phát đủ, dịch vụ, sửa chữa cũ/mới, ngoại lệ chuyên dụng, gửi lặp và rollback. Kết quả tổng và trình duyệt ở [biên bản CV-02–CV-05](cv02-05-validation.md).
 - 62 kiểm thử hợp đồng frontend đạt, gồm nhãn giả lập, quyền truy cập, payload tự liên kết dòng nguồn, lựa chọn từ tồn đủ số lượng, sửa chữa kế thừa thiết bị/báo hỏng, lịch sử nguồn và mở chi tiết chứng từ từ liên kết. Build đạt; lint không có lỗi, còn một cảnh báo Fast Refresh có sẵn ở màn hình danh mục.
 
 

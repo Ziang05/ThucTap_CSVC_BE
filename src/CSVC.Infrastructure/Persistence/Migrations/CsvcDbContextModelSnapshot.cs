@@ -4314,6 +4314,29 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("AcceptanceDecision")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("acceptance_decision");
+
+                    b.Property<string>("AcceptanceReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("acceptance_reason");
+
+                    b.Property<string>("AcceptanceScopeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("acceptance_scope_hash");
+
+                    b.Property<DateTimeOffset?>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("accepted_at");
+
+                    b.Property<Guid?>("AcceptedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("accepted_by_account_id");
+
                     b.Property<DateTimeOffset?>("ClosedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("closed_at");
@@ -4384,6 +4407,18 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("result_reason");
 
+                    b.Property<string>("ServiceEvidenceJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("service_evidence_json");
+
+                    b.Property<DateTimeOffset?>("ServiceRecordedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("service_recorded_at");
+
+                    b.Property<Guid?>("ServiceRecordedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("service_recorded_by_account_id");
+
                     b.Property<string>("Source")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -4430,10 +4465,20 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("version");
 
+                    b.Property<int>("WorkflowVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("workflow_version");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("AcceptedByAccountId");
 
                     b.HasIndex("DisplayCode")
                         .IsUnique();
+
+                    b.HasIndex("ServiceRecordedByAccountId");
 
                     b.HasIndex("Source", "ExternalCode")
                         .IsUnique();
@@ -4461,6 +4506,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ActorAccountId")
                         .HasColumnType("uuid")
                         .HasColumnName("actor_account_id");
+
+                    b.Property<Guid?>("CommandId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("command_id");
 
                     b.Property<Guid?>("ExternalEventId")
                         .HasColumnType("uuid")
@@ -4505,6 +4554,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ActorAccountId");
+
+                    b.HasIndex("CommandId")
+                        .IsUnique()
+                        .HasFilter("command_id IS NOT NULL");
 
                     b.HasIndex("ExternalEventId")
                         .IsUnique()
@@ -5296,6 +5349,11 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)")
                         .HasColumnName("order_type");
+
+                    b.Property<string>("SpecializedHandlingReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("specialized_handling_reason");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -6869,6 +6927,19 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("RequestId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.ProcurementRequests.ProcurementRequest", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AcceptedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceRecordedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("CSVC.Core.ProcurementRequests.ProcurementRequestEvent", b =>

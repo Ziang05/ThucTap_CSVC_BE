@@ -14,7 +14,7 @@ using CSVC.UseCases.Settings;
 
 namespace CSVC.UseCases.ProcurementRequests;
 
-public sealed class ProcurementRequestService(IProcurementRequestRepository requests, IRepository<ProcurementRequest> records,
+public sealed partial class ProcurementRequestService(IProcurementRequestRepository requests, IRepository<ProcurementRequest> records,
     IRepository<ProcurementRequestLine> lines, IRepository<ProcurementRequestEvent> events, IPmmsRequestSource source,
     IProcurementWorkflow workflow, IUnitOfWork uow, IInventoryTransaction transaction, ICurrentAccount current,
     IEquipmentDepartmentPolicy equipment, IServiceOrderRepository services, IRepository<ServiceOrderDeviceHold> serviceHolds,
@@ -40,7 +40,7 @@ public sealed class ProcurementRequestService(IProcurementRequestRepository requ
             {
                 if (normalized.Action != PmmsEventAction.Create) throw Missing();
                 request = new ProcurementRequest { DisplayCode = CSVC.UseCases.Common.FeatureCode.New("YC"), ExternalCode = normalized.ExternalCode,
-                    Source = source.Source, Title = normalized.Request!.Title, RequestingDepartmentCode = normalized.Request.RequestingDepartmentCode,
+                    WorkflowVersion = 2, Source = source.Source, Title = normalized.Request!.Title, RequestingDepartmentCode = normalized.Request.RequestingDepartmentCode,
                     SourceStatus = normalized.Request.SourceStatus, ReceivedAt = clock.GetUtcNow() };
                 await records.AddAsync(request, token);
             }
@@ -134,24 +134,41 @@ public sealed class ProcurementRequestService(IProcurementRequestRepository requ
 
     public async Task<PagedResult<ProcurementSummary>> ListAsync(ProcurementQuery query, CancellationToken ct)
     {
-        await ActorAsync(false, ct); Validate(query); return await requests.ListAsync(query, ct);
+        var actor = await ReadActorAsync(ct); Validate(query); return await requests.ListAsync(query, ct, actor.Role == RoleCodes.DepartmentStaff ? actor.DepartmentCode : null);
     }
     public async Task<ProcurementDetail> GetAsync(string code, CancellationToken ct)
     {
-        await ActorAsync(false, ct);
+        var actor = await ReadActorAsync(ct);
         var request = await requests.GetAsync(code, false, ct) ?? throw Missing();
+        RequireVisible(request, actor);
         var documents = await workflow.DocumentsAsync(request, ct);
+        var repairResults = new List<RepairResultDto>();
+        foreach (var document in documents.Where(d => d.Kind == RequestDocumentKind.Repair))
+        {
+            var order = (await services.GetAggregateAsync(document.DocumentCode, false, ct))!;
+            repairResults.AddRange(order.Items.Select(i => new RepairResultDto(i.DeviceCodeSnapshot, i.ExecutionStatus?.ToString(), i.ResultDescription, i.ResultRecordedAt)));
+        }
         return new(Summary(request), request.Source == "PMMS_SIMULATED", request.Contact, request.ContractReference, request.SupplierReference,
             request.SourceStatus, request.SourceCreatedAt, request.SourceUpdatedAt, request.Notes, request.MappingIssue, request.PendingSourcePayload,
             request.Result, request.ResultReason, request.ClosedAt,
             request.Lines.OrderBy(l => l.SourceLineCode).Select(l => new ProcurementLineDto(l.SourceLineCode, l.Kind, l.Description, l.Quantity, l.Unit, l.CategoryCode, l.DeviceCode, l.DamageReportCode, l.Specialization)).ToArray(),
-            documents, request.Status is not (ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled) && !documents.Any(d => d.Executed || d.Open));
+            documents, request.Status is not (ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled) && !documents.Any(d => d.Executed || d.Open))
+        {
+            RequiresResultAcceptance = NeedsAcceptance(request),
+            CanAcceptResults = IsReceiver(request, actor),
+            RepairResults = repairResults,
+            ServiceEvidence = request.ServiceEvidenceJson is null ? null : new(ProcurementJson.Read<ServiceEvidenceLine[]>(request.ServiceEvidenceJson),
+                (await uow.Accounts.GetByIdAsync(request.ServiceRecordedByAccountId!.Value, ct))!.AccountCode, request.ServiceRecordedAt!.Value),
+            Acceptance = request.AcceptanceDecision is null ? null : new(request.AcceptanceDecision, request.AcceptanceReason,
+                (await uow.Accounts.GetByIdAsync(request.AcceptedByAccountId!.Value, ct))!.AccountCode, request.AcceptedAt!.Value)
+        };
     }
     public async Task<PagedResult<ProcurementEventDto>> HistoryAsync(string code, int page, int pageSize, CancellationToken ct)
     {
-        await ActorAsync(false, ct);
+        var actor = await ReadActorAsync(ct);
         if (page < 1 || page > 1000000 || pageSize < 1 || pageSize > 100) throw Invalid("Invalid paging.");
         var request = await requests.GetAsync(code, false, ct) ?? throw Missing();
+        RequireVisible(request, actor);
         return await requests.HistoryAsync(request.Id, page, pageSize, ct);
     }
     public Task TransitionAsync(string code, ProcurementTransition input, CancellationToken ct)
@@ -183,39 +200,19 @@ public sealed class ProcurementRequestService(IProcurementRequestRepository requ
             var actor = await ActorAsync(true, token); Validate(input);
             var request = await EditableAsync(code, input.Version, token);
             if (request.RequiresReview) throw Conflict("SOURCE_REQUEST_NOT_READY", "Resolve mapping or source changes first.");
+            var result = await ValidateCompletionAsync(request, input.FailureReason, token);
             var documents = await workflow.DocumentsAsync(request, token);
-            if (documents.Any(d => d.Open)) throw Conflict("SOURCE_DOCUMENTS_OPEN", "Finish or cancel all open documents before closing the request.");
-            foreach (var repairDocument in documents.Where(d => d.Kind == RequestDocumentKind.Repair && d.Executed))
+            if (NeedsAcceptance(request) && (string.IsNullOrWhiteSpace(input.FailureReason) || documents.Any(d => d.Executed)))
             {
-                var repairOrder = (await services.GetAggregateAsync(repairDocument.DocumentCode, false, token))!;
-                if (await serviceHolds.ExistsAsync(h => h.ServiceOrderId == repairOrder.Id, token)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Receive exported devices and reconcile repair reservations before closing.");
-            }
-            string result;
-            if (!string.IsNullOrWhiteSpace(input.FailureReason)) result = "Failed";
-            else if (request.RequestType == ProcurementRequestType.Repair)
-            {
-                var repair = documents.SingleOrDefault(d => d.Kind == RequestDocumentKind.Repair && d.Status == "Completed") ?? throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Complete every repair line first.");
-                var order = (await services.GetAggregateAsync(repair.DocumentCode, false, token))!;
-                if (await serviceHolds.ExistsAsync(h => h.ServiceOrderId == order.Id, token)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Receive exported devices and reconcile repair reservations first.");
-                result = order.Items.All(i => i.ExecutionStatus == ServiceItemStatus.Completed) ? "Success" : "CompletedWithIssues";
-            }
-            else
-            {
-                if (request.Lines.Any(l => l.Kind == ProcurementLineKind.Service)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Standalone service fulfillment requires its service evidence.");
-                await materialWorkflow.RequireRequestReadyAsync(request, token);
-                var allocation = documents.SingleOrDefault(d => (d.Kind == RequestDocumentKind.Allocation || d.Kind == RequestDocumentKind.InternalUse) && d.Status == "Completed");
-                if (allocation is null && request.Lines.Any(l => l.Kind == ProcurementLineKind.Equipment))
+                var hash = await CompletionHashAsync(request, token);
+                if (request.AcceptanceScopeHash != hash || request.AcceptanceDecision is null)
+                    throw Conflict("RESULT_ACCEPTANCE_REQUIRED", "The requesting department must confirm the complete result first.");
+                if (request.AcceptanceDecision != "Accepted")
                 {
-                    var equipmentId = await equipment.RequireConfiguredAsync(token);
-                    if (!await uow.Departments.ExistsAsync(d => d.Id == equipmentId && d.Code == request.RequestingDepartmentCode, token)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "The receiving department must confirm the separate allocation.");
-                    var receipt = documents.SingleOrDefault(d => d.Kind == RequestDocumentKind.Receipt && d.Status == "Completed") ?? throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Receive all devices before confirming internal use.");
-                    foreach (var line in request.Lines.Where(l => l.Kind == ProcurementLineKind.Equipment))
-                        if (receipt.Bindings.Count(b => b.SourceLineCode == line.SourceLineCode) != line.Quantity) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Every requested device must be received and put into use.");
-                    var codes = receipt.Bindings.Select(b => b.DeviceCode).ToArray();
-                    var devices = await uow.Devices.FindAsync(d => codes.Contains(d.DeviceCode), token);
-                    if (devices.Count != codes.Length || devices.Any(d => d.DepartmentId != equipmentId || d.UseState != DeviceUseState.InUse || d.Quantity != 1)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Confirm every device's internal use first.");
+                    var account = (await uow.Accounts.GetByIdAsync(actor, token))!;
+                    if (string.IsNullOrWhiteSpace(input.FailureReason) || (await uow.Roles.GetByIdAsync(account.RoleId, token))?.Code != RoleCodes.EquipmentManager)
+                        throw Conflict("RESULT_REJECTED", "Only the manager may close a rejected result as Failed with a reason, or record corrected service evidence.");
                 }
-                result = "Success";
             }
             // All lines close together; partial completion is never stored.
             request.Status = ProcurementRequestStatus.Completed; request.Result = result; request.ResultReason = input.FailureReason;
@@ -233,17 +230,9 @@ public sealed class ProcurementRequestService(IProcurementRequestRepository requ
     }
     private async Task<Guid> ActorAsync(bool writing, CancellationToken ct)
     {
-        if (current.AccountId is not { } id || current.SessionId is not { } sessionId) throw Unauthorized();
-        var account = await uow.Accounts.FirstOrDefaultAsync(a => a.Id == id && !a.IsLock, ct) ?? throw Unauthorized();
-        if (!await uow.AuthSessions.ExistsAsync(s => s.Id == sessionId && s.AccountId == id && s.IsActive && s.ExpiresAt > clock.GetUtcNow(), ct)) throw Unauthorized();
-        var role = await uow.Roles.GetByIdAsync(account.RoleId, ct);
-        if (role?.Code is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff)) throw new UseCaseException(FailureKind.Forbidden, "SOURCE_REQUEST_FORBIDDEN", "Only QTTB can access procurement requests.");
-        if (writing)
-        {
-            var profile = await uow.UserProfiles.GetByIdAsync(account.UserProfileId, ct) ?? throw Unauthorized();
-            await equipment.RequireMemberAsync(role.Code, profile.DepartmentId, ct);
-        }
-        return id;
+        var actor = await ReadActorAsync(ct);
+        if (actor.Role == RoleCodes.DepartmentStaff) throw ForbiddenSource();
+        return actor.Id;
     }
     private Task AuditAsync(ProcurementRequest request, Guid actor, string action, string outcome, string? reason, CancellationToken ct)
         => events.AddAsync(new ProcurementRequestEvent { RequestId = request.Id, Action = action, Outcome = outcome,
@@ -254,4 +243,43 @@ public sealed class ProcurementRequestService(IProcurementRequestRepository requ
     private static UseCaseException Invalid(string reason) => new(FailureKind.Validation, "VALIDATION_FAILED", reason);
     private static UseCaseException Unauthorized() => new(FailureKind.Unauthorized, "AUTHENTICATION_REQUIRED", "A valid session is required.");
     private static UseCaseException Conflict(string code, string reason) => new(FailureKind.Conflict, code, reason);
+
+    private async Task<string> ValidateCompletionAsync(ProcurementRequest request, string? failureReason, CancellationToken ct)
+    {
+            var documents = await workflow.DocumentsAsync(request, ct);
+            if (documents.Any(d => d.Open)) throw Conflict("SOURCE_DOCUMENTS_OPEN", "Finish or cancel all open documents before closing the request.");
+            foreach (var repairDocument in documents.Where(d => d.Kind == RequestDocumentKind.Repair && d.Executed))
+            {
+                var repairOrder = (await services.GetAggregateAsync(repairDocument.DocumentCode, false, ct))!;
+                if (await serviceHolds.ExistsAsync(h => h.ServiceOrderId == repairOrder.Id, ct)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Receive exported devices and reconcile repair reservations before closing.");
+            }
+            string result;
+            if (!string.IsNullOrWhiteSpace(failureReason)) result = "Failed";
+            else if (request.RequestType == ProcurementRequestType.Repair)
+            {
+                var repair = documents.SingleOrDefault(d => d.Kind == RequestDocumentKind.Repair && d.Status == "Completed") ?? throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Complete every repair line first.");
+                var order = (await services.GetAggregateAsync(repair.DocumentCode, false, ct))!;
+                if (await serviceHolds.ExistsAsync(h => h.ServiceOrderId == order.Id, ct)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Receive exported devices and reconcile repair reservations first.");
+                result = order.Items.All(i => i.ExecutionStatus == ServiceItemStatus.Completed) ? "Success" : "CompletedWithIssues";
+            }
+            else
+            {
+                RequireServiceEvidence(request);
+                await materialWorkflow.RequireRequestReadyAsync(request, ct);
+                var allocation = documents.SingleOrDefault(d => (d.Kind == RequestDocumentKind.Allocation || d.Kind == RequestDocumentKind.InternalUse) && d.Status == "Completed");
+                if (allocation is null && request.Lines.Any(l => l.Kind == ProcurementLineKind.Equipment))
+                {
+                    var equipmentId = await equipment.RequireConfiguredAsync(ct);
+                    if (!await uow.Departments.ExistsAsync(d => d.Id == equipmentId && d.Code == request.RequestingDepartmentCode, ct)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "The receiving department must confirm the separate allocation.");
+                    var receipt = documents.SingleOrDefault(d => d.Kind == RequestDocumentKind.Receipt && d.Status == "Completed") ?? throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Receive all devices before confirming internal use.");
+                    foreach (var line in request.Lines.Where(l => l.Kind == ProcurementLineKind.Equipment))
+                        if (receipt.Bindings.Count(b => b.SourceLineCode == line.SourceLineCode) != line.Quantity) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Every requested device must be received and put into use.");
+                    var codes = receipt.Bindings.Select(b => b.DeviceCode).ToArray();
+                    var devices = await uow.Devices.FindAsync(d => codes.Contains(d.DeviceCode), ct);
+                    if (devices.Count != codes.Length || devices.Any(d => d.DepartmentId != equipmentId || d.UseState != DeviceUseState.InUse || d.Quantity != 1)) throw Conflict("SOURCE_REQUEST_INCOMPLETE", "Confirm every device's internal use first.");
+                }
+                result = request.ServiceEvidenceJson is { } evidence && ProcurementJson.Read<ServiceEvidenceLine[]>(evidence).Any(l => l.Outcome != ServiceEvidenceOutcome.Completed) ? "CompletedWithIssues" : "Success";
+            }
+        return result;
+    }
 }

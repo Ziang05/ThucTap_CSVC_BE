@@ -27,6 +27,7 @@ public sealed class ServiceOrder
     public string? CancelReason { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string? Notes { get; set; }
+    public string? SpecializedHandlingReason { get; set; }
     public int Version { get; set; }
     public ICollection<ServiceOrderItem> Items { get; set; } = new List<ServiceOrderItem>();
     public ICollection<ExportSlip> ExportSlips { get; set; } = new List<ExportSlip>();

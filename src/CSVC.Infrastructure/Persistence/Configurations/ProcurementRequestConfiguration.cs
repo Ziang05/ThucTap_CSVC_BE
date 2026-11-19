@@ -21,6 +21,12 @@ public sealed class ProcurementRequestConfiguration : IEntityTypeConfiguration<P
         b.Property(x => x.Contact).HasMaxLength(200); b.Property(x => x.ContractReference).HasMaxLength(100); b.Property(x => x.SupplierReference).HasMaxLength(100);
         b.Property(x => x.Notes).HasMaxLength(4000); b.Property(x => x.SourceStatus).HasMaxLength(64);
         b.Property(x => x.PendingSourcePayload).HasColumnType("jsonb"); b.Property(x => x.Version).IsConcurrencyToken();
+        b.Property(x => x.WorkflowVersion).HasDefaultValue(1);
+        b.Property(x => x.ServiceEvidenceJson).HasColumnType("jsonb");
+        b.Property(x => x.AcceptanceDecision).HasMaxLength(16); b.Property(x => x.AcceptanceReason).HasMaxLength(1000);
+        b.Property(x => x.AcceptanceScopeHash).HasMaxLength(64);
+        b.HasOne<Account>().WithMany().HasForeignKey(x => x.ServiceRecordedByAccountId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Account>().WithMany().HasForeignKey(x => x.AcceptedByAccountId).OnDelete(DeleteBehavior.Restrict);
         b.Property(x => x.MappingIssue).HasMaxLength(1000); b.Property(x => x.Result).HasMaxLength(32); b.Property(x => x.ResultReason).HasMaxLength(1000);
         b.HasMany(x => x.Lines).WithOne().HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => new { x.Status, x.ReceivedAt });
@@ -45,6 +51,7 @@ public sealed class ProcurementRequestEventConfiguration : IEntityTypeConfigurat
     {
         b.ToTable("procurement_request_events"); b.HasKey(x => x.Id); b.Property(x => x.Id).ValueGeneratedNever();
         b.HasIndex(x => x.ExternalEventId).IsUnique().HasFilter("external_event_id IS NOT NULL");
+        b.HasIndex(x => x.CommandId).IsUnique().HasFilter("command_id IS NOT NULL");
         b.HasIndex(x => new { x.RequestId, x.SourceVersion }).IsUnique().HasFilter("source_version IS NOT NULL");
         b.Property(x => x.Action).HasMaxLength(64).IsRequired(); b.Property(x => x.Outcome).HasMaxLength(64).IsRequired(); b.Property(x => x.Reason).HasMaxLength(1000);
         b.Property(x => x.PayloadHash).HasMaxLength(64); b.Property(x => x.Payload).HasColumnType("jsonb"); b.Property(x => x.Response).HasColumnType("jsonb");

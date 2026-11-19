@@ -6,7 +6,7 @@ Nguồn: `Documents/PMQTTB.docx`, [hợp đồng nghiệp vụ](pmqttb-business-
 
 ## Quyết định phạm vi giữ nguyên
 
-- In/quét **mã vạch**, không dùng QR. Backend đã có barcode/lookup; UI hiện vẫn in QR nên chưa khớp.
+- In/quét **mã vạch**, không dùng QR. Backend có barcode/lookup; UI đã in Code 128 theo mã đã lưu, còn nghiệm thu máy in/máy quét vật lý.
 - Mỗi thiết bị/bộ có mã riêng, số lượng `0/1`; vật tư/dụng cụ có kho riêng, số lượng nhiều.
 - Thu hẹp cha–con theo nghiệp vụ đích; truy vết thay thế/nâng cấp/tháo bỏ bằng can thiệp trước–sau và vật tư, không bắt tạo thiết bị con.
 - Giữ mượn trả. Điều chuyển giữa các đơn vị giữ hành vi hiện tại cho đến khi thống nhất khác.
@@ -21,13 +21,13 @@ Nguồn: `Documents/PMQTTB.docx`, [hợp đồng nghiệp vụ](pmqttb-business-
 | --- | --- | --- |
 | 0 — Đồng bộ sau merge | **CV-01 hoàn tất:** backend 336/336, UI 63/63, trình duyệt/API đạt; local đã nâng cấp | Tiếp tục nghiệm thu nghiệp vụ chi tiết ở các CV còn lại |
 | 1 — Hợp đồng | Các quyết định cốt lõi đã chốt; đã cập nhật tài liệu trạng thái | Theo dõi điểm cần thống nhất ở task 2, 4, 9 |
-| 2 — Thu hẹp cha–con | **Chưa đạt trên bản hiện tại**; bản pull vẫn cho ghi quan hệ/mở rộng cây | Thống nhất với team rồi sửa đồng bộ API/DB/UI |
+| 2 — Thu hẹp cha–con | **CV-02 đã triển khai**: tham chiếu cũ chỉ đọc, thiết bị xử lý độc lập | Giữ dữ liệu/phiếu/lịch sử cũ; [quy tắc](device-reference-policy.md) |
 | 3 — Nhập → QTTB → cấp phát | Có backend/UI, kiểm thử backend | Nghiệm thu lại sau merge; không suy ra đã triển khai local |
-| 4 — PMMS giả lập | Có luồng chính, chống trùng/phiên bản/liên kết chứng từ | Dịch vụ độc lập; làm rõ nghiệm thu sửa chữa và quy tắc chuyên dụng |
+| 4 — PMMS giả lập | **CV-04 đã triển khai**: dịch vụ, nghiệm thu của đơn vị, ngoại lệ chuyên dụng | Chưa có API PMMS thật; [hướng dẫn](pmms-simulation.md) |
 | 5 — Phân công | Ngoài phần việc này; module cũ đã gỡ/lưu trữ dữ liệu | Tích hợp khi đồng đội cung cấp module/hợp đồng |
 | 6 — Kho vật tư | Có backend/UI, tồn, chứng từ, can thiệp và đối soát | Nghiệm thu sau merge; chốt danh mục trước dùng dữ liệu thật |
 | 7 — Thanh lý | Chưa có module | Chứng từ, vòng đời, chặn nghiệp vụ, giữ lịch sử |
-| 8 — Mã vạch | Có sinh mã, lookup, ô quét/nhập; **UI in QR** | Thay phần in bằng mã vạch; kiểm tra máy quét/in lại |
+| 8 — Mã vạch | **CV-03 đã triển khai phần mềm**: Code 128, PDF, in lại và tra cứu | Còn nghiệm thu máy in/máy quét vật lý |
 | 9 — Kiểm kê | Đã có module backend/UI từ bản pull | Đồng đội nghiệm thu, đối chiếu tình trạng/vị trí/quét |
 | 10 — Báo cáo thiết bị toàn trường | Chưa có báo cáo theo kỳ | Không nhầm với báo cáo vật tư; phụ thuộc thanh lý |
 | 11 — Lịch bảo trì | Có phiếu thủ công, chưa có lịch/chu kỳ/cảnh báo | Khai báo từ hợp đồng, nhắc hạn, tạo phiếu |
@@ -49,22 +49,19 @@ Nguồn: `Documents/PMQTTB.docx`, [hợp đồng nghiệp vụ](pmqttb-business-
 - [x] Giữ mượn trả; phân công/kiểm kê do đồng đội phụ trách; truy vết can thiệp áp dụng chung cho nhiều loại thiết bị.
 - [x] Cập nhật trạng thái backlog/hợp đồng sau merge; bỏ tham chiếu tới tài liệu/migration thu hẹp cha–con không còn trong source.
 
-### 2. Thu hẹp cha–con — chưa hoàn tất trên bản hiện tại
+### 2. Thu hẹp cha–con — CV-02 đã triển khai
 
-Trạng thái hoàn tất trước đây không còn đúng sau pull. `DevicesController`/`DeviceService.SetParentAsync` vẫn cho gắn/đổi cha; nhập xử lý `ParentDeviceCode`; mượn/điều chuyển gọi `GetSubtreeAsync`. UI giữ phần quan hệ của bản pull. Migration `RetireDeviceComponentRelationships` và tài liệu `device-packages-release.md` không còn trong source.
-
-- [ ] Thống nhất với team cách thu hẹp quan hệ theo nghiệp vụ đích. Đây là thay đổi hành vi đã pull, không tự thực hiện khi ghép stash.
-- [ ] Đối chiếu dữ liệu/phiếu đã lưu; không tự gộp, xóa hoặc chuyển thiết bị cũ thành vật tư.
-- [ ] Sau thống nhất, đồng bộ API/DB/UI và cách mở rộng cây; giữ định danh, phiếu, giữ chỗ, lịch sử; bổ sung migration/kiểm thử.
-
-**Hoàn thành khi:** mỗi bộ xử lý độc lập theo phạm vi đã chốt, không cần tạo thiết bị con để ghi can thiệp và vẫn đọc được dữ liệu cũ.
+- [x] Chủ project giao triển khai và tự quyết phương án trong phạm vi CV-02–CV-05.
+- [x] API/DB chặn ghi liên kết mới hoặc sửa tham chiếu cũ; UI chỉ đọc tham chiếu lịch sử.
+- [x] Chọn/khóa/mượn/điều chuyển/thu hồi độc lập, giữ đủ dòng phiếu đã lưu, định danh, giữ chỗ và lịch sử.
+- [x] Kiểm chứng migration dữ liệu cũ, phân quyền và rollback. [Quy tắc](device-reference-policy.md), [biên bản](cv02-05-validation.md).
 
 ### 3. Nhập kho → QTTB giữ → cấp phát
 
 - [x] Phiếu mới tách đơn vị đề xuất và QTTB tiếp nhận từ Settings; nhập về QTTB/InStorage. Phiếu phiên bản 1 giữ nghĩa cũ.
 - [x] Cấp phát riêng chỉ đổi nơi giữ/InUse khi thực nhận; QTTB tự dùng có thao tác/người/vị trí/lịch sử riêng. Có kiểm thử quyền, rollback, migration, giữ metadata.
 - [x] Có UI phòng nhận chỉ đọc, danh sách chọn hồ sơ chưa nhận và dùng tại QTTB; đã ghép với phần tìm kiếm có sẵn.
-- [ ] Nghiệm thu sau merge/triển khai theo task 0. Hướng dẫn: [nhập và cấp phát](receipt-custody-release.md).
+- [x] CV-05 kiểm chứng lại sau merge và CV-02: tiếp nhận, cấp phát, tự dùng, dữ liệu cũ và rollback. Hướng dẫn: [nhập và cấp phát](receipt-custody-release.md).
 
 ### 4. Yêu cầu mua sắm/sửa chữa từ PMMS giả lập
 
@@ -72,17 +69,17 @@ Trạng thái hoàn tất trước đây không còn đúng sau pull. `DevicesCo
 - [x] Có định danh nguồn/sự kiện/phiên bản, chống trùng, lịch sử, đối soát cập nhật và chặn hủy sau thực hiện.
 - [x] Liên kết từng dòng với nhập/cấp phát/sửa chữa/vật tư; kiểm tra đủ phạm vi trước đóng. Yêu cầu hỗn hợp bàn giao thiết bị/vật tư cùng giao dịch.
 - [x] Lưu thông dụng/chuyên dụng, tham chiếu KHTC&ĐT/nhà cung cấp; UI đề xuất bên ngoài cho chuyên dụng. Tham chiếu danh mục theo giới hạn 64 ký tự của bản pull.
-- [ ] Xử lý **dịch vụ độc lập**: hiện nhận/lưu được nhưng chưa có chứng từ bằng chứng tương ứng, nên chưa thể kết thúc thành công.
-- [ ] Chốt đơn vị yêu cầu có phải nghiệm thu riêng kết quả sửa chữa không: hiện QTTB ghi kết quả/đóng yêu cầu, chưa có bước xác nhận riêng như thực nhận cấp phát.
-- [ ] Thống nhất chuyên dụng là gợi ý hay ràng buộc quyền/cách thực hiện; backend hiện chưa ép mọi dòng chuyên dụng đi bên ngoài.
-- [ ] Nghiệm thu sau merge theo task 0. Hướng dẫn: [PMMS giả lập](pmms-simulation.md).
+- [x] Dịch vụ độc lập có bằng chứng đủ mọi dòng, người/bên thực hiện, chứng từ, thời điểm và kết quả; ghi lặp/rollback được kiểm thử.
+- [x] Đơn vị yêu cầu xác nhận toàn bộ kết quả sửa chữa mới và dịch vụ trước khi QTTB đóng; giữ luồng sửa chữa phiên bản 1 cho hồ sơ cũ.
+- [x] Chuyên dụng mặc định bên ngoài; tại chỗ phải có lý do hiển thị cho quản lý duyệt. Không tự ép mọi trường hợp ra ngoài.
+- [x] CV-04 kiểm chứng API/trình duyệt và dữ liệu cũ. Hướng dẫn: [PMMS giả lập](pmms-simulation.md).
 
-### 8. In tem mã vạch — nâng ưu tiên do UI còn in QR
+### 8. In tem mã vạch — CV-03 đã triển khai phần mềm
 
-- [x] Backend sinh barcode ổn định/lookup; UI có ô quét hoặc nhập để tra cứu.
-- [ ] Thống nhất thay phần tem dùng `QRCodeSVG` trong UI đã pull bằng **mã vạch**, không tạo thêm màn QR song song.
-- [ ] Chốt mẫu tem/nội dung/in lại; giữ giá trị barcode, không phát sinh định danh mới khi in lại.
-- [ ] Kiểm tra in và quét thực tế, mã không tồn tại, quét lặp, quyền đọc; phối hợp thao tác quét kiểm kê với đồng đội.
+- [x] Backend giữ barcode/lookup; UI in Code 128, bỏ QR và thư viện QR.
+- [x] Tem 100 × 50 mm, in A4 nhiều tem; in lại không tạo định danh mới.
+- [x] Kiểm chứng trình duyệt/PDF, giải mã độc lập, tra cứu Enter, quét lặp, mã không tồn tại và quyền đọc. [Hướng dẫn](barcode-labels.md).
+- [ ] In và quét bằng máy thật của khách hàng; phối hợp nghiệm thu quét kiểm kê với đồng đội. Chưa có thiết bị vật lý để đánh dấu hoàn tất phần này.
 
 ## P1 — Truy vết vòng đời và hoàn thiện kho
 
@@ -139,10 +136,8 @@ Phối hợp nghiệm thu: API kết quả hiện ghi `Exists`/`NewExists`; chư
 
 ## Thứ tự thực hiện đề xuất
 
-1. Task 0/CV-01 đã hoàn tất; dùng báo cáo làm mốc, tiếp tục nghiệm thu nghiệp vụ chi tiết ở các CV sau.
-2. Thống nhất task 2 với team trước khi chốt lại việc chọn thiết bị và báo cáo.
-3. Task 8: thay tem QR bằng mã vạch theo quyết định đã có.
-4. Hoàn thiện phần thiếu task 4; nghiệm thu task 3/6, không xây lại phần đã có.
-5. Task 12: hợp nhất lịch sử để truy vết can thiệp trên mọi loại thiết bị.
-6. Task 7 → 10: thanh lý rồi báo cáo thiết bị toàn trường.
-7. Task 11: lịch bảo trì/cảnh báo. Task 5/9 chỉ phối hợp tích hợp/nghiệm thu với người phụ trách.
+1. CV-01 và phần mềm CV-02–CV-05 đã hoàn tất; kết quả/giới hạn theo [biên bản CV-02–CV-05](cv02-05-validation.md).
+2. CV-03 còn nghiệm thu máy in/máy quét vật lý; thực hiện khi có thiết bị.
+3. Tiếp tục CV-06: nghiệm thu kho vật tư/can thiệp và thống nhất danh mục thực tế.
+4. CV-07: hợp nhất timeline; CV-08/CV-09: thanh lý và báo cáo thiết bị theo kỳ.
+5. CV-10: lịch bảo trì/cảnh báo. CV-11/CV-12 chỉ phối hợp với người phụ trách phân công/kiểm kê.

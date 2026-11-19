@@ -4,7 +4,7 @@ public enum ProcurementRequestType { Purchase, Repair }
 public enum ProcurementRequestStatus { Received, InProgress, WaitingForGoods, WaitingForExternal, AwaitingHandover, Completed, Cancelled }
 public enum ProcurementLineKind { Equipment, Material, Service }
 public enum EquipmentSpecialization { Unclassified, Common, Specialized }
-public enum RequestDocumentKind { Receipt, Allocation, Repair, InternalUse, MaterialReceipt, MaterialIssue, MaterialReturn }
+public enum RequestDocumentKind { Receipt, Allocation, Repair, InternalUse, MaterialReceipt, MaterialIssue, MaterialReturn, ServiceEvidence }
 
 public sealed class ProcurementRequest
 {
@@ -25,6 +25,15 @@ public sealed class ProcurementRequest
     public DateTimeOffset ReceivedAt { get; set; }
     public int SourceVersion { get; set; }
     public int Version { get; set; } = 1;
+    public int WorkflowVersion { get; set; } = 1;
+    public string? ServiceEvidenceJson { get; set; }
+    public Guid? ServiceRecordedByAccountId { get; set; }
+    public DateTimeOffset? ServiceRecordedAt { get; set; }
+    public string? AcceptanceDecision { get; set; }
+    public string? AcceptanceReason { get; set; }
+    public string? AcceptanceScopeHash { get; set; }
+    public Guid? AcceptedByAccountId { get; set; }
+    public DateTimeOffset? AcceptedAt { get; set; }
     public ProcurementRequestStatus Status { get; set; }
     public string? MappingIssue { get; set; }
     public bool RequiresReview { get; set; }
@@ -55,6 +64,7 @@ public sealed class ProcurementRequestEvent
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid RequestId { get; set; }
     public Guid? ExternalEventId { get; set; }
+    public Guid? CommandId { get; set; }
     public int? SourceVersion { get; set; }
     public required string Action { get; set; }
     public required string Outcome { get; set; }
