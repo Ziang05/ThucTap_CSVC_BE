@@ -27,6 +27,8 @@ public sealed class CreateDeviceRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class UpdateDeviceRequest
 {
+    private string? areaCode;
+
     [Required, StringLength(200)] public string Name { get; init; } = "";
     [StringLength(100)] public string? SerialNumber { get; init; }
     [StringLength(64)] public string? ManufacturerCode { get; init; }
@@ -35,6 +37,17 @@ public sealed class UpdateDeviceRequest
     [StringLength(64)] public string? PaidInvoiceCode { get; init; }
     [Range(typeof(decimal), "0", "9999999999999999.99")] public decimal? PurchasePrice { get; init; }
     public DateOnly? WarrantyExpiryDate { get; init; }
+    [StringLength(32)]
+    public string? AreaCode
+    {
+        get => areaCode;
+        init
+        {
+            areaCode = value;
+            HasAreaCode = true;
+        }
+    }
+    internal bool HasAreaCode { get; private set; }
     [StringLength(4000)] public string? Notes { get; init; }
     [RegularExpression("^[A-Fa-f0-9]{64}$")] public string? Version { get; init; }
 }
