@@ -66,7 +66,8 @@ public sealed partial class MaterialService(MaterialAccess access, IMaterialStor
 
     public Task<UnitDto> SaveUnitAsync(string? code, UnitWrite input, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {
-        var actor = await access.RequireAsync(token, manager: true); Validate(input);
+        var actor = await access.RequireAsync(token, manager: code is not null); Validate(input);
+        if (!actor.Manager && input.Status != EntityStatus.Active) throw MaterialErrors.Forbidden("Only the manager may lock catalog entries.");
         MaterialUnit entity; object? before = null;
         if (code is null) { entity = new() { Code = NewCode(input.Code, "DV"), Name = Name(input.Name), DecimalPlaces = input.DecimalPlaces, Status = input.Status }; await units.AddAsync(entity, token); }
         else
@@ -81,7 +82,8 @@ public sealed partial class MaterialService(MaterialAccess access, IMaterialStor
     }, ct);
     public Task<MaterialDto> SaveMaterialAsync(string? code, MaterialWrite input, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {
-        var actor = await access.RequireAsync(token, manager: true); Validate(input);
+        var actor = await access.RequireAsync(token, manager: code is not null); Validate(input);
+        if (!actor.Manager && input.Status != EntityStatus.Active) throw MaterialErrors.Forbidden("Only the manager may lock catalog entries.");
         var unit = await units.FirstOrDefaultAsync(u => u.Code == Code(input.UnitCode), token) ?? throw MaterialErrors.Missing("Unit not found.");
         if (input.Status == EntityStatus.Active && unit.Status != EntityStatus.Active) throw MaterialErrors.Invalid("Select an active unit.");
         MaterialItem entity; object? before = null;
