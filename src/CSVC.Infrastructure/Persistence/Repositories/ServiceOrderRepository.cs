@@ -33,6 +33,22 @@ public sealed class ServiceOrderRepository(CsvcDbContext context) : GenericRepos
             var search = query.Search.Trim().ToUpperInvariant();
             source = source.Where(x => x.DisplayCode.Contains(search));
         }
+        if (query.CreatedByAccountCode?.Trim().ToUpperInvariant() is { Length: > 0 } creator)
+            source = source.Where(x => _context.Accounts.Any(a => a.Id == x.CreatedByAccountId && a.AccountCode == creator));
+        if (query.CreatedFrom?.ToUniversalTime() is { } createdFrom) source = source.Where(x => x.CreatedAt >= createdFrom);
+        if (query.CreatedTo?.ToUniversalTime() is { } createdTo) source = source.Where(x => x.CreatedAt <= createdTo);
+
+        var deviceCode = FilterCode(query.DeviceCode);
+        var damageReportCode = FilterCode(query.DamageReportCode);
+        var executionMethod = query.ExecutionMethod;
+        var itemStatus = query.ItemStatus;
+        if (deviceCode is not null || damageReportCode is not null || executionMethod is not null || itemStatus is not null)
+            source = source.Where(x => x.Items.Any(i =>
+                (deviceCode == null || i.DeviceCodeSnapshot == deviceCode)
+                && (executionMethod == null || i.ExecutionMethod == executionMethod)
+                && (itemStatus == null || i.ExecutionStatus == itemStatus)
+                && (damageReportCode == null || i.RepairDetail != null && i.RepairDetail.DamageReport != null
+                    && i.RepairDetail.DamageReport.ReportCode == damageReportCode)));
         var total = await source.CountAsync(ct);
         var items = await source.OrderByDescending(x => x.CreatedAt).ThenBy(x => x.DisplayCode)
             .Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToListAsync(ct);
@@ -48,11 +64,32 @@ public sealed class ServiceOrderRepository(CsvcDbContext context) : GenericRepos
             var code = query.ServiceOrderCode.Trim().ToUpperInvariant();
             source = source.Where(x => _context.ServiceOrders.Any(o => o.Id == x.ServiceOrderId && o.DisplayCode == code));
         }
+        if (FilterCode(query.Search) is { } codeSearch) source = source.Where(x => x.DisplayCode.Contains(codeSearch));
+        if (query.OrderType is { } type)
+            source = source.Where(x => _context.ServiceOrders.Any(o => o.Id == x.ServiceOrderId && o.OrderType == type));
+        if (query.Facility?.Trim() is { Length: > 0 } facility)
+        {
+            var name = facility.ToLowerInvariant();
+            var code = facility.ToUpperInvariant();
+            source = source.Where(x => x.FacilityNameSnapshot.ToLower().Contains(name)
+                || x.Facility != null && x.Facility.DisplayCode == code);
+        }
+        if (query.PlannedFrom?.ToUniversalTime() is { } plannedFrom) source = source.Where(x => x.PlannedExportAt >= plannedFrom);
+        if (query.PlannedTo?.ToUniversalTime() is { } plannedTo) source = source.Where(x => x.PlannedExportAt <= plannedTo);
+        var deviceCode = FilterCode(query.DeviceCode);
+        var itemResult = query.ItemResult;
+        if (deviceCode is not null || itemResult is not null)
+            source = source.Where(x => x.Items.Any(i =>
+                (deviceCode == null || i.DeviceCodeSnapshot == deviceCode)
+                && (itemResult == null || i.Result == itemResult)));
         var total = await source.CountAsync(ct);
         var items = await source.OrderByDescending(x => x.CreatedAt).ThenBy(x => x.DisplayCode)
             .Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToListAsync(ct);
         return new(items, total, query.Page, query.PageSize);
     }
+
+    private static string? FilterCode(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
 
     public async Task<IReadOnlyList<ServiceOrder>> GetByExportIdsAsync(IEnumerable<Guid> ids, CancellationToken ct)
         => await Aggregate(false).Where(o => o.ExportSlips.Any(e => ids.Contains(e.Id))).ToListAsync(ct);

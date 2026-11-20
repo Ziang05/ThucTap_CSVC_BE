@@ -277,6 +277,17 @@ public sealed class ServiceOrderApiTests
         await f.ExportResults(e.DisplayCode, request); await f.ExportResults(e.DisplayCode, request);
         var finished = await f.GetExport(e.DisplayCode); Assert.Equal(ServiceWorkflowStatus.Completed, finished.Status); Assert.Equal(ExportResult.Failed, finished.Items.Single(i => i.ItemNo == 3).Result);
         Assert.All((await f.GetOrder(o.DisplayCode)).Items, i => Assert.Equal(ServiceItemStatus.InProgress, i.ExecutionStatus));
+        var createdAt = Uri.EscapeDataString(o.CreatedAt.ToOffset(TimeSpan.FromHours(7)).ToString("O"));
+        var serviceFilters = Root + $"?orderType=Maintenance&createdByAccountCode=tk_staff&createdFrom={createdAt}&createdTo={createdAt}&itemStatus=InProgress&deviceCode=TB_SERVICE_1";
+        var onSite = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ServiceOrderDto>>(serviceFilters + "&executionMethod=OnSite", Json);
+        var external = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ServiceOrderDto>>(serviceFilters + "&executionMethod=External", Json);
+        Assert.Equal(o.DisplayCode, Assert.Single(onSite!.Items).DisplayCode);
+        Assert.Empty(external!.Items);
+        var exportFilters = Exports + $"?search={e.DisplayCode}&serviceOrderCode={o.DisplayCode}&orderType=Maintenance&facility=ncc_workshop_a&itemResult=Failed&pageSize=1";
+        var failed = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ExportSlipDto>>(exportFilters + "&deviceCode=TB_SERVICE_3", Json);
+        var mismatched = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ExportSlipDto>>(exportFilters + "&deviceCode=TB_SERVICE_2", Json);
+        Assert.Equal(e.DisplayCode, Assert.Single(failed!.Items).DisplayCode);
+        Assert.Empty(mismatched!.Items);
         await f.InDb(async db => { Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync()); Assert.Equal(ExportGuardState.AwaitingReturn, (await db.Set<ExportDeviceGuard>().SingleAsync()).GuardState); });
         await f.CreateExport(o.DisplayCode, [3]);
         await Expect(await f.Staff.PostAsJsonAsync(Exports + "/" + e.DisplayCode + "/result", new RecordExportResultRequest { RequestId = request.RequestId, Items = [request.Items[0]] }, Json), HttpStatusCode.Conflict, "IDEMPOTENCY_CONFLICT");
@@ -535,6 +546,9 @@ public sealed class ServiceOrderApiTests
             Items = [new() { DeviceCode = "TB_SERVICE_1", ExecutionMethod = ExecutionMethod.OnSite, DamageReportCode = code }] };
         var source = await f.CreateOrder(request); Assert.Equal(code, source.Items.Single().DamageReportCode);
         Assert.Equal(code, (await f.GetOrder(source.DisplayCode)).Items.Single().DamageReportCode);
+        var linked = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ServiceOrderDto>>(
+            Root + $"?orderType=Repair&damageReportCode={Uri.EscapeDataString(code!)}", Json);
+        Assert.Equal(source.DisplayCode, Assert.Single(linked!.Items).DisplayCode);
         await Expect(await f.Staff.PostAsJsonAsync(Root, new CreateServiceOrderRequest { RequestId = Guid.NewGuid(), OrderType = ServiceOrderType.Repair,
             Items = [new() { DeviceCode = "TB_SERVICE_2", ExecutionMethod = ExecutionMethod.OnSite, DamageReportCode = code }] }, Json), HttpStatusCode.BadRequest);
         await f.InDb(async db => { var original = await db.DamageReports.SingleAsync(); Assert.Equal(1, original.RowVersion); Assert.Null(original.LastUpdatedAt); Assert.Single(await db.RepairItemDetails.ToListAsync()); });
