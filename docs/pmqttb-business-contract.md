@@ -1,5 +1,7 @@
 # Hợp đồng nghiệp vụ PMQTTB
 
+**Cập nhật triển khai:** đã có phân công trực tiếp trên yêu cầu PMMS, chặn thao tác theo người được giao và bắt đầu sửa chữa từ nguồn; API local đã cập nhật. Xem [hướng dẫn, phạm vi và kiểm chứng hiện tại](source-request-assignment.md). CV-11 vẫn còn phần module chung cho nghiệp vụ nội bộ; các ghi chú rà soát bên dưới mô tả khoảng thiếu trước bản cập nhật này.
+
 Phạm vi: task 1 trong [backlog ưu tiên](pmqttb-priority-backlog.md).
 
 ## 1. Nguồn và hiệu lực

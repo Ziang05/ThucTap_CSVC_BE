@@ -215,7 +215,7 @@ public sealed class MaterialInventoryTests
     {
         var lines = new List<object> { new { sourceLineCode = "M1", kind = "Material", description = "Replacement part", quantity = 3, unit = "CAI", specialization = "Common" } };
         if (mixed) lines.Add(new { sourceLineCode = "E1", kind = "Equipment", description = "Equipment", quantity = 1, unit = "CAI", categoryCode = "CAT_ROLE", specialization = "Common" });
-        var result = await Json(await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "MATERIAL-SOURCE", sourceVersion = 1, action = "Create", request = new { requestType = "Purchase", title = "Materials for requesting department", requestingDepartmentCode = "PB_TARGET", sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:01:00Z", lines } }));
+        var result = await Json(await f.Manager.PostAsJsonAsync("/api/v1/procurement-requests/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "MATERIAL-SOURCE", sourceVersion = 1, action = "Create", request = new { requestType = "Purchase", title = "Materials for requesting department", requestingDepartmentCode = "PB_TARGET", sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:01:00Z", lines } }));
         var code = result.GetProperty("displayCode").GetString()!; await SourceRequestAssignmentTests.Assign(f, code); return code;
     }
     private static async Task<string> SourceIssue(EquipmentStaffWorkflowTests.Fixture f, string source, string location)
@@ -229,7 +229,7 @@ public sealed class MaterialInventoryTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); var location = await Catalog(f); await Stock(f, location); var source = await Source(f); var code = await SourceIssue(f, source, location);
         var detail = await f.Staff.GetFromJsonAsync<JsonElement>("/api/v1/procurement-requests/" + source); Assert.Contains(detail.GetProperty("documents").EnumerateArray(), d => d.GetProperty("kind").GetString() == "MaterialIssue");
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/" + source + "/complete", new { version = detail.GetProperty("summary").GetProperty("version").GetInt32() }), HttpStatusCode.Conflict);
-        var cancel = await Json(await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "MATERIAL-SOURCE", sourceVersion = 2, action = "Cancel", reason = "Late cancellation" })); Assert.Equal("CancelRejected", cancel.GetProperty("outcome").GetString());
+        var cancel = await Json(await f.Manager.PostAsJsonAsync("/api/v1/procurement-requests/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "MATERIAL-SOURCE", sourceVersion = 2, action = "Cancel", reason = "Late cancellation" })); Assert.Equal("CancelRejected", cancel.GetProperty("outcome").GetString());
         await Act(f, code, "receive", f.Department);
         detail = await f.Staff.GetFromJsonAsync<JsonElement>("/api/v1/procurement-requests/" + source);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/" + source + "/complete", new { version = detail.GetProperty("summary").GetProperty("version").GetInt32() }));

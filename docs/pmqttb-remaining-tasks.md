@@ -1,5 +1,7 @@
 # PMQTTB — Danh sách công việc còn phải làm
 
+**Cập nhật triển khai:** đã có phân công trực tiếp trên yêu cầu PMMS, chặn thao tác theo người được giao và bắt đầu sửa chữa từ nguồn; API local đã cập nhật. Xem [hướng dẫn, phạm vi và kiểm chứng hiện tại](source-request-assignment.md). CV-11 vẫn còn phần module chung cho nghiệp vụ nội bộ; các ghi chú rà soát bên dưới mô tả khoảng thiếu trước bản cập nhật này.
+
 Tổng hợp từ [backlog sau rà soát](pmqttb-priority-backlog.md) và [hợp đồng nghiệp vụ](pmqttb-business-contract.md). Danh sách bắt đầu từ các việc còn lại: sửa lệch, bổ sung, tích hợp và nghiệm thu; mục đã hoàn tất được giữ để theo dõi kết quả, không yêu cầu xây lại phần đã có.
 
 Dùng mã **CV-01 → CV-12** cho danh sách mới. Cột “Task cũ” dùng đối chiếu các trao đổi trước. Tất cả checkbox ban đầu để trống; chỉ đánh dấu khi có kết quả kiểm chứng tương ứng. Không suy ra đã triển khai từ việc có code hoặc build thành công.

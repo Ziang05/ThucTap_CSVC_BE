@@ -81,6 +81,7 @@ public sealed partial class ProcurementRequestService
         {
             var actor = await ReadActorAsync(token); Validate(input);
             var request = await requests.GetAsync(code, true, token) ?? throw Missing();
+            RequireVisible(request, actor);
             var hash = CommandHash(request.DisplayCode, input);
             if (await ReplayCommandAsync(request, input.RequestId, actor.Id, hash, token))
             {

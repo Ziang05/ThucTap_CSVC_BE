@@ -15,19 +15,53 @@ public sealed class SourceRequestAssignmentTests
     private static async Task Expect(HttpResponseMessage response, HttpStatusCode status = HttpStatusCode.NoContent)
     { using (response) Assert.True(response.StatusCode == status, await response.Content.ReadAsStringAsync()); }
     internal static async Task<int> Version(EquipmentStaffWorkflowTests.Fixture f, string code)
-        => (await f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code)).GetProperty("summary").GetProperty("version").GetInt32();
+        => (await f.Manager.GetFromJsonAsync<JsonElement>(Root + "/" + code)).GetProperty("summary").GetProperty("version").GetInt32();
     internal static async Task Assign(EquipmentStaffWorkflowTests.Fixture f, string code, string employee = "TK_STAFF")
         => await Expect(await f.Manager.PostAsJsonAsync(Root + "/" + code + "/assignment", new { requestId = Guid.NewGuid(), version = await Version(f, code), assigneeAccountCode = employee, reason = "Responsible employee updated" }));
-    internal static async Task<string> Create(EquipmentStaffWorkflowTests.Fixture f, bool repair = false, bool specialized = false)
-        => (await Read(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "TEST-" + Guid.NewGuid().ToString("N"), sourceVersion = 1, action = "Create", request = new { requestType = repair ? "Repair" : "Purchase", title = "Inherited work", requestingDepartmentCode = "PB_TARGET", sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:01:00Z", lines = new[] { new { sourceLineCode = "L1", kind = "Equipment", description = "Requested work", quantity = 1, unit = "Cai", categoryCode = "CAT_ROLE", deviceCode = repair ? "TB-ROLE-001" : null, specialization = specialized ? "Specialized" : "Common" } } } }))).GetProperty("displayCode").GetString()!;
+    internal static async Task<string> Create(EquipmentStaffWorkflowTests.Fixture f, bool repair = false, bool specialized = false, string department = "PB_TARGET")
+        => (await Read(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "TEST-" + Guid.NewGuid().ToString("N"), sourceVersion = 1, action = "Create", request = new { requestType = repair ? "Repair" : "Purchase", title = "Inherited work", requestingDepartmentCode = department, sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:01:00Z", lines = new[] { new { sourceLineCode = "L1", kind = "Equipment", description = "Requested work", quantity = 1, unit = "Cai", categoryCode = "CAT_ROLE", deviceCode = repair ? "TB-ROLE-001" : null, specialization = specialized ? "Specialized" : "Common" } } } }))).GetProperty("displayCode").GetString()!;
     private static async Task MoveSecondEmployee(EquipmentStaffWorkflowTests.Fixture f)
         => await f.InDb(async db => { var a = await db.Accounts.SingleAsync(a => a.AccountCode == "TK_FOREIGN"); (await db.UserProfiles.SingleAsync(p => p.Id == a.UserProfileId)).DepartmentId = (await db.Departments.SingleAsync(d => d.Code == "PB_TEST")).Id; await db.SaveChangesAsync(); });
+
+    [PostgreSqlFact]
+    public async Task Staff_see_only_current_assignments_in_lists_search_paging_details_and_history()
+    {
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); await MoveSecondEmployee(f);
+        var unassigned = await Create(f); var mine = await Create(f); var other = await Create(f, department: "PB_TEST");
+        await Assign(f, mine); await Assign(f, other, "TK_FOREIGN");
+        foreach (var suffix in new[] { "", "?assignedToMe=false", "?search=Inherited", "?pageSize=1" })
+        {
+            var page = await f.Staff.GetFromJsonAsync<JsonElement>(Root + suffix);
+            Assert.Equal(1, page.GetProperty("totalCount").GetInt32());
+            Assert.Equal(mine, Assert.Single(page.GetProperty("items").EnumerateArray()).GetProperty("displayCode").GetString());
+        }
+        var next = await f.Staff.GetFromJsonAsync<JsonElement>(Root + "?page=2&pageSize=1"); Assert.Equal(1, next.GetProperty("totalCount").GetInt32()); Assert.Empty(next.GetProperty("items").EnumerateArray());
+        Assert.Equal(0, (await f.Staff.GetFromJsonAsync<JsonElement>(Root + "?unassigned=true")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(3, (await f.Manager.GetFromJsonAsync<JsonElement>(Root)).GetProperty("totalCount").GetInt32());
+        Assert.Equal(2, (await f.Department.GetFromJsonAsync<JsonElement>(Root)).GetProperty("totalCount").GetInt32());
+        foreach (var hidden in new[] { unassigned, other })
+            foreach (var suffix in new[] { "", "/history" })
+            {
+                await Expect(await f.Staff.GetAsync(Root + "/" + hidden + suffix), HttpStatusCode.NotFound);
+                await Expect(await f.Manager.GetAsync(Root + "/" + hidden + suffix), HttpStatusCode.OK);
+            }
+        await Expect(await f.Staff.GetAsync(Root + "/" + mine), HttpStatusCode.OK);
+        await Expect(await f.Staff.GetAsync(Root + "/" + mine + "/history"), HttpStatusCode.OK);
+        await Expect(await f.ForeignStaff.GetAsync(Root + "/" + mine), HttpStatusCode.NotFound);
+        await Expect(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "DENIED", sourceVersion = 1, action = "Cancel", reason = "Staff cannot access source simulator" }), HttpStatusCode.Forbidden);
+        await Assign(f, mine, "TK_FOREIGN");
+        Assert.Equal(0, (await f.Staff.GetFromJsonAsync<JsonElement>(Root)).GetProperty("totalCount").GetInt32());
+        Assert.Equal(2, (await f.ForeignStaff.GetFromJsonAsync<JsonElement>(Root)).GetProperty("totalCount").GetInt32());
+        await Expect(await f.Staff.GetAsync(Root + "/" + mine), HttpStatusCode.NotFound);
+        await Expect(await f.Staff.GetAsync(Root + "/" + mine + "/history"), HttpStatusCode.NotFound);
+        await Expect(await f.ForeignStaff.GetAsync(Root + "/" + mine), HttpStatusCode.OK);
+    }
 
     [PostgreSqlFact]
     public async Task Inherited_requests_are_unassigned_and_manager_assignment_is_versioned_audited_and_idempotent()
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); var code = await Create(f); var route = Root + "/" + code;
-        var d = await f.Staff.GetFromJsonAsync<JsonElement>(route); Assert.Equal(JsonValueKind.Null, d.GetProperty("assignment").ValueKind); Assert.False(d.GetProperty("canExecute").GetBoolean());
+        var d = await f.Manager.GetFromJsonAsync<JsonElement>(route); Assert.Equal(JsonValueKind.Null, d.GetProperty("assignment").ValueKind); Assert.False(d.GetProperty("canExecute").GetBoolean());
         await Expect(await f.Staff.PostAsJsonAsync(route + "/status", new { version = await Version(f, code), status = "InProgress" }), HttpStatusCode.Conflict);
         var command = new { requestId = Guid.NewGuid(), version = await Version(f, code), assigneeAccountCode = "TK_STAFF" };
         await Expect(await f.Staff.PostAsJsonAsync(route + "/assignment", command), HttpStatusCode.Forbidden);

@@ -22,9 +22,9 @@ public sealed class ProcurementRequestTests
     }
     private static async Task Expect(HttpResponseMessage response, HttpStatusCode status = HttpStatusCode.NoContent)
     { using (response) Assert.True(response.StatusCode == status, await response.Content.ReadAsStringAsync()); }
-    private static Task<JsonElement> Send(EquipmentStaffWorkflowTests.Fixture f, object body) => SendCore(f.Staff, body);
+    private static Task<JsonElement> Send(EquipmentStaffWorkflowTests.Fixture f, object body) => SendCore(f.Manager, body);
     private static async Task<JsonElement> SendCore(HttpClient client, object body) => await Json(await client.PostAsJsonAsync(Root + "/simulated-events", body));
-    private static Task<JsonElement> Detail(EquipmentStaffWorkflowTests.Fixture f, string code) => f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code);
+    private static Task<JsonElement> Detail(EquipmentStaffWorkflowTests.Fixture f, string code) => f.Manager.GetFromJsonAsync<JsonElement>(Root + "/" + code);
     private static async Task Close(EquipmentStaffWorkflowTests.Fixture f, string code, HttpStatusCode status = HttpStatusCode.NoContent, string? failure = null)
     { var d = await Detail(f, code); await Expect(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/complete", new { version = d.GetProperty("summary").GetProperty("version").GetInt32(), failureReason = failure }), status); }
     private static object Cancel(string external, int revision) => new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = revision, action = "Cancel", reason = "Source cancellation" };
@@ -73,7 +73,7 @@ public sealed class ProcurementRequestTests
         var code = first.GetProperty("displayCode").GetString()!;
         var replay = await Send(f, body);
         Assert.Equal(first.ToString(), replay.ToString());
-        await Expect(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-REPLAY", title: "Conflicting revision")), HttpStatusCode.Conflict);
+        await Expect(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-REPLAY", title: "Conflicting revision")), HttpStatusCode.Conflict);
         var fixedSource = await Send(f, Event("PMMS-REPLAY", 3, "Update", title: "Corrected"));
         Assert.Equal("Applied", fixedSource.GetProperty("outcome").GetString());
         Assert.Equal("IgnoredStale", (await Send(f, Event("PMMS-REPLAY", 2, "Update", title: "Obsolete"))).GetProperty("outcome").GetString());
@@ -82,7 +82,7 @@ public sealed class ProcurementRequestTests
         Assert.Equal("Corrected", d.GetProperty("summary").GetProperty("title").GetString());
         Assert.Equal(3, d.GetProperty("summary").GetProperty("sourceVersion").GetInt32());
         Assert.False(d.GetProperty("summary").GetProperty("requiresReview").GetBoolean());
-        var history = await f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code + "/history");
+        var history = await f.Manager.GetFromJsonAsync<JsonElement>(Root + "/" + code + "/history");
         Assert.Equal(3, history.GetProperty("totalCount").GetInt32());
         Assert.Contains(history.GetProperty("items").EnumerateArray(), e => e.GetProperty("sourcePayload").GetString()!.Contains("UNKNOWN"));
         await Expect(await f.Department.GetAsync(Root), HttpStatusCode.OK);
@@ -205,6 +205,6 @@ public sealed class ProcurementRequestTests
         var detail = await Detail(f, result.GetProperty("displayCode").GetString()!);
         Assert.Equal(category, detail.GetProperty("lines")[0].GetProperty("categoryCode").GetString());
         await f.InDb(async db => Assert.Equal(category, (await db.Set<ProcurementRequestLine>().SingleAsync()).CategoryCode));
-        await Expect(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-TOO-LONG", lines: [Line(category: category + "A")])), HttpStatusCode.BadRequest);
+        await Expect(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-TOO-LONG", lines: [Line(category: category + "A")])), HttpStatusCode.BadRequest);
     }
 }

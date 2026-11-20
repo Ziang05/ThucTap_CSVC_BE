@@ -25,7 +25,9 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
     public Task<PmmsEventResult> SimulateAsync(PmmsSimulatedEvent input, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
-            var actor = await ActorAsync(true, token);
+            var sourceActor = await ReadActorAsync(token);
+            if (sourceActor.Role != RoleCodes.EquipmentManager) throw ForbiddenSource();
+            var actor = sourceActor.Id;
             var normalized = source.Normalize(input);
             var payload = ProcurementJson.Write(new { normalized.ExternalCode, normalized.SourceVersion, normalized.Action, normalized.Request, normalized.Reason });
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
@@ -137,7 +139,8 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
     {
         var actor = await ReadActorAsync(ct); Validate(query);
         if (query.AssignedToMe && query.Unassigned) throw Invalid("Choose one responsibility filter.");
-        return await requests.ListAsync(query, ct, actor.Role == RoleCodes.DepartmentStaff ? actor.DepartmentCode : null, query.AssignedToMe ? actor.Id : null);
+        return await requests.ListAsync(query, ct, actor.Role == RoleCodes.DepartmentStaff ? actor.DepartmentCode : null,
+            actor.Role == RoleCodes.EquipmentStaff || query.AssignedToMe ? actor.Id : null);
     }
     public async Task<ProcurementDetail> GetAsync(string code, CancellationToken ct)
     {

@@ -16,7 +16,7 @@ public sealed class ProcurementFulfillmentTests
     { using (response) Assert.True(response.StatusCode == status, await response.Content.ReadAsStringAsync()); }
     private static async Task<string> Create(EquipmentStaffWorkflowTests.Fixture f, string external, object[]? lines = null, string department = "PB_TARGET")
     {
-        var code = (await Read(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = 1, action = "Create", request = new { requestType = "Purchase", title = external, requestingDepartmentCode = department, sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:00:00Z", lines = lines ?? [Line("S1"), Line("S2")] } }))).GetProperty("displayCode").GetString()!;
+        var code = (await Read(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = 1, action = "Create", request = new { requestType = "Purchase", title = external, requestingDepartmentCode = department, sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:00:00Z", lines = lines ?? [Line("S1"), Line("S2")] } }))).GetProperty("displayCode").GetString()!;
         await SourceRequestAssignmentTests.Assign(f, code); return code;
     }
     private static Task<JsonElement> Detail(EquipmentStaffWorkflowTests.Fixture f, string code) => f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code);

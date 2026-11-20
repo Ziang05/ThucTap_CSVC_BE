@@ -1,5 +1,7 @@
 # Task 4 — Tiếp nhận yêu cầu PMMS giả lập
 
+**Cập nhật triển khai:** đã có phân công trực tiếp trên yêu cầu PMMS, chặn thao tác theo người được giao và bắt đầu sửa chữa từ nguồn; API local đã cập nhật. Xem [hướng dẫn, phạm vi và kiểm chứng hiện tại](source-request-assignment.md). CV-11 vẫn còn phần module chung cho nghiệp vụ nội bộ; các ghi chú rà soát bên dưới mô tả khoảng thiếu trước bản cập nhật này.
+
 **Đính chính nghiệp vụ:** yêu cầu mua sắm/sửa chữa được đơn vị lập trên PMMS. PMQTTB kế thừa để theo dõi, phân công và thực hiện, không lập lại yêu cầu hoặc một phiếu sửa chữa nguồn khác. Code/giao diện mô tả phía dưới còn dùng luồng cũ và chưa tích hợp task chung; cần sửa ở CV-04/CV-11. Không coi các bước hiện có là luồng đích đã nghiệm thu.
 
 ## Luồng đích theo PMQTTB

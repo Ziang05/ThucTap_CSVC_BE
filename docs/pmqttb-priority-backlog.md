@@ -1,5 +1,7 @@
 # Danh sách việc cần làm theo PMQTTB
 
+**Cập nhật triển khai:** đã có phân công trực tiếp trên yêu cầu PMMS, chặn thao tác theo người được giao và bắt đầu sửa chữa từ nguồn; API local đã cập nhật. Xem [hướng dẫn, phạm vi và kiểm chứng hiện tại](source-request-assignment.md). CV-11 vẫn còn phần module chung cho nghiệp vụ nội bộ; các ghi chú rà soát bên dưới mô tả khoảng thiếu trước bản cập nhật này.
+
 Nguồn: `Documents/PMQTTB.docx`, [hợp đồng nghiệp vụ](pmqttb-business-contract.md), quyết định của chủ project và code backend/frontend hiện tại. Giữ số task để đối chiếu trao đổi cũ; thứ tự thực hiện mới ở cuối tài liệu.
 
 `[x]` là phần đã có tài liệu/code và đã đối chiếu hoặc có kiểm thử liên quan; không đồng nghĩa đã triển khai lên database/API đang chạy hay nghiệm thu với khách hàng. `[ ]` là phần còn cần xử lý. Các ghi nhận Docker local cũ không xác nhận trạng thái triển khai phiên bản sau merge.

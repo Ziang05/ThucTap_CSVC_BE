@@ -24,7 +24,10 @@ public sealed partial class ProcurementRequestService
         return new(id, role.Code, department.Code);
     }
     private static void RequireVisible(ProcurementRequest request, Reader actor)
-    { if (actor.Role == RoleCodes.DepartmentStaff && request.RequestingDepartmentCode != actor.DepartmentCode) throw Missing(); }
+    {
+        if (actor.Role == RoleCodes.EquipmentStaff && request.AssigneeAccountId != actor.Id) throw Missing();
+        if (actor.Role == RoleCodes.DepartmentStaff && request.RequestingDepartmentCode != actor.DepartmentCode) throw Missing();
+    }
     private static bool IsReceiver(ProcurementRequest request, Reader actor)
         => actor.DepartmentCode == request.RequestingDepartmentCode && actor.Role is RoleCodes.DepartmentStaff or RoleCodes.EquipmentStaff;
     private static bool NeedsAcceptance(ProcurementRequest request)
@@ -56,6 +59,7 @@ public sealed partial class ProcurementRequestService
             if (actor.Role != RoleCodes.EquipmentStaff) throw ForbiddenSource();
             Validate(input);
             var request = await requests.GetAsync(code, true, token) ?? throw Missing();
+            RequireVisible(request, actor);
             var hash = CommandHash(request.DisplayCode, input);
             if (await ReplayCommandAsync(request, input.RequestId, actor.Id, hash, token)) return true;
             await EditableAsync(code, input.Version, token);
