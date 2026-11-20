@@ -120,14 +120,21 @@ public sealed class DeviceService(
             var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == key, token) ?? throw Missing();
             if (device.Status == EntityStatus.Locked) throw Conflict("DEVICE_LOCKED", "Unlock the device before editing it.");
             var currentManufacturer = device.ManufacturerId is { } manufacturerId ? await unitOfWork.Manufacturers.GetByIdAsync(manufacturerId, token) : null;
-            if (request.Version is not null && !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(request.Version.ToLowerInvariant()), Encoding.ASCII.GetBytes(VersionOf(device, currentManufacturer?.DisplayCode))))
+            var currentArea = device.AreaId is { } areaId ? await unitOfWork.Areas.GetByIdAsync(areaId, token) : null;
+            if (request.Version is not null && !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(request.Version.ToLowerInvariant()), Encoding.ASCII.GetBytes(VersionOf(device, currentManufacturer?.DisplayCode, currentArea?.Code))))
                 throw Conflict("VERSION_CONFLICT", "The device has changed. Reload and retry.");
-            var before = EditableSnapshot(device, currentManufacturer?.DisplayCode);
+            var before = EditableSnapshot(device, currentManufacturer?.DisplayCode, currentArea?.Code);
             var newName = TextNormalization.Name(request.Name);
             if (newName.Length == 0) throw Validation("Name is required.");
             Manufacturer? manufacturer = string.IsNullOrWhiteSpace(request.ManufacturerCode) ? null
                 : await FindByCodeAsync(unitOfWork.Manufacturers, request.ManufacturerCode, x => x.DisplayCode, "MANUFACTURER_NOT_FOUND", token);
             if (manufacturer?.Status == EntityStatus.Locked) throw Conflict("MANUFACTURER_UNAVAILABLE", "The selected manufacturer is locked.");
+            var area = currentArea;
+            if (request.HasAreaCode && !string.Equals(request.AreaCode?.Trim(), currentArea?.Code, StringComparison.OrdinalIgnoreCase))
+            {
+                area = await ResolveActiveAreaAsync(request.AreaCode, token);
+                device.AreaId = area?.Id;
+            }
             device.Name = newName;
             device.SerialNumber = Clean(request.SerialNumber);
             device.ManufacturerId = manufacturer?.Id;
@@ -137,7 +144,7 @@ public sealed class DeviceService(
             device.PurchasePrice = request.PurchasePrice;
             device.WarrantyExpiryDate = request.WarrantyExpiryDate;
             device.Notes = Clean(request.Notes);
-            var after = EditableSnapshot(device, manufacturer?.DisplayCode);
+            var after = EditableSnapshot(device, manufacturer?.DisplayCode, area?.Code);
             var fields = ChangedFields(before, after);
             if (fields.Count == 0) return true;
             unitOfWork.Devices.Update(device);
@@ -192,10 +199,7 @@ public sealed class DeviceService(
             var profile = await unitOfWork.UserProfiles.GetByIdAsync(responsible.UserProfileId, ct);
             if (responsible.IsLock || profile?.DepartmentId != equipmentId)
                 throw Validation("The responsible account must be active and belong to the equipment department.");
-            var area = string.IsNullOrWhiteSpace(request.AreaCode) ? null
-                : await FindByCodeAsync(unitOfWork.Areas, request.AreaCode, x => x.Code, "AREA_NOT_FOUND", ct);
-            for (var node = area; node is not null; node = node.ParentId is { } parentId ? await unitOfWork.Areas.GetByIdAsync(parentId, ct) : null)
-                if (node.Status != EntityStatus.Active) throw Conflict("AREA_UNAVAILABLE", "The selected area or its ancestor is locked.");
+            var area = await ResolveActiveAreaAsync(request.AreaCode, ct);
             var before = JsonSerializer.Serialize(new { useState = device.UseState.ToString(), device.DeviceCode });
             device.UseState = DeviceUseState.InUse;
             device.ResponsibleAccountId = responsible.Id;
@@ -204,6 +208,15 @@ public sealed class DeviceService(
               await AuditAsync(device, actor.AccountId, "DEVICE_PUT_INTO_USE" + (batch ? "_" + device.DeviceCode : ""), ["useState", "responsibleAccountCode", "areaCode"], before,
                 JsonSerializer.Serialize(new { device.DeviceCode, useState = device.UseState.ToString(), departmentCode = (await unitOfWork.Departments.GetByIdAsync(equipmentId, ct))!.Code,
                     responsibleAccountCode = responsible.AccountCode, areaCode = area?.Code, notes = Clean(request.Notes) }), ct);
+    }
+
+    private async Task<Area?> ResolveActiveAreaAsync(string? areaCode, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(areaCode)) return null;
+        var area = await FindByCodeAsync(unitOfWork.Areas, areaCode, x => x.Code, "AREA_NOT_FOUND", ct);
+        for (var node = area; node is not null; node = node.ParentId is { } parentId ? await unitOfWork.Areas.GetByIdAsync(parentId, ct) : null)
+            if (node.Status != EntityStatus.Active) throw Conflict("AREA_UNAVAILABLE", "The selected area or its ancestor is locked.");
+        return area;
     }
 
     public async Task SetParentAsync(string deviceCode, string? parentDeviceCode, CancellationToken ct)
@@ -313,10 +326,10 @@ public sealed class DeviceService(
         return value;
     }
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : TextNormalization.Name(value);
-    private static string VersionOf(Device device, string? manufacturerCode) => Hash(new { device.Name, device.SerialNumber, ManufacturerCode = manufacturerCode, device.Model, device.PurchaseDate, device.PaidInvoiceCode, device.PurchasePrice, device.WarrantyExpiryDate, device.Notes });
-    private static string VersionOf(DeviceReadModel x) => Hash(new { x.Name, x.SerialNumber, x.ManufacturerCode, x.Model, x.PurchaseDate, x.PaidInvoiceCode, x.PurchasePrice, x.WarrantyExpiryDate, x.Notes });
+    private static string VersionOf(Device device, string? manufacturerCode, string? areaCode) => Hash(new { device.Name, device.SerialNumber, ManufacturerCode = manufacturerCode, device.Model, device.PurchaseDate, device.PaidInvoiceCode, device.PurchasePrice, device.WarrantyExpiryDate, device.Notes, AreaCode = areaCode });
+    private static string VersionOf(DeviceReadModel x) => Hash(new { x.Name, x.SerialNumber, x.ManufacturerCode, x.Model, x.PurchaseDate, x.PaidInvoiceCode, x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, x.AreaCode });
     private static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))).ToLowerInvariant();
-    private static string EditableSnapshot(Device d, string? manufacturerCode) => JsonSerializer.Serialize(new { d.Name, d.SerialNumber, ManufacturerCode = manufacturerCode, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes });
+    private static string EditableSnapshot(Device d, string? manufacturerCode, string? areaCode) => JsonSerializer.Serialize(new { d.Name, d.SerialNumber, ManufacturerCode = manufacturerCode, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes, AreaCode = areaCode });
     private static string StateSnapshot(Device d) => JsonSerializer.Serialize(new { d.DeviceCode, status = d.Status.ToString() });
     private static string CreateSnapshot(Device d, string categoryCode, string departmentCode, string? responsibleAccountCode, string? manufacturerCode, string? areaCode)
         => JsonSerializer.Serialize(new { d.DeviceCode, d.Barcode, d.Name, d.Quantity, categoryCode, departmentCode, responsibleAccountCode, manufacturerCode, areaCode, condition = d.Condition.ToString(), d.SerialNumber, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes });

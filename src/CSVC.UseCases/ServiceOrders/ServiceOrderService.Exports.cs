@@ -17,6 +17,7 @@ public sealed partial class ServiceOrderService
     public async Task<PagedResult<ExportSlipDto>> ListExportsAsync(ExportSlipListQuery query, CancellationToken ct)
     {
         await RequireActorAsync(null, ct); Validate(query);
+        if (query.PlannedFrom > query.PlannedTo) throw Validation("The planned export date range is invalid.");
         var page = await orders.ListExportsAsync(query, ct);
         var parents = await orders.GetByExportIdsAsync(page.Items.Select(e => e.Id).ToArray(), ct);
         var codes = await AccountCodesAsync(parents, ct);

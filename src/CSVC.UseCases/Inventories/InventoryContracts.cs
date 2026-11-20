@@ -48,6 +48,9 @@ public sealed class UpdateInventoryPolicyRequest : InventoryCommand
     [Range(1, 365)] public int MinimumNoticeDays { get; set; }
     [Required, MaxLength(2000)] public string Reason { get; set; } = "";
 }
+public enum InventorySortBy { CreatedAt, PlannedStartAt, DisplayCode, DepartmentName, TotalItems, Status }
+public enum InventorySortDirection { Asc, Desc }
+
 public sealed class InventoryListQuery
 {
     [Range(1, int.MaxValue)] public int Page { get; set; } = 1;
@@ -57,6 +60,8 @@ public sealed class InventoryListQuery
     public string? Status { get; set; }
     public DateTimeOffset? From { get; set; }
     public DateTimeOffset? To { get; set; }
+    [EnumDataType(typeof(InventorySortBy))] public InventorySortBy SortBy { get; set; } = InventorySortBy.CreatedAt;
+    [EnumDataType(typeof(InventorySortDirection))] public InventorySortDirection SortDirection { get; set; } = InventorySortDirection.Desc;
 }
 
 public sealed record InventoryPersonDto(Guid AccountId, string AccountCode, string Name);

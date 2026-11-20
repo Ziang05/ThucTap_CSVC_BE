@@ -64,8 +64,12 @@ public sealed class DamageReportListQuery
     [RegularExpression("^(NOT_RECEIVED|RECEIVED)$")] public string? ReceptionStatus { get; set; }
     [StringLength(32)] public string? DepartmentCode { get; set; }
     [StringLength(32)] public string? DeviceCode { get; set; }
+    [StringLength(32)] public string? ReporterAccountCode { get; set; }
+    public bool? HasEvidence { get; set; }
     public DateTimeOffset? From { get; set; }
     public DateTimeOffset? To { get; set; }
+    public DateTimeOffset? DetectedFrom { get; set; }
+    public DateTimeOffset? DetectedTo { get; set; }
     [RegularExpression("^(reportedAt|reportCode)$")] public string SortBy { get; set; } = "reportedAt";
     public bool Descending { get; set; } = true;
 }

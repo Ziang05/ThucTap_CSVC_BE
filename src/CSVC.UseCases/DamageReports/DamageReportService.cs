@@ -23,7 +23,7 @@ public sealed class DamageReportService(IUnitOfWork uow, IDamageReportTransactio
     {
         var actor = await ActorAsync(ct);
         Validate(query);
-        if (query.From > query.To) throw Invalid("The date range is invalid.");
+        if (query.From > query.To || query.DetectedFrom > query.DetectedTo) throw Invalid("The date range is invalid.");
         return await Reports.ListAsync(query, actor.Scope, ct);
     }
 

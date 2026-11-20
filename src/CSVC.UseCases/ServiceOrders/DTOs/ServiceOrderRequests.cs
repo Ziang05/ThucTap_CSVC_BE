@@ -132,6 +132,13 @@ public sealed class ServiceOrderListQuery
     [StringLength(64)] public string? Search { get; init; }
     [EnumDataType(typeof(ServiceOrderType))] public ServiceOrderType? OrderType { get; init; }
     [EnumDataType(typeof(ServiceWorkflowStatus))] public ServiceWorkflowStatus? Status { get; init; }
+    [StringLength(32)] public string? DeviceCode { get; init; }
+    [StringLength(32)] public string? CreatedByAccountCode { get; init; }
+    [StringLength(64)] public string? DamageReportCode { get; init; }
+    [EnumDataType(typeof(ExecutionMethod))] public ExecutionMethod? ExecutionMethod { get; init; }
+    [EnumDataType(typeof(ServiceItemStatus))] public ServiceItemStatus? ItemStatus { get; init; }
+    public DateTimeOffset? CreatedFrom { get; init; }
+    public DateTimeOffset? CreatedTo { get; init; }
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1, 100)] public int PageSize { get; init; } = 20;
 }
@@ -139,6 +146,13 @@ public sealed class ServiceOrderListQuery
 public sealed class ExportSlipListQuery
 {
     [StringLength(64)] public string? ServiceOrderCode { get; init; }
+    [StringLength(64)] public string? Search { get; init; }
+    [StringLength(255)] public string? Facility { get; init; }
+    [StringLength(32)] public string? DeviceCode { get; init; }
+    [EnumDataType(typeof(ServiceOrderType))] public ServiceOrderType? OrderType { get; init; }
+    [EnumDataType(typeof(ExportResult))] public ExportResult? ItemResult { get; init; }
+    public DateTimeOffset? PlannedFrom { get; init; }
+    public DateTimeOffset? PlannedTo { get; init; }
     [EnumDataType(typeof(ServiceWorkflowStatus))] public ServiceWorkflowStatus? Status { get; init; }
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1, 100)] public int PageSize { get; init; } = 20;

@@ -34,13 +34,33 @@ public sealed class EquipmentInventoryRepository(CsvcDbContext db) : IEquipmentI
             var search = q.Search.Trim().ToLower();
             slips = slips.Where(x => x.DisplayCode.ToLower().Contains(search) || x.DepartmentNameSnapshot.ToLower().Contains(search));
         }
-        var query = slips.Select(x => new { Slip = x, Revision = x.Revisions
+        var query = slips.Select(x => new { Slip = x,
+            StatusOrder = x.Status == InventoryStates.Pending ? 0 :
+                x.Status == InventoryStates.Preparing ? 1 :
+                x.Status == InventoryStates.InProgress ? 2 :
+                x.Status == InventoryStates.Completed ? 3 : 4,
+            Revision = x.Revisions
             .Where(r => departmentScope == null || r.Status == InventoryStates.Published)
             .OrderByDescending(r => r.Status == InventoryStates.Published).ThenByDescending(r => r.RevisionNo).First() });
-        if (q.From is { } from) query = query.Where(x => x.Revision.PlannedStartAt >= from);
-        if (q.To is { } to) query = query.Where(x => x.Revision.PlannedStartAt <= to);
+        if (q.From?.ToUniversalTime() is { } from) query = query.Where(x => x.Revision.PlannedStartAt >= from);
+        if (q.To?.ToUniversalTime() is { } to) query = query.Where(x => x.Revision.PlannedStartAt <= to);
         var count = await query.CountAsync(ct);
-        var items = await query.OrderByDescending(x => x.Slip.CreatedAt).ThenBy(x => x.Slip.Id)
+        var ordered = (q.SortBy, q.SortDirection) switch
+        {
+            (InventorySortBy.PlannedStartAt, InventorySortDirection.Asc) => query.OrderBy(x => x.Revision.PlannedStartAt),
+            (InventorySortBy.PlannedStartAt, _) => query.OrderByDescending(x => x.Revision.PlannedStartAt),
+            (InventorySortBy.DisplayCode, InventorySortDirection.Asc) => query.OrderBy(x => x.Slip.DisplayCode),
+            (InventorySortBy.DisplayCode, _) => query.OrderByDescending(x => x.Slip.DisplayCode),
+            (InventorySortBy.DepartmentName, InventorySortDirection.Asc) => query.OrderBy(x => x.Slip.DepartmentNameSnapshot),
+            (InventorySortBy.DepartmentName, _) => query.OrderByDescending(x => x.Slip.DepartmentNameSnapshot),
+            (InventorySortBy.TotalItems, InventorySortDirection.Asc) => query.OrderBy(x => x.Revision.Items.Count),
+            (InventorySortBy.TotalItems, _) => query.OrderByDescending(x => x.Revision.Items.Count),
+            (InventorySortBy.Status, InventorySortDirection.Asc) => query.OrderBy(x => x.StatusOrder),
+            (InventorySortBy.Status, _) => query.OrderByDescending(x => x.StatusOrder),
+            (_, InventorySortDirection.Asc) => query.OrderBy(x => x.Slip.CreatedAt),
+            _ => query.OrderByDescending(x => x.Slip.CreatedAt),
+        };
+        var items = await ordered.ThenBy(x => x.Slip.Id)
             .Skip((q.Page - 1) * q.PageSize).Take(q.PageSize)
             .Select(x => new InventorySummaryDto(x.Slip.Id, x.Slip.DisplayCode, x.Slip.Status,
                 x.Slip.DepartmentCodeSnapshot, x.Slip.DepartmentNameSnapshot, x.Revision.PlannedStartAt, x.Revision.Items.Count, x.Slip.Version)).ToListAsync(ct);

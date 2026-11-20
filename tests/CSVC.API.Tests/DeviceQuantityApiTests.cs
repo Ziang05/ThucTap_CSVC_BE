@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CSVC.Core.DeviceCategories;
 using CSVC.Core.Areas;
+using CSVC.Core.Common;
 using CSVC.Core.Manufacturers;
 using CSVC.Core.Suppliers;
 using CSVC.Infrastructure.Persistence;
@@ -25,6 +26,48 @@ public sealed class DeviceQuantityApiTests
     private const string Receipts = "/api/v1/device-receipts";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
+
+    [PostgreSqlFact]
+    public async Task Device_edit_can_assign_preserve_and_clear_area_with_audit_and_version_checks()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.InDb(async db =>
+        {
+            var locked = new Area { Code = "AREA_LOCKED", Name = "Locked building", Status = EntityStatus.Locked };
+            db.AddRange(locked, new Area { Code = "AREA_CHILD", Name = "Room in locked building", ParentId = locked.Id },
+                new Area { Code = "AREA_EDIT", Name = "Available room" });
+            await db.SaveChangesAsync();
+        });
+        var created = await f.CreateDevice();
+        var url = Devices + "/" + created.DeviceCode;
+
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, areaCode = "AREA_UNKNOWN", created.Version }),
+            HttpStatusCode.NotFound, "AREA_NOT_FOUND");
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, areaCode = "AREA_CHILD", created.Version }),
+            HttpStatusCode.Conflict, "AREA_UNAVAILABLE");
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, areaCode = "AREA_EDIT", created.Version }),
+            HttpStatusCode.NoContent);
+        var assigned = await f.GetDevice(created.DeviceCode);
+        Assert.Equal("AREA_EDIT", assigned.AreaCode);
+        Assert.NotEqual(created.Version, assigned.Version);
+
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, areaCode = (string?)null, created.Version }),
+            HttpStatusCode.Conflict, "VERSION_CONFLICT");
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { name = "Renamed", assigned.Version }), HttpStatusCode.NoContent);
+        var renamed = await f.GetDevice(created.DeviceCode);
+        Assert.Equal("AREA_EDIT", renamed.AreaCode);
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { renamed.Name, areaCode = (string?)null, renamed.Version }),
+            HttpStatusCode.NoContent);
+        Assert.Null((await f.GetDevice(created.DeviceCode)).AreaCode);
+        await f.InDb(async db =>
+        {
+            var updates = await db.DeviceHistories.Where(entry => entry.ActionCode == "DEVICE_UPDATED").ToListAsync();
+            var areaUpdates = updates.Where(entry => entry.ChangedFields!.Contains("\"areaCode\"")).ToArray();
+            Assert.Equal(2, areaUpdates.Length);
+            Assert.Contains(areaUpdates, entry => JsonDocument.Parse(entry.AfterData!).RootElement.GetProperty("AreaCode").GetString() == "AREA_EDIT");
+            Assert.Contains(areaUpdates, entry => JsonDocument.Parse(entry.AfterData!).RootElement.GetProperty("AreaCode").ValueKind == JsonValueKind.Null);
+        });
+    }
 
     [PostgreSqlFact]
     public async Task Full_device_form_can_register_then_receive_an_existing_device_without_losing_metadata()
