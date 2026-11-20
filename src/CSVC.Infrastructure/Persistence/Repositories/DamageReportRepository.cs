@@ -30,8 +30,14 @@ public sealed class DamageReportRepository(CsvcDbContext db) : GenericRepository
         if (query.IncidentType is { } type) { var incident = Enum.Parse<DamageReportIncidentType>(type, true); q = q.Where(x => x.IncidentType == incident); }
         if (query.DepartmentCode is { } dept) q = q.Where(x => _context.Departments.Any(d => d.Id == x.ReportingDepartmentId && d.Code == dept.Trim().ToUpper()));
         if (query.DeviceCode is { } device) q = q.Where(x => x.Context.DeviceCodeSnapshot == device.Trim().ToUpper());
+        if (query.ReporterAccountCode?.Trim().ToUpperInvariant() is { Length: > 0 } reporter)
+            q = q.Where(x => _context.Accounts.Any(a => a.Id == x.ReporterAccountId && a.AccountCode == reporter));
+        if (query.HasEvidence is { } hasEvidence)
+            q = q.Where(x => x.Evidence.Any(e => e.RemovedAt == null) == hasEvidence);
         if (query.From is { } from) q = q.Where(x => x.ReportedAt >= from.ToUniversalTime());
         if (query.To is { } to) q = q.Where(x => x.ReportedAt <= to.ToUniversalTime());
+        if (query.DetectedFrom?.ToUniversalTime() is { } detectedFrom) q = q.Where(x => x.DetectedAt >= detectedFrom);
+        if (query.DetectedTo?.ToUniversalTime() is { } detectedTo) q = q.Where(x => x.DetectedAt <= detectedTo);
         if (await q.AnyAsync(x => (x.Pending == null) == (x.Reception == null) || x.Context == null || x.Pending != null && x.Pending.DeviceId != x.DeviceId, ct))
             throw new UseCaseException(FailureKind.Conflict, "REPORT_STATE_INVALID", "Report reception data is inconsistent.");
         if (query.ReceptionStatus == "RECEIVED") q = q.Where(x => x.Reception != null);
