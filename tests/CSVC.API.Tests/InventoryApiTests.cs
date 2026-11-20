@@ -27,6 +27,33 @@ public sealed class InventoryApiTests
     private static CorrectInventoryResultRequest Correction(int version, bool value = false) => new() { RequestId = Guid.NewGuid(), ExpectedVersion = version, NewExists = value, Reason = "Verified again" };
 
     [PostgreSqlFact]
+    public async Task Slip_list_filters_and_sorts_before_paginating_without_widening_department_scope()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var laterBody = f.CreateBody();
+        laterBody.PlannedStartAt = laterBody.PlannedStartAt.AddDays(2);
+        laterBody.PlannedEndAt = laterBody.PlannedEndAt?.AddDays(2);
+        var later = await f.Create(laterBody);
+        f.Host.Clock.Advance(TimeSpan.FromMinutes(1));
+        var earlier = await f.Publish(await f.Create());
+
+        async Task<CSVC.UseCases.Common.PagedResult<InventorySummaryDto>> List(HttpClient client, string query) =>
+            await Body<CSVC.UseCases.Common.PagedResult<InventorySummaryDto>>(await client.GetAsync(Root + query));
+        Assert.Equal(earlier.Plan.SlipId, Assert.Single((await List(f.Staff, "?pageSize=1")).Items).Id);
+        var sorted = await List(f.Staff, $"?departmentId={f.TargetId}&sortBy=PlannedStartAt&sortDirection=Desc&pageSize=1");
+        Assert.Equal(2, sorted.TotalCount);
+        Assert.Equal(later.Plan.SlipId, Assert.Single(sorted.Items).Id);
+        var secondPage = await List(f.Staff, "?sortBy=PlannedStartAt&sortDirection=Desc&pageSize=1&page=2");
+        Assert.Equal(earlier.Plan.SlipId, Assert.Single(secondPage.Items).Id);
+        var bound = Uri.EscapeDataString(earlier.Plan.PlannedStartAt.ToOffset(TimeSpan.FromHours(7)).ToString("O"));
+        var filtered = await List(f.Staff, $"?departmentId={f.TargetId}&status=PREPARING&from={bound}&to={bound}");
+        Assert.Equal(earlier.Plan.SlipId, Assert.Single(filtered.Items).Id);
+        Assert.Equal(earlier.Plan.SlipId, Assert.Single((await List(f.Pb, "?sortBy=Status&sortDirection=Asc")).Items).Id);
+        Assert.Empty((await List(f.Other, $"?departmentId={f.TargetId}&sortBy=TotalItems")).Items);
+        await Expect(await f.Staff.GetAsync(Root + "?sortBy=Invalid"), HttpStatusCode.BadRequest);
+    }
+
+    [PostgreSqlFact]
     public async Task Plan_options_are_scoped_and_return_usable_identifiers()
     {
         await using var f = await Fixture.CreateAsync();
