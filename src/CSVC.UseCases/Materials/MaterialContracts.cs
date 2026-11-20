@@ -100,7 +100,7 @@ public sealed class UpdateMaterialDocument : CreateMaterialDocument
 public sealed class MaterialLineInput
 {
     [Required, StringLength(32)] public string MaterialCode { get; init; } = "";
-    [Required, StringLength(32)] public string LocationCode { get; init; } = "";
+    [StringLength(32)] public string? LocationCode { get; init; }
     [StringLength(32)] public string? ToLocationCode { get; init; }
     [Range(typeof(decimal), "-1000000000", "1000000000")] public decimal Quantity { get; init; }
     [EnumDataType(typeof(MaterialCondition))] public MaterialCondition Condition { get; init; }

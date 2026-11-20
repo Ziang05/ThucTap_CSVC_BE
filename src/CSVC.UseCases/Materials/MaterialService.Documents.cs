@@ -60,7 +60,7 @@ public sealed partial class MaterialService
         }
         if (doc.Kind == MaterialDocumentKind.Issue && doc.TargetDepartmentId is null && doc.ProcurementRequestId is null) throw MaterialErrors.Invalid("Select a receiving department.");
         if (doc.Kind == MaterialDocumentKind.Receipt && doc.SupplierId is null && doc.ProcurementRequestId is null && doc.Reference is null) throw MaterialErrors.Invalid("A receipt must identify its supplier, source request or source reference.");
-        var index = 0; Guid? originalId = null;
+        var index = 0; Guid? originalId = null; MaterialLocation? departmentStock = null;
         foreach (var line in input.Lines)
         {
             if (line is null) throw MaterialErrors.Invalid("Document lines cannot be null.");
@@ -69,8 +69,10 @@ public sealed partial class MaterialService
             var unit = await units.GetByIdAsync(item.UnitId, ct) ?? throw MaterialErrors.Missing();
             if (unit.Status != EntityStatus.Active) throw MaterialErrors.Invalid("The unit is locked.");
             Quantity(line.Quantity, unit.DecimalPlaces, doc.Kind == MaterialDocumentKind.Adjustment);
-            var location = await locations.FirstOrDefaultAsync(l => l.Code == Code(line.LocationCode), ct) ?? throw MaterialErrors.Missing("Location not found.");
-            await ActiveLocationAsync(location.Id, actor.DepartmentId, ct);
+            var location = Clean(line.LocationCode) is null
+                ? departmentStock ??= await DepartmentStockAsync(actor, ct)
+                : await locations.FirstOrDefaultAsync(l => l.Code == Code(line.LocationCode), ct) ?? throw MaterialErrors.Missing("Location not found.");
+            if (Clean(line.LocationCode) is not null) await ActiveLocationAsync(location.Id, actor.DepartmentId, ct);
             Guid? toId = null;
             if (doc.Kind == MaterialDocumentKind.Transfer)
             {

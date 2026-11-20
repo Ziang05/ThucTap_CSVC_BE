@@ -50,6 +50,8 @@ Mỗi hồ sơ phải phân biệt: đơn vị đề xuất ban đầu; đơn v�
 
 Vật tư sửa chữa/thay thế như RAM, bóng đèn thuộc nhóm vật tư dụng cụ. Giấy, mực in tiêu hao thường ngày nằm ngoài phạm vi theo PMQTTB gốc. Danh mục chi tiết và đơn vị tính sẽ được chốt ở task kho vật tư.
 
+Vật tư nhập về chỉ ghi nhận phòng QTTB đang giữ, không yêu cầu người dùng chia kho/kệ/ngăn. Tab Danh mục cho thêm loại vật tư/dụng cụ và đơn vị tính; nhập/xuất dùng chung mã danh mục, có thể tạo nhanh loại mới khi nhập. Hai danh mục này không có cột hoặc ô quản lý trạng thái trên giao diện. Các bộ chọn dùng dropdown, đơn vị tính hiển thị tên; mã vẫn dùng để liên kết bên trong.
+
 ## 4. Tiếp nhận, cấp phát và vòng đời thiết bị
 
 ### Mua mới

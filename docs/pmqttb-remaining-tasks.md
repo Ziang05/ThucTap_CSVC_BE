@@ -95,10 +95,12 @@ Hướng dẫn: [nhập và cấp phát](receipt-custody-release.md); kết qu�
 
 ### CV-06. Nghiệm thu kho vật tư và truy vết can thiệp
 
-**Đã có:** danh mục/đơn vị/kho/vị trí, nhập–xuất–tồn, trả/thu hồi, báo cáo và can thiệp trước–sau.
+**Đã có:** danh mục loại vật tư/dụng cụ, đơn vị tính, tồn tại QTTB, nhập–xuất–tồn, trả/thu hồi và can thiệp trước–sau. Luồng hiện tại không yêu cầu tạo kho hoặc chia kệ/ngăn/vị trí.
+
+- [x] Danh mục loại vật tư/đơn vị tính dùng chung cho nhập/xuất; nhân viên QTTB được thêm mới, có tạo nhanh khi nhập. Không quản lý trạng thái trên giao diện hai danh mục, dropdown chỉ hiển thị tên và không kèm textbox tìm kiếm.
 
 - [ ] Chốt danh mục dùng thật: vật tư/dụng cụ sửa chữa, thay thế; ranh giới với giấy/mực tiêu hao sử dụng thường ngày đang ngoài phạm vi.
-- [ ] Nghiệm thu UI/API nhập, xuất, điều chỉnh, chuyển kho, trả chưa dùng và nhập thu hồi; chỉ điều chỉnh cần quản lý duyệt.
+- [ ] Nghiệm thu toàn bộ UI/API nhập, xuất, điều chỉnh, trả chưa dùng và nhập thu hồi; chỉ điều chỉnh cần quản lý duyệt. Luồng chọn/tạo nhanh loại và ghi nhận tồn QTTB đã được kiểm tra riêng, kết quả tại [hướng dẫn vật tư](material-inventory.md).
 - [ ] Kiểm tra ví dụ tồn 20, xuất 3, còn 17; thiết bị vẫn có số lượng `0/1`. Đối chiếu báo cáo và sổ biến động.
 - [ ] Kiểm tra nhiều can thiệp trên nhiều loại thiết bị, cả trường hợp không dùng vật tư; đúng người/thời điểm, trước–sau, nguồn lắp và xử lý phần tháo.
 - [ ] Kiểm tra đối soát số dùng/trả trước kết quả sửa chữa, hiệu chỉnh giữ bản gốc, giới hạn thu hồi, tồn âm/đồng thời/gửi lặp/rollback.
