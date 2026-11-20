@@ -106,18 +106,11 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
     }
 
     private IQueryable<Guid> Unavailable(bool recovering, bool sameDepartment)
-        => _context.Database.SqlQuery<Guid>($"""
-            WITH RECURSIVE unavailable AS (
-                SELECT d.id FROM devices d
-                WHERE d.quantity <> 1 OR d.status <> 'ACTIVE'
-                  OR (d.condition <> 'GOOD' AND (NOT {recovering} OR d.condition <> 'DAMAGED'))
-                  OR EXISTS (SELECT 1 FROM device_operation_holds h WHERE h.device_id = d.id)
-                  OR (NOT {recovering} AND EXISTS (SELECT 1 FROM service_order_device_holds h WHERE h.device_id = d.id))
-                  OR ({sameDepartment} AND EXISTS (SELECT 1 FROM devices c WHERE c.parent_device_id = d.id AND c.department_id <> d.department_id))
-                UNION
-                SELECT d.parent_device_id FROM devices d JOIN unavailable u ON u.id = d.id WHERE d.parent_device_id IS NOT NULL
-            ) SELECT id AS "Value" FROM unavailable
-            """);
+        => _context.Devices.Where(d => d.Quantity != 1 || d.Status != EntityStatus.Active
+            || (d.Condition != DeviceCondition.Good && (!recovering || d.Condition != DeviceCondition.Damaged))
+            || _context.DeviceOperationHolds.Any(h => h.DeviceId == d.Id)
+            || (!recovering && _context.Set<CSVC.Core.ServiceOrders.ServiceOrderDeviceHold>().Any(h => h.DeviceId == d.Id)))
+            .Select(d => d.Id);
 
     public async Task<PagedResult<LoanDeviceOptionDto>> LoanOptionsAsync(LoanDeviceOptionsQuery query, Guid borrowerDepartmentId, CancellationToken ct = default)
     {

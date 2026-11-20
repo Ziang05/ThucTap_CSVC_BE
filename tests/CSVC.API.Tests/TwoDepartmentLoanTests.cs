@@ -102,16 +102,17 @@ public sealed class TwoDepartmentLoanTests
     }
 
     [PostgreSqlFact]
-    public async Task Service_hold_hides_entire_tree_before_paging_and_blocks_create_or_late_approval()
+    public async Task Service_hold_blocks_only_the_selected_device_and_late_approval()
     {
         await using var f = await Fixture.Create();
         var pending = await f.Loan("CHILD");
         await f.Service("CHILD", approve: true);
         var page = await Read(f.A, Root + "/eligible-devices?pageSize=1&page=2");
-        Assert.Equal(2, page.GetProperty("totalCount").GetInt32()); // READY, SECOND; both PARENT and CHILD excluded.
+        Assert.Equal(3, page.GetProperty("totalCount").GetInt32()); // READY, SECOND, PARENT; CHILD is held.
         var options = await Read(f.A, Root + "/eligible-devices?search=PARENT");
-        Assert.Empty(options.GetProperty("items").EnumerateArray());
-        await Expect(await f.A.PostAsJsonAsync(Root, f.Body("PB_TEST", "PARENT")), HttpStatusCode.Conflict);
+        Assert.Single(options.GetProperty("items").EnumerateArray());
+        var independent = await f.Loan("PARENT");
+        Assert.Single((await Read(f.A, Root + "/" + independent)).GetProperty("items").EnumerateArray());
         await Expect(await f.B.PostAsJsonAsync(Root + "/" + pending + "/approve", new { version = 1 }), HttpStatusCode.Conflict);
         await f.Db(async db => { Assert.Empty(await db.DeviceOperationHolds.ToListAsync()); Assert.Single(await db.Set<ServiceOrderDeviceHold>().ToListAsync()); });
     }
@@ -263,7 +264,7 @@ public sealed class TwoDepartmentLoanTests
                     AddDevice("READY",seed.Department); AddDevice("SECOND",seed.Department); AddDevice("OWN",a.Id);
                     AddDevice("CHILD",seed.Department,AddDevice("PARENT",seed.Department).Id);
                     (await db.EquipmentSettings.SingleAsync()).EquipmentDepartmentId = seed.Department;
-                    await db.SaveChangesAsync();
+                    await LegacyDeviceFixture.SaveAsync(db);
                 });
                 HttpClient Client(string token) { var client=host.CreateClient(); client.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",token);return client; }
                 f.A=Client(new string('A',64));f.B=Client(new string('B',64));f.C=Client(new string('C',64));f.Staff=Client(seed.StaffToken);f.Manager=Client(seed.ManagerToken);

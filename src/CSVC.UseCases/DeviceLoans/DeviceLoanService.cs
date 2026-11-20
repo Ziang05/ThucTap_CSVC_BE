@@ -232,16 +232,9 @@ public sealed partial class DeviceLoanService(
             ValidateDeviceAvailable(device);
             if (device.DepartmentId != lender.Id) throw Conflict("LOAN_LENDER_MISMATCH", "Every device must belong to the lending department.");
             await reservations.RequireAsync(device, false, ct: ct);
-            foreach (var member in await unitOfWork.Devices.GetSubtreeAsync(device.Id, ct))
-            {
-                if (devices.Any(x => x.Id == member.Id)) continue;
-                ValidateDeviceAvailable(member);
-                if (member.DepartmentId != lender.Id) throw Conflict("LOAN_LENDER_MISMATCH", "The entire device group must belong to the lending department.");
-                await reservations.RequireAsync(member, false, ct: ct);
-                devices.Add(member);
-            }
+            devices.Add(device);
         }
-        if (devices.Count > 200) throw Validation("A loan supports at most 200 devices including components.");
+        if (devices.Count > 200) throw Validation("A loan supports at most 200 selected devices.");
         await transaction.LockDevicesAsync(devices.Select(d => d.Id), ct);
         return (purpose, dueAt, devices, lender.Id);
     }

@@ -207,34 +207,11 @@ public sealed class DeviceService(
     }
 
     public async Task SetParentAsync(string deviceCode, string? parentDeviceCode, CancellationToken ct)
-        => await transaction.ExecuteAsync(async token =>
-        {
-            var actor = await RequireActorAsync(true, token);
-            var code = ValidateDeviceCode(deviceCode);
-            var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == code, token) ?? throw Missing();
-            var before = device.ParentDeviceId is { } previousId ? await unitOfWork.Devices.GetByIdAsync(previousId, token) : null;
-            Device? parent = string.IsNullOrWhiteSpace(parentDeviceCode) ? null : await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == ValidateDeviceCode(parentDeviceCode), token);
-            if (!string.IsNullOrWhiteSpace(parentDeviceCode) && parent is null) throw new UseCaseException(FailureKind.NotFound, "PARENT_DEVICE_NOT_FOUND", "Parent device was not found.");
-            if (parent?.Id == device.Id || parent is not null && await unitOfWork.Devices.WouldCreateParentCycleAsync(device.Id, parent.Id, token))
-                throw Conflict("INVALID_DEVICE_PARENT", "The selected parent would create a cycle.");
-            if (parent is not null && (parent.DepartmentId != device.DepartmentId)) throw Conflict("DEVICE_PARENT_DEPARTMENT_MISMATCH", "Parent and child must belong to the same department when linked.");
-            if (parent?.Status == EntityStatus.Locked) throw Conflict("DEVICE_LOCKED", "The selected parent device is locked.");
-            var subtree = await unitOfWork.Devices.GetSubtreeAsync(device.Id, token);
-            await transaction.LockDevicesAsync(subtree.Select(x => x.Id).Append(parent?.Id ?? Guid.Empty).Where(x => x != Guid.Empty), token);
-            foreach (var node in subtree)
-            {
-                await reservations.RequireAsync(node, false, ct: token);
-                if (await unitOfWork.Devices.HasPendingWorkflowAsync(node.Id, token)) throw Conflict("DEVICE_BUSY", "A device in this subtree has a pending operation.");
-            }
-            if (parent is not null) await reservations.RequireAsync(parent, false, ct: token);
-            if (parent is not null && await unitOfWork.Devices.HasPendingWorkflowAsync(parent.Id, token)) throw Conflict("DEVICE_BUSY", "The selected parent device has a pending operation.");
-            device.ParentDeviceId = parent?.Id;
-            unitOfWork.Devices.Update(device);
-            await AuditAsync(device, actor.AccountId, parent is null ? "DEVICE_PARENT_UNLINKED" : before is null ? "DEVICE_PARENT_LINKED" : "DEVICE_PARENT_CHANGED",
-                ["parentDeviceCode"], JsonSerializer.Serialize(new { parentDeviceCode = before?.DeviceCode }), JsonSerializer.Serialize(new { parentDeviceCode = parent?.DeviceCode }), token);
-            await unitOfWork.CommitAsync(token);
-            return true;
-        }, ct);
+    {
+        await RequireActorAsync(true, ct);
+        _ = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == ValidateDeviceCode(deviceCode), ct) ?? throw Missing();
+        throw Conflict("DEVICE_COMPONENT_RELATIONSHIPS_RETIRED", "Device component references are historical and read-only. Record an equipment intervention instead.");
+    }
 
     public async Task SetLockedAsync(string deviceCode, bool locked, CancellationToken ct)
         => await transaction.ExecuteAsync(async token =>
@@ -243,17 +220,14 @@ public sealed class DeviceService(
             var key = ValidateDeviceCode(deviceCode);
             var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == key, token) ?? throw Missing();
             var next = locked ? EntityStatus.Locked : EntityStatus.Active;
-            var subtree = await unitOfWork.Devices.GetSubtreeAsync(device.Id, token);
-            await transaction.LockDevicesAsync(subtree.Select(x => x.Id), token);
-            foreach (var item in subtree)
+            await transaction.LockDevicesAsync([device.Id], token);
+            if (locked) await reservations.RequireAsync(device, false, ct: token);
+            if (device.Status != next)
             {
-                var affected = item.Id == device.Id ? device : await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.Id == item.Id, token) ?? throw Missing();
-                if (locked) await reservations.RequireAsync(affected, false, ct: token);
-                if (affected.Status == next) continue;
-                var before = StateSnapshot(affected);
-                affected.Status = next;
-                unitOfWork.Devices.Update(affected);
-                await AuditAsync(affected, actor.AccountId, (locked ? "DEVICE_LOCKED_" : "DEVICE_UNLOCKED_") + affected.DeviceCode, ["status"], before, StateSnapshot(affected), token);
+                var before = StateSnapshot(device);
+                device.Status = next;
+                unitOfWork.Devices.Update(device);
+                await AuditAsync(device, actor.AccountId, (locked ? "DEVICE_LOCKED_" : "DEVICE_UNLOCKED_") + device.DeviceCode, ["status"], before, StateSnapshot(device), token);
             }
             await unitOfWork.CommitAsync(token);
             return true;

@@ -12,7 +12,7 @@ public sealed class LegacyComponentGuardMigrationTests
     [PostgreSqlTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Upgrade_preserves_parent_workflow_and_history_on_fresh_and_legacy_databases(bool legacy)
+    public async Task Upgrade_retires_parent_writes_and_preserves_identity_on_fresh_and_legacy_databases(bool legacy)
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         await f.InDb(async db =>
@@ -52,12 +52,12 @@ public sealed class LegacyComponentGuardMigrationTests
             Assert.False(db.Database.HasPendingModelChanges());
         });
         using var linked = await f.Staff.PutAsJsonAsync("/api/v1/devices/TB-ROLE-002/parent", new { parentDeviceCode = "TB-ROLE-001" });
-        Assert.True(linked.StatusCode == HttpStatusCode.NoContent, await linked.Content.ReadAsStringAsync());
+        Assert.True(linked.StatusCode == HttpStatusCode.Conflict, await linked.Content.ReadAsStringAsync());
         await f.InDb(async db =>
         {
             var parent = await db.Devices.SingleAsync(d => d.DeviceCode == "TB-ROLE-001");
             var child = await db.Devices.SingleAsync(d => d.DeviceCode == "TB-ROLE-002");
-            Assert.Equal(parent.Id, child.ParentDeviceId);
+            Assert.Null(child.ParentDeviceId);
         });
     }
 }

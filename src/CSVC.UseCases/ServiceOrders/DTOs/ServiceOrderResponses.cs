@@ -5,7 +5,10 @@ namespace CSVC.UseCases.ServiceOrders.DTOs;
 public sealed record ServiceOrderDto(string DisplayCode, ServiceOrderType OrderType, ServiceWorkflowStatus Status,
     string CreatedByAccountCode, DateTimeOffset CreatedAt, string? ApprovedByAccountCode, DateTimeOffset? ApprovedAt,
     string? CanceledByAccountCode, DateTimeOffset? CanceledAt, string? CancelReason, DateTimeOffset? CompletedAt,
-    string? Notes, int Version, int ItemCount, IReadOnlyList<ServiceOrderItemDto> Items, IReadOnlyList<ExportSlipDto> ExportSlips);
+    string? Notes, int Version, int ItemCount, IReadOnlyList<ServiceOrderItemDto> Items, IReadOnlyList<ExportSlipDto> ExportSlips)
+{
+    public string? SpecializedHandlingReason { get; init; }
+}
 
 public sealed record ServiceOrderItemDto(int ItemNo, string DeviceCode, string DeviceName, string? Serial,
     ExecutionMethod ExecutionMethod, ServiceItemStatus? ExecutionStatus, string? WorkDescription,

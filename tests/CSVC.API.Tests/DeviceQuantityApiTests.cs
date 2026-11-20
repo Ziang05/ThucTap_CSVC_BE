@@ -48,9 +48,9 @@ public sealed class DeviceQuantityApiTests
         var created = (await response.Content.ReadFromJsonAsync<DeviceDto>(Json))!;
         Assert.Equal(0, created.Quantity);
         await Expect(await f.Staff.PutAsJsonAsync(Devices + "/" + created.DeviceCode + "/parent",
-            new { parentDeviceCode = parent.DeviceCode }), HttpStatusCode.NoContent);
+            new { parentDeviceCode = parent.DeviceCode }), HttpStatusCode.Conflict);
         var registered = await f.GetDevice(created.DeviceCode);
-        Assert.Equal(parent.DeviceCode, registered.ParentDeviceCode);
+        Assert.Null(registered.ParentDeviceCode);
         var receipt = await f.CreateReceipt(new DeviceReceiptItemRequest { ExistingDeviceCode = created.DeviceCode });
         await f.Approve(receipt.ReceiptCode);
         Assert.Equal(0, (await f.GetDevice(created.DeviceCode)).Quantity);

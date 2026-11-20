@@ -141,10 +141,10 @@ Task 1 thống nhất thiết kế dữ liệu tối thiểu; task 4 đã bổ s
 
 | Phần | Hiện tại | Công việc tiếp theo |
 | --- | --- | --- |
-| Mã vạch | Có mã ổn định, lookup và ô quét/nhập; UI hiện có in tem nhưng dùng QR, chưa khớp quyết định mã vạch | Task 8 nâng lên P0; thống nhất sửa phần UI đã pull |
-| Thiết bị theo bộ | Chưa đạt trên bản sau pull: vẫn có ghi quan hệ cha–con và mở rộng cây; migration/tài liệu thu hẹp cũ không còn trong source | Task 2 chờ thống nhất với team; giữ code đã pull trong lúc ghép stash, bảo toàn dữ liệu/lịch sử |
-| Nhập rồi cấp phát | Có backend/UI tách phòng đề xuất và QTTB tiếp nhận, giữ nghĩa phiếu cũ; luồng chính đã kiểm chứng và local đã đồng bộ ở CV-01 | Nghiệm thu chi tiết ở CV-05; [hướng dẫn](receipt-custody-release.md), [báo cáo CV-01](cv01-validation.md) |
-| PMMS và yêu cầu nội bộ | Có giả lập, phiên bản/sự kiện/lịch sử, liên kết nhập/cấp phát/sửa chữa/vật tư; chưa có bằng chứng hoàn tất dịch vụ độc lập | Task 4 còn phần dịch vụ; làm rõ nghiệm thu sửa chữa/quy tắc chuyên dụng; chưa kết nối PMMS thật |
+| Mã vạch | In Code 128 từ barcode đã lưu, tem 100 × 50 mm, in lại/PDF/tra cứu có kiểm chứng | CV-03 đã triển khai phần mềm; còn nghiệm thu máy in/máy quét vật lý. [Hướng dẫn](barcode-labels.md) |
+| Thiết bị theo bộ | Tham chiếu cũ chỉ đọc ở API/DB/UI; chọn/khóa/mượn/điều chuyển độc lập, giữ phiếu và lịch sử cũ | CV-02 đã triển khai; [quy tắc](device-reference-policy.md) |
+| Nhập rồi cấp phát | Tách phòng đề xuất và QTTB tiếp nhận; cấp phát/thực nhận và tự dùng riêng, giữ nghĩa phiếu cũ | CV-05 đã kiểm chứng sau CV-02; [hướng dẫn](receipt-custody-release.md) |
+| PMMS và yêu cầu nội bộ | Có bằng chứng dịch vụ và xác nhận của đơn vị; sửa chữa mới cần nghiệm thu, chuyên dụng tại chỗ có lý do để quản lý duyệt | CV-04 đã triển khai; chỉ giả lập, chưa có API PMMS thật. [Hướng dẫn](pmms-simulation.md) |
 | Phân công nhân viên và kiểm kê | Đồng đội phụ trách. Kiểm kê đã có backend/UI từ bản pull; phân công mọi công việc là module riêng | Không xây trùng; phối hợp nghiệm thu tình trạng/vị trí/quét kiểm kê và giao diện giữa module |
 | Vật tư và thay đổi trên thiết bị | Có backend/UI, tồn, chứng từ, đối chiếu sử dụng, lắp/tháo và can thiệp trước–sau; kết quả tổng kết dùng lịch sử dịch vụ hiện có | Task 6 cần nghiệm thu sau merge; task 12 hợp nhất timeline, không tạo sự kiện trùng |
 | Toàn bộ một lần | Yêu cầu mới kiểm tra đủ mọi dòng, một phiếu cấp phát đủ yêu cầu và thực nhận trước khi đóng; sửa chữa cần kết quả đủ và giải phóng giữ chỗ | API sửa chữa/xuất cũ vẫn ghi kết quả từng item; không suy ra hoàn tất yêu cầu từ một item |

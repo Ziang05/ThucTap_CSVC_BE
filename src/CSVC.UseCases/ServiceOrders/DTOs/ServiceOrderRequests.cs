@@ -9,6 +9,7 @@ namespace CSVC.UseCases.ServiceOrders.DTOs;
 public sealed class CreateServiceOrderRequest
 {
     [StringLength(32)] public string? SourceRequestCode { get; init; }
+    [StringLength(1000)] public string? SpecializedHandlingReason { get; init; }
     public Guid RequestId { get; init; }
     [EnumDataType(typeof(ServiceOrderType))] public ServiceOrderType OrderType { get; init; }
     [Required, MinLength(1), MaxLength(100)] public List<ServiceItemRequest> Items { get; init; } = [];

@@ -1,6 +1,12 @@
 # Đồng bộ API và database Docker local
 
-## Trạng thái hiện tại sau CV-01
+## Trạng thái hiện tại sau CV-02–CV-05
+
+API tại `http://localhost:8080` đã nâng cấp thêm `DevicePackagesReadOnlyReferences` và `ProcurementFulfillmentAcceptance`; live/ready đạt và không còn migration nguồn chờ áp dụng. Đã backup mới, diễn tập restore/nâng cấp trên bản sao, đối chiếu số bản ghi và định danh trước/sau. Không chạy PMMS giả lập trên database local chính.
+
+CV-02 áp chính sách mới: tham chiếu cũ chỉ đọc và xử lý thiết bị độc lập. CV-04 thêm bằng chứng dịch vụ, nghiệm thu và lý do xử lý chuyên dụng. Đây là thay đổi trong phạm vi chủ project giao tiếp tục triển khai; không khôi phục module phân công cũ hoặc sửa module kiểm kê của đồng đội. Chi tiết/bản sao tại [biên bản CV-02–CV-05](cv02-05-validation.md).
+
+## Mốc CV-01 — giữ để đối chiếu
 
 API local chạy tại `http://localhost:8080`, live/ready đạt; database không còn migration nguồn chờ áp dụng. Đã áp `MaterialInventory`, `EquipmentInventoryGroup19`, `ReadableBusinessCodes`, `RemoveStaffAssignments`, `AlignProcurementCatalogReferences` và `ReconcileLegacyComponentGuards` sau khi backup, diễn tập trên bản sao và được chủ project xác nhận.
 

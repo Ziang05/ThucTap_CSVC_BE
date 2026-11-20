@@ -327,7 +327,7 @@ public sealed class EquipmentStaffWorkflowTests
             if (invalid == "busy") db.Add(new DeviceOperationHold { DeviceCode = device.DeviceCode, DeviceId = device.Id, OperationKind = DeviceOperationKind.Loan, OperationId = Guid.NewGuid(), HeldAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
         });
-        using var response = await f.Department.PostAsJsonAsync(Transfers, f.RecoveryBody());
+        using var response = await f.Department.PostAsJsonAsync(Transfers, f.RecoveryBody(child ? ["TB-ROLE-002"] : ["TB-ROLE-001"]));
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(code, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         await f.InDb(async db => Assert.Empty(await db.DeviceTransfers.ToListAsync()));
@@ -354,11 +354,13 @@ public sealed class EquipmentStaffWorkflowTests
     }
 
     [PostgreSqlFact]
-    public async Task Recovery_includes_damaged_children_and_audit_failures_rollback_the_whole_group()
+    public async Task Recovery_of_explicitly_selected_devices_rolls_back_the_whole_group_on_audit_failure()
     {
         await using var f = await Fixture.CreateAsync();
         await f.PrepareRecovery(DeviceCondition.Good, true);
-        var transfer = await f.CreateRecovery();
+        using var created = await f.Department.PostAsJsonAsync(Transfers, f.RecoveryBody("TB-ROLE-001", "TB-ROLE-002"));
+        Assert.True(created.StatusCode == HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
+        var transfer = await created.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(2, transfer.GetProperty("itemCount").GetInt32());
         var route = Transfers + "/" + transfer.GetProperty("transferCode").GetString();
         f.FailNextTransferAction("TRANSFER_RECEIVER_CONFIRMED");
@@ -480,9 +482,9 @@ public sealed class EquipmentStaffWorkflowTests
                     child.ParentDeviceId = device.Id;
                     child.Condition = DeviceCondition.Damaged;
                 }
-                await db.SaveChangesAsync();
+                if (withChild) await LegacyDeviceFixture.SaveAsync(db); else await db.SaveChangesAsync();
             });
-        public object RecoveryBody() => new { sourceDepartmentCode = "PB_TARGET", targetDepartmentCode = "PB_TEST", targetResponsibleAccountCode = "TK_MANAGER", reason = "Recover devices to equipment department", items = new[] { new { deviceCode = "TB-ROLE-001" } } };
+        public object RecoveryBody(params string[] codes) => new { sourceDepartmentCode = "PB_TARGET", targetDepartmentCode = "PB_TEST", targetResponsibleAccountCode = "TK_MANAGER", reason = "Recover devices to equipment department", items = (codes.Length == 0 ? ["TB-ROLE-001"] : codes).Select(deviceCode => new { deviceCode }).ToArray() };
         public object RecoveryConditions(DeviceCondition condition) => new { items = new[] { new { deviceCode = "TB-ROLE-001", condition = condition.ToString() } } };
         public async Task<JsonElement> CreateRecovery()
         {

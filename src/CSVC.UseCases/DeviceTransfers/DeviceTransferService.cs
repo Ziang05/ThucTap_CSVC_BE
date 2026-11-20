@@ -365,17 +365,9 @@ public sealed partial class DeviceTransferService(
                 ?? throw new UseCaseException(FailureKind.NotFound, "DEVICE_NOT_FOUND", "A requested device was not found.");
             ValidateTransferDevice(device, source.Id, transferType);
             await reservations.RequireAsync(device, transferType == DeviceTransferType.Recovery, ct: ct);
-            var subtree = await unitOfWork.Devices.GetSubtreeAsync(device.Id, ct);
-            if (subtree.Any(x => x.DepartmentId != source.Id)) throw Conflict("DEVICE_GROUP_SOURCE_MISMATCH", "Every device in the selected subtree must belong to the transfer source department.");
-            foreach (var member in subtree)
-            {
-                if (devices.Any(x => x.Id == member.Id)) continue;
-                ValidateTransferDevice(member, source.Id, transferType);
-                await reservations.RequireAsync(member, transferType == DeviceTransferType.Recovery, ct: ct);
-                devices.Add(member);
-            }
+            devices.Add(device);
         }
-        if (devices.Count > 200) throw Validation("A transfer supports at most 200 devices including components.");
+        if (devices.Count > 200) throw Validation("A transfer supports at most 200 selected devices.");
         return (source, target, responsible, reason, devices, transferType);
     }
 

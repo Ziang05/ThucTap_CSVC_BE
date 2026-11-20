@@ -13,8 +13,8 @@ namespace CSVC.API.Tests;
 public sealed class EquipmentInitiatedRecoveryTests
 {
     private const string Root = "/api/v1/device-transfers";
-    private static object Body(Guid id, string device = "TB-ROLE-001", string reason = "Recover for redistribution")
-        => new { requestId = id, sourceDepartmentCode = "PB_TARGET", targetResponsibleAccountCode = "TK_MANAGER", reason, items = new[] { new { deviceCode = device } } };
+    private static object Body(Guid id, string device = "TB-ROLE-001", string reason = "Recover for redistribution", bool both = false)
+        => new { requestId = id, sourceDepartmentCode = "PB_TARGET", targetResponsibleAccountCode = "TK_MANAGER", reason, items = (both ? new[] { "TB-ROLE-001", "TB-ROLE-002" } : [device]).Select(deviceCode => new { deviceCode }).ToArray() };
     private static object Conditions(int version, bool child = false, string rootCondition = "Good")
         => new { version, items = child ? new[] { new { deviceCode = "TB-ROLE-001", condition = rootCondition, note = "Recorded" }, new { deviceCode = "TB-ROLE-002", condition = "Damaged", note = "Recorded" } }
             : new[] { new { deviceCode = "TB-ROLE-001", condition = rootCondition, note = "Recorded" } } };
@@ -27,11 +27,11 @@ public sealed class EquipmentInitiatedRecoveryTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         await f.PrepareRecovery(DeviceCondition.Good, true);
         var id = Guid.NewGuid(); var creator = managerCreates ? f.Manager : f.Staff;
-        var created = await Create(creator, Body(id)); var code = Code(created);
+        var created = await Create(creator, Body(id, both: true)); var code = Code(created);
         Assert.Equal("EquipmentDepartment", created.GetProperty("initiationType").GetString());
         Assert.Equal("AwaitingSourceAcceptance", created.GetProperty("workflowStage").GetString());
         Assert.Equal(2, created.GetProperty("items").GetArrayLength());
-        Assert.Equal(code, Code(await Create(creator, Body(id))));
+        Assert.Equal(code, Code(await Create(creator, Body(id, both: true))));
         await f.InDb(async db => { Assert.Single(await db.DeviceTransfers.ToListAsync()); Assert.Empty(await db.DeviceOperationHolds.ToListAsync()); });
         await Expect(await creator.PostAsJsonAsync(Root + "/recovery-orders", Body(id, reason: "Different")), HttpStatusCode.Conflict);
         var sourceView = await Get(f.Department, code);

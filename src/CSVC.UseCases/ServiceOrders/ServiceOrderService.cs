@@ -59,7 +59,7 @@ public sealed partial class ServiceOrderService(
             {
                 DisplayCode = await codeGenerator.NextAsync(codeKind, token),
                 OrderType = request.OrderType, CreateRequestId = request.RequestId, CreateRequestHash = hash,
-                CreatedByAccountId = actor, CreatedAt = now, Notes = Clean(request.Notes)
+                CreatedByAccountId = actor, CreatedAt = now, Notes = Clean(request.Notes), SpecializedHandlingReason = Clean(request.SpecializedHandlingReason)
             };
             var deviceCodes = request.Items.Select(x => Code(x.DeviceCode)).ToArray();
             var devices = await unitOfWork.Devices.FindAsync(x => deviceCodes.Contains(x.DeviceCode), token);
@@ -93,7 +93,8 @@ public sealed partial class ServiceOrderService(
                 var device = devices.Single(d => d.DeviceCode == Code(input.DeviceCode));
                 sourceBindings.Add(new(input.SourceLineCode ?? "", device.DeviceCode,
                     (await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, token))!.DisplayCode,
-                    input.ExecutionMethod.ToString(), Clean(input.DamageReportCode) is null ? null : Code(input.DamageReportCode)));
+                    input.ExecutionMethod.ToString(), Clean(input.DamageReportCode) is null ? null : Code(input.DamageReportCode))
+                    { SpecializedHandlingReason = order.SpecializedHandlingReason });
             }
             await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.Repair, order.DisplayCode, Guid.Empty,
                 sourceBindings, actor, token);
@@ -322,7 +323,7 @@ public sealed partial class ServiceOrderService(
             o.Items.OrderBy(i => i.ItemNo).Select(i => new ServiceOrderItemDto(i.ItemNo, i.DeviceCodeSnapshot, i.DeviceNameSnapshot,
                 i.SerialSnapshot, i.ExecutionMethod, i.ExecutionStatus, i.WorkDescription, i.ResultDescription,
                 ActorCode(codes, i.ResultRecordedByAccountId), i.ResultRecordedAt, i.Notes, i.Version) { DamageReportCode = i.RepairDetail?.DamageReport?.ReportCode }).ToArray(),
-            o.ExportSlips.OrderBy(e => e.SequenceNo).Select(e => ToExportDto(e, o, codes)).ToArray());
+            o.ExportSlips.OrderBy(e => e.SequenceNo).Select(e => ToExportDto(e, o, codes)).ToArray()) { SpecializedHandlingReason = o.SpecializedHandlingReason };
 
     private static void ValidateCreate(CreateServiceOrderRequest request)
     {
@@ -341,6 +342,9 @@ public sealed partial class ServiceOrderService(
     }
 
     private static string Fingerprint(CreateServiceOrderRequest r)
+        => Clean(r.SpecializedHandlingReason) is null ? BaseFingerprint(r)
+            : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(BaseFingerprint(r) + "|" + Clean(r.SpecializedHandlingReason))));
+    private static string BaseFingerprint(CreateServiceOrderRequest r)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Clean(r.SourceRequestCode) is null && r.Items.All(i => Clean(i.SourceLineCode) is null) ? (object)new
         {
             r.OrderType, notes = Clean(r.Notes),

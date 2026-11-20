@@ -64,10 +64,12 @@ public sealed class BorrowedDevicesTests
     }
 
     [PostgreSqlFact]
-    public async Task Borrowed_items_are_filtered_before_count_and_paging_and_include_components()
+    public async Task Borrowed_items_are_filtered_before_count_and_paging_for_explicitly_selected_legacy_devices()
     {
         await using var f = await TwoDepartmentLoanTests.Fixture.Create();
-        var code = await f.Loan("PARENT");
+        using var response = await f.A.PostAsJsonAsync("/api/v1/device-loans", new { lenderDepartmentCode = "PB_TEST", purpose = "Both selected independently", dueAt = f.Host.Clock.GetUtcNow().AddDays(1), items = new[] { new { deviceCode = "PARENT" }, new { deviceCode = "CHILD" } } });
+        Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var code = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("loanCode").GetString()!;
         await f.Post(f.B, code, "approve", new { version = 1 });
         await f.Post(f.A, code, "handover-complete", new { version = 2, items = new[] { new { deviceCode = "PARENT", condition = "Good" }, new { deviceCode = "CHILD", condition = "Good" } } });
         var first = await Get(f.A, List + "?pageSize=1&page=1");

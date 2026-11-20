@@ -84,7 +84,7 @@ public sealed class ProcurementRequestTests
         var history = await f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code + "/history");
         Assert.Equal(3, history.GetProperty("totalCount").GetInt32());
         Assert.Contains(history.GetProperty("items").EnumerateArray(), e => e.GetProperty("sourcePayload").GetString()!.Contains("UNKNOWN"));
-        await Expect(await f.Department.GetAsync(Root), HttpStatusCode.Forbidden);
+        await Expect(await f.Department.GetAsync(Root), HttpStatusCode.OK);
         await Expect(await f.Department.PostAsJsonAsync(Root + "/simulated-events", Event("FORBIDDEN")), HttpStatusCode.Forbidden);
         await Close(f, code, HttpStatusCode.Conflict);
         Assert.Equal("Cancelled", (await Send(f, Cancel("PMMS-REPLAY", 4))).GetProperty("outcome").GetString());
@@ -163,11 +163,14 @@ public sealed class ProcurementRequestTests
         Assert.Equal("Failed", (await Detail(f, material)).GetProperty("result").GetString());
     }
 
-    [PostgreSqlFact]
-    public async Task Repair_scope_is_inherited_and_cannot_cancel_after_execution_starts()
+    [PostgreSqlTheory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Repair_scope_is_inherited_and_cannot_cancel_after_execution_starts(int workflowVersion)
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         var code = (await Send(f, Event("PMMS-REPAIR", type: "Repair", lines: [Line(device: "TB-ROLE-001")]))).GetProperty("displayCode").GetString()!;
+        if (workflowVersion == 1) await f.InDb(async db => { (await db.Set<ProcurementRequest>().SingleAsync()).WorkflowVersion = 1; await db.SaveChangesAsync(); });
         object Order(string device) => new { sourceRequestCode = code, requestId = Guid.NewGuid(), orderType = "Repair", items = new[] { new { sourceLineCode = "L1", deviceCode = device, executionMethod = "OnSite", workDescription = "Inspect and upgrade equipment" } } };
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Order("TB-ROLE-002")), HttpStatusCode.BadRequest);
         var order = await Json(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Order("TB-ROLE-001")), HttpStatusCode.Created);
@@ -177,6 +180,13 @@ public sealed class ProcurementRequestTests
         await Close(f, code, HttpStatusCode.Conflict);
         order = await f.Staff.GetFromJsonAsync<JsonElement>(route);
         await Expect(await f.Staff.PostAsJsonAsync(route + "/results", new { requestId = Guid.NewGuid(), version = order.GetProperty("version").GetInt32(), items = new[] { new { itemNo = 1, result = "Completed", description = "Upgrade completed" } } }));
+        if (workflowVersion >= 2)
+        {
+            await Close(f, code, HttpStatusCode.Conflict);
+            var ready = await Detail(f, code);
+            await Expect(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/accept-results", new { requestId = Guid.NewGuid(), version = ready.GetProperty("summary").GetProperty("version").GetInt32(), accepted = true }), HttpStatusCode.Forbidden);
+            await Expect(await f.Department.PostAsJsonAsync(Root + "/" + code + "/accept-results", new { requestId = Guid.NewGuid(), version = ready.GetProperty("summary").GetProperty("version").GetInt32(), accepted = true }));
+        }
         await Close(f, code);
         Assert.Equal("Success", (await Detail(f, code)).GetProperty("result").GetString());
     }
