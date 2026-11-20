@@ -59,6 +59,7 @@ public sealed partial class ProcurementRequestService
             var hash = CommandHash(request.DisplayCode, input);
             if (await ReplayCommandAsync(request, input.RequestId, actor.Id, hash, token)) return true;
             await EditableAsync(code, input.Version, token);
+            await assignment.RequireAsync(code, actor.Id, token);
             if (request.RequiresReview || request.MappingIssue is not null) throw Conflict("SOURCE_REQUEST_NOT_READY", "Resolve source mapping or changes first.");
             if (request.AcceptanceDecision == "Accepted") throw Conflict("RESULT_ALREADY_ACCEPTED", "Accepted evidence is immutable.");
             var lines = request.Lines.Where(l => l.Kind == ProcurementLineKind.Service).ToArray();

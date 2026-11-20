@@ -60,6 +60,7 @@ public sealed partial class MaterialService
         }
         if (doc.Kind == MaterialDocumentKind.Issue && doc.TargetDepartmentId is null && doc.ProcurementRequestId is null) throw MaterialErrors.Invalid("Select a receiving department.");
         if (doc.Kind == MaterialDocumentKind.Receipt && doc.SupplierId is null && doc.ProcurementRequestId is null && doc.Reference is null) throw MaterialErrors.Invalid("A receipt must identify its supplier, source request or source reference.");
+        await assignment.RequireMaterialAsync(doc, actor.Id, ct);
         var index = 0; Guid? originalId = null; MaterialLocation? departmentStock = null;
         foreach (var line in input.Lines)
         {
@@ -116,6 +117,7 @@ public sealed partial class MaterialService
         }
         if (doc.Lines.Where(l => l.OriginalIssueLineId != null).GroupBy(l => l.OriginalIssueLineId).Any(g => g.Count() > 1)
             || doc.Lines.Where(l => l.RemovedMaterialId != null).GroupBy(l => l.RemovedMaterialId).Any(g => g.Count() > 1)) throw MaterialErrors.Invalid("Duplicate return source lines.");
+        await assignment.RequireMaterialAsync(doc, actor.Id, ct);
         await ValidateSourceAsync(doc, actor, ct);
     }
     private async Task DocumentAuditAsync(MaterialDocument doc, MaterialActor actor, string action, Guid? requestId, string? fingerprint, string? before, CancellationToken ct, string? reason = null)
@@ -146,6 +148,7 @@ public sealed partial class MaterialService
         var actor = await access.RequireAsync(token, allowDepartment: action == "receive"); Validate(input); RequestId(input.RequestId);
         var doc = await ReadDocumentAsync(code, actor, true, token); var hash = Hash(new { code = doc.Code, action, input });
         if (await ReplayAsync(doc, actor, input.RequestId, hash, token)) return true;
+        if (!actor.Department && !(actor.Manager && action is "approve" or "reject")) await assignment.RequireMaterialAsync(doc, actor.Id, token);
         Version(doc.Version, input.Version); var before = ProcurementRequests.ProcurementJson.Write(new { doc.Status, doc.Version });
         if (action is "approve" or "reject")
         {

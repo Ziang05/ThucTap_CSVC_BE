@@ -20,7 +20,7 @@ namespace CSVC.UseCases.DeviceTransfers;
 
 public sealed partial class DeviceTransferService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement) : IDeviceTransferService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, IRequestAssignmentPolicy assignment) : IDeviceTransferService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -142,6 +142,7 @@ public sealed partial class DeviceTransferService(
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
             var transfer = await LoadForActorAsync(transferCode, actor, token);
+            if (actor.RoleCode == RoleCodes.EquipmentStaff) await assignment.RequireDocumentAsync(RequestDocumentKind.Allocation, transfer.TransferCode, actor.AccountId, token);
             RequireSourceInitiation(transfer);
             RequireReceiver(transfer, actor);
             RequireConfirmationPending(transfer);
@@ -203,6 +204,7 @@ public sealed partial class DeviceTransferService(
             var actor = await RequireDepartmentStaffAsync(token);
             Validate(request);
             var transfer = await LoadForActorAsync(transferCode, actor, token);
+            if (actor.RoleCode == RoleCodes.EquipmentStaff) await assignment.RequireDocumentAsync(RequestDocumentKind.Allocation, transfer.TransferCode, actor.AccountId, token);
             if (transfer.Status != DeviceTransferStatus.Approved) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only an approved transfer can be completed.");
             await procurement.RequireCombinedDeliveryAsync(transfer.TransferCode, token);
             RequireReceiver(transfer, actor);
@@ -290,6 +292,7 @@ public sealed partial class DeviceTransferService(
         {
             var actor = await RequireActorAsync(token);
             var transfer = await LoadForActorAsync(transferCode, actor, token);
+            var linkedToSource = actor.RoleCode == RoleCodes.EquipmentStaff && await assignment.RequireDocumentAsync(RequestDocumentKind.Allocation, transfer.TransferCode, actor.AccountId, token);
             if (transfer.InitiationType == TransferInitiationType.EquipmentDepartment)
             {
                 await RequireEquipmentCreatorAsync(transfer, actor, token);
@@ -304,7 +307,7 @@ public sealed partial class DeviceTransferService(
                 await equipmentPolicy.RequireMemberAsync(actor.RoleCode, actor.DepartmentId, token);
                 if (transfer.Status is not (DeviceTransferStatus.PendingConfirmation or DeviceTransferStatus.PendingApproval))
                     throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only a transfer awaiting confirmation or approval can be cancelled.");
-                if (transfer.CreatorAccountId != actor.AccountId || actor.DepartmentId != transfer.SourceDepartmentId)
+                if ((!linkedToSource && transfer.CreatorAccountId != actor.AccountId) || actor.DepartmentId != transfer.SourceDepartmentId)
                     throw Forbidden("Only the creator in the source department may cancel it.");
             }
             var before = SnapshotStatus(transfer);

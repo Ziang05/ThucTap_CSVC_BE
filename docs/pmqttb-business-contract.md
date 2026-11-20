@@ -6,7 +6,9 @@ Phạm vi: task 1 trong [backlog ưu tiên](pmqttb-priority-backlog.md).
 
 Tài liệu này thống nhất nghiệp vụ từ `Documents/PMQTTB.docx`, các điều chỉnh của chủ project và các quyết định đã xác nhận. Đây là **nghiệp vụ đích để triển khai**; mô tả đích không tự xác nhận API/migration đã có. Trạng thái triển khai sau merge được đối chiếu tại mục 8 và [backlog ưu tiên](pmqttb-priority-backlog.md).
 
-Thứ tự sử dụng: quyết định mới của chủ project → hợp đồng này → PMQTTB gốc → tài liệu đặc tả cũ. Tài liệu API theo module tiếp tục mô tả hành vi code hiện tại; chỗ khác với hợp đồng này phải được đánh dấu chờ sửa. Các trạng thái của yêu cầu bên dưới không thay thế enum trạng thái phiếu nhập, điều chuyển hoặc sửa chữa hiện có.
+Thứ tự sử dụng: quyết định mới của chủ project → PMQTTB gốc → hợp đồng diễn giải này → tài liệu đặc tả cũ. Khi hợp đồng diễn giải khác tài liệu gốc mà không có điều chỉnh của chủ project, phải sửa hợp đồng. Tài liệu API theo module mô tả hành vi code hiện tại, không tự xác nhận hành vi đó đúng nghiệp vụ.
+
+**Đính chính ranh giới nguồn và task:** đã đọc lại toàn bộ `Documents/PMQTTB.docx`. Yêu cầu mua sắm và yêu cầu sửa chữa đều được đơn vị lập trên PMMS rồi kế thừa sang PMQTTB. PMQTTB không lập lại hai yêu cầu này. Phân task cho nhân viên QTTB là nghiệp vụ cốt lõi của phần mềm; việc đồng đội phụ trách module chỉ phân chia trách nhiệm triển khai. Luồng hiện tại còn thiếu tích hợp task và còn màn tạo phiếu sửa chữa cục bộ cần chỉnh. Kết quả test trước đây phản ánh hành vi code đã có, không thay thế đối chiếu nghiệp vụ nguồn.
 
 ### Các quyết định đã xác nhận
 
@@ -19,23 +21,39 @@ Thứ tự sử dụng: quyết định mới của chủ project → hợp đ�
 | Thiết bị sử dụng | Quản lý từng bộ/thiết bị cụ thể, mỗi mã có số lượng 0 hoặc 1. |
 | Vật tư dụng cụ | Nhóm kho riêng, quản lý theo loại, đơn vị tính và số lượng nhiều. |
 | Quan hệ cha–con | Thu hẹp mô hình linh kiện cấu thành; truy vết thay thế, bổ sung, nâng cấp và tháo bỏ qua công việc và vật tư/bộ phận liên quan. |
-| Phân công và kiểm kê | Thành viên khác trong team phụ trách; ngoài phạm vi triển khai tại đây. |
+| Phân công và kiểm kê | Là nghiệp vụ của PMQTTB. Đồng đội phụ trách module; phải tích hợp với yêu cầu/chứng từ, không dựng hệ thống phân công thứ hai hoặc coi phân công là tùy chọn. |
 | Mượn trả | Giữ như chức năng bổ sung được khách hàng chấp nhận. |
-| PMMS | Chưa có API. Chỉ giả lập và phải thông báo cho chủ project trước khi tạo hoặc chạy giả lập. Task 1 chỉ viết hợp đồng. |
+| Nguồn yêu cầu | PMMS lập yêu cầu mua sắm/sửa chữa. PMQTTB kế thừa, theo dõi, phân công và ghi nhận thực hiện; không lập lại yêu cầu ở PMQTTB. |
+| PMMS | Chưa có API. Chỉ giả lập phía nguồn PMMS và phải thông báo trước khi chạy; công cụ giả lập không phải bước tác nghiệp tạo yêu cầu của QTTB. |
 
 ## 2. Vai trò và ranh giới hệ thống
 
 | Bên tham gia | Trách nhiệm trong quy trình |
 | --- | --- |
 | KHTC&ĐT | Liên hệ nhà cung cấp, làm hợp đồng mua hàng/dịch vụ và thanh toán. PMQTTB lưu tham chiếu, tiến độ phối hợp cần thiết. |
-| Quản lý QTTB | Theo dõi chứng từ và quyết định nghiệp vụ theo quyền của từng loại phiếu. |
-| Nhân viên QTTB | Kiểm tra tồn, nhận hàng, cấp phát/thu hồi, bảo trì/sửa chữa trong khả năng hoặc theo dõi bên ngoài; ghi kết quả thực hiện. |
+| Quản lý QTTB | Theo dõi yêu cầu kế thừa từ PMMS, phân công nhân viên phụ trách, theo dõi tiến độ và duyệt nghiệp vụ theo thẩm quyền. |
+| Nhân viên QTTB | Nhận task được giao; kiểm tra tồn, nhận hàng, cấp phát/thu hồi, sửa chữa trong khả năng hoặc theo dõi phối hợp; ghi kết quả và xác nhận hoàn tất khi đủ bằng chứng. |
 | Đơn vị yêu cầu/sử dụng | Đề xuất mua sắm/sửa chữa trên PMMS, xác nhận nhận thiết bị/kết quả và chịu trách nhiệm sử dụng, bảo quản sau bàn giao. QTTB cũng có thể là đơn vị sử dụng cuối. |
 | Nhà cung cấp/cơ sở dịch vụ | Giao hàng, thực hiện dịch vụ, nhận và trả thiết bị khi xử lý bên ngoài. |
 
-PMMS là nguồn đề xuất mua sắm/sửa chữa. PMQTTB quản lý thiết bị hiện hữu và công việc QTTB sau tiếp nhận, không xây thêm quy trình đấu thầu, hợp đồng hay thanh toán. Không yêu cầu tài khoản/role KHTC&ĐT mới chỉ vì có dữ liệu phối hợp; phân quyền chi tiết của module mới sẽ được thiết kế khi triển khai.
+PMMS là nguồn duy nhất khởi tạo đề xuất mua sắm/sửa chữa của đơn vị. PMQTTB kế thừa hồ sơ nguồn để theo dõi và phân công; không bắt đơn vị hoặc QTTB tạo một yêu cầu/phiếu sửa chữa thứ hai mới được xử lý. Phiếu nhập, cấp phát, xuất vật tư, bàn giao/nhận lại và nhật ký thực hiện là chứng từ phát sinh để giải quyết yêu cầu đã có. Nếu giữ cấu trúc `ServiceOrder` bên trong, cấu trúc đó phải phục vụ ghi nhận thực hiện của yêu cầu/task, không là một yêu cầu sửa chữa mới hoặc vòng duyệt yêu cầu trùng PMMS.
+
+KHTC&ĐT phụ trách nhà cung cấp, hợp đồng và thanh toán. PMQTTB chỉ ghi tham chiếu và tình trạng phối hợp cần theo dõi; không xây thêm quy trình đấu thầu, hợp đồng hoặc thanh toán.
 
 Yêu cầu thông dụng: QTTB kiểm tra tồn trước, dùng tồn phù hợp hoặc phối hợp KHTC&ĐT mua mới/sửa chữa. Yêu cầu chuyên dụng: QTTB theo dõi, ghi nhận và bàn giao; KHTC&ĐT phối hợp đơn vị có chuyên môn và nhà cung cấp. Mức chuyên dụng và cách thực hiện tại chỗ/bên ngoài là hai thuộc tính riêng.
+
+### Các tình huống trong tài liệu nguồn
+
+| Tình huống | Luồng và vai trò QTTB |
+| --- | --- |
+| Mua món thông dụng, đủ tồn | Kế thừa yêu cầu PMMS → giao task → kiểm tra tồn → cấp phát từ tồn cho đơn vị; không mua/nhập thêm để hợp thức hóa. |
+| Mua món thông dụng, thiếu tồn | Nhân viên được giao kiểm tra tồn, phối hợp đề xuất KHTC&ĐT mua phần thiếu; khi hàng về ghi nhận nhập QTTB, sau đó cấp phát riêng. Không tạo lại đề xuất mua sắm nguồn trên PMQTTB. |
+| Mua thiết bị chuyên dụng | KHTC&ĐT và đơn vị đề xuất làm việc với nhà cung cấp. Nhân viên QTTB được giao theo dõi, ghi nhận tiếp nhận và bàn giao. |
+| Sửa chữa thông dụng | Kế thừa yêu cầu sửa chữa PMMS → giao task → QTTB xử lý trong khả năng, phối hợp KHTC&ĐT mua vật tư/thay thế nếu cần; ghi can thiệp, vật tư và kết quả trên thiết bị/yêu cầu đang có. |
+| Sửa chữa chuyên dụng | QTTB làm trung gian theo dõi KHTC&ĐT, đơn vị yêu cầu và bên cung cấp chuyên môn. Ghi tiến độ/kết quả, bàn giao hoặc nhận lại nếu có; không mặc định nhân viên QTTB tự thực hiện chuyên môn. |
+| Mua dịch vụ sửa chữa/bảo trì/triển khai | Theo dõi yêu cầu và việc tiếp nhận kết quả dịch vụ; không bắt có một lần nhập thiết bị vật lý nếu không phát sinh hàng hóa. |
+
+“Chuyên dụng” xác định vai trò phối hợp và chuyên môn, không đồng nghĩa luôn mang thiết bị ra ngoài trường. Chuyên gia có thể đến xử lý tại chỗ; chỉ lập chứng từ xuất tạm/nhận lại khi thực tế có di chuyển. Mặc định ép `External` hoặc yêu cầu lý do ngoại lệ chỉ vì chọn `OnSite` không được suy ra từ tài liệu nguồn; phần code đang làm vậy phải được rà soát lại.
 
 ## 3. Hai nhóm kho và đơn vị quản lý
 
@@ -56,8 +74,8 @@ Vật tư nhập về chỉ ghi nhận phòng QTTB đang giữ, không yêu cầ
 
 ### Mua mới
 
-1. Tiếp nhận yêu cầu và kiểm tra tồn nếu phù hợp.
-2. Nếu cần mua: theo dõi KHTC&ĐT/nhà cung cấp, tạo phiếu nhập gắn yêu cầu; khai báo từng thiết bị, cấu hình và lịch bảo trì từ hợp đồng nếu có.
+1. Đơn vị lập yêu cầu tại PMMS; PMQTTB kế thừa và liên kết task để quản lý phân công nhân viên. Nhân viên được giao kiểm tra tồn đối với hàng thông dụng hoặc theo dõi phối hợp đối với hàng chuyên dụng.
+2. Nếu cần mua: phối hợp KHTC&ĐT. Khi tiếp nhận hàng, ghi phiếu nhập gắn đúng yêu cầu/task; khai báo từng thiết bị và lịch bảo trì từ hợp đồng nếu có. Không lập lại yêu cầu mua sắm trên PMQTTB.
 3. QTTB xác nhận nhập **toàn bộ** thiết bị của yêu cầu. Lúc này thiết bị do QTTB giữ; đơn vị đề xuất chưa trở thành đơn vị chịu trách nhiệm sử dụng.
 4. Lập phiếu cấp phát **riêng**, gắn cùng yêu cầu; đơn vị nhận xác nhận thực nhận đủ thiết bị mới hoàn tất bàn giao và đổi đơn vị chịu trách nhiệm.
 5. Đủ chứng từ và kết quả toàn bộ yêu cầu thì đóng yêu cầu một lần. Không tự đóng khi mới duyệt phiếu hoặc nhập kho.
@@ -93,11 +111,15 @@ Nhập/xuất/nhập trả vật tư do nhân viên QTTB ghi nhận trực tiế
 
 ## 6. Yêu cầu, chứng từ và ranh giới với module của team
 
-Một yêu cầu nguồn có nhiều dòng thiết bị/dịch vụ, các chứng từ khác loại (nhập, cấp phát, sửa chữa...) cần thiết. Mỗi dòng/chứng từ liên kết về đúng yêu cầu và dòng nguồn; một thiết bị có thể xuất hiện trong nhiều yêu cầu theo thời gian. Liên kết báo hỏng là tùy chọn, vì yêu cầu nâng cấp có thể không xuất phát từ hỏng hóc.
+Một yêu cầu PMMS có thể có nhiều dòng và nhiều chứng từ thực hiện cần thiết. Phải phân biệt yêu cầu nguồn, task phụ trách và chứng từ phát sinh. Mỗi kết quả/chứng từ liên kết về đúng yêu cầu, dòng nguồn, thiết bị và task/phần việc; một thiết bị có thể xuất hiện trong nhiều yêu cầu theo thời gian. Liên kết báo hỏng là tùy chọn; báo hỏng hoặc nhật ký kỹ thuật không thay cho yêu cầu sửa chữa nguồn tại PMMS.
 
-Phân công nhân viên, hạn/tiến độ và báo cáo công việc thuộc module do thành viên khác trong team phụ trách. Kiểm kê cũng nằm ngoài phần việc này. Không tự sinh task hoặc bắt buộc phải được giao việc để xử lý chứng từ tại đây; quyền thực hiện và quyền duyệt tiếp tục theo vai trò của từng phiếu.
+Tài liệu nguồn yêu cầu tất cả nghiệp vụ có nhân viên QTTB phụ trách và có báo cáo theo từng nhân viên/toàn phòng. Module phân công do đồng đội cung cấp, nhưng tích hợp module đó là yêu cầu bắt buộc của luồng PMQTTB, không phải chức năng phụ. Không khôi phục module task cũ để tạo hệ thống song song.
 
-Vật tư và lịch sử can thiệp liên kết trực tiếp với phiếu nhập/xuất, phiếu sửa chữa/bảo trì và thiết bị. Nhân viên QTTB ghi nhận người thực hiện thực tế, thời điểm và kết quả. Một chứng từ hoàn tất chưa đồng nghĩa yêu cầu đã hoàn tất; cần đủ kết quả và xác nhận của toàn bộ các dòng.
+Các quyết định đã xác nhận về phân công vẫn là đích tích hợp: tự tạo/liên kết việc chưa phân công khi có yêu cầu hoặc nghiệp vụ; quản lý giao nhân viên sau; chỉ nhân viên đang được giao được thực hiện; quản lý duyệt theo quyền; nhân viên được giao xác nhận hoàn tất khi đủ kết quả. Những nghiệp vụ nội bộ như kiểm kê, thu hồi, cấp phát và bảo trì cũng cần liên kết trách nhiệm, nhưng không vì vậy mà bắt chúng có một yêu cầu PMMS giả. Cách ánh xạ yêu cầu/task/phần việc dùng hợp đồng của module đồng đội, tránh tạo việc trùng.
+
+Hiện code các phiếu chủ yếu kiểm tra vai trò, chưa có liên kết/chặn quyền theo người được giao; đó là phần thiếu cần sửa, không phải quy tắc đích. Phân người trong đợt kiểm kê đã có nhưng chưa thay cho phân công và báo cáo toàn bộ nghiệp vụ.
+
+Vật tư và lịch sử can thiệp liên kết với chứng từ nhập/xuất, bản ghi thực hiện, thiết bị và task/yêu cầu tương ứng. Người thực hiện thực tế, người được giao phụ trách và người ghi nhận cần được phân biệt. Một chứng từ hoàn tất chưa đồng nghĩa task/yêu cầu đã hoàn tất; cần đủ kết quả toàn bộ phạm vi.
 
 ### Trạng thái yêu cầu đề xuất để triển khai
 
@@ -146,8 +168,8 @@ Task 1 thống nhất thiết kế dữ liệu tối thiểu; task 4 đã bổ s
 | Mã vạch | In Code 128 từ barcode đã lưu, tem 100 × 50 mm, in lại/PDF/tra cứu có kiểm chứng | CV-03 đã triển khai phần mềm; còn nghiệm thu máy in/máy quét vật lý. [Hướng dẫn](barcode-labels.md) |
 | Thiết bị theo bộ | Tham chiếu cũ chỉ đọc ở API/DB/UI; chọn/khóa/mượn/điều chuyển độc lập, giữ phiếu và lịch sử cũ | CV-02 đã triển khai; [quy tắc](device-reference-policy.md) |
 | Nhập rồi cấp phát | Tách phòng đề xuất và QTTB tiếp nhận; cấp phát/thực nhận và tự dùng riêng, giữ nghĩa phiếu cũ | CV-05 đã kiểm chứng sau CV-02; [hướng dẫn](receipt-custody-release.md) |
-| PMMS và yêu cầu nội bộ | Có bằng chứng dịch vụ và xác nhận của đơn vị; sửa chữa mới cần nghiệm thu, chuyên dụng tại chỗ có lý do để quản lý duyệt | CV-04 đã triển khai; chỉ giả lập, chưa có API PMMS thật. [Hướng dẫn](pmms-simulation.md) |
-| Phân công nhân viên và kiểm kê | Đồng đội phụ trách. Kiểm kê đã có backend/UI từ bản pull; phân công mọi công việc là module riêng | Không xây trùng; phối hợp nghiệm thu tình trạng/vị trí/quét kiểm kê và giao diện giữa module |
+| Yêu cầu PMMS và xử lý sửa chữa | Có adapter/sự kiện/phiên bản, chứng từ và bằng chứng; UI còn tạo yêu cầu giả lập trong màn tác nghiệp và bắt lập phiếu sửa chữa cục bộ, chưa có task | **CV-04 cần sửa luồng**: nguồn PMMS → task → thực hiện/ghi nhận; tách công cụ giả lập, bỏ yêu cầu sửa chữa trùng, sửa cách hiểu chuyên dụng. [Hướng dẫn hiện trạng](pmms-simulation.md) |
+| Phân công nhân viên và kiểm kê | Task chung chưa tích hợp; kiểm kê đã có phân người riêng. Việc gỡ module cũ không đáp ứng yêu cầu giao việc toàn phần mềm | **CV-11 là P0**, phối hợp module đồng đội để giao việc, kiểm soát người thực hiện và báo cáo toàn phòng; không xây hệ thống thứ hai |
 | Vật tư và thay đổi trên thiết bị | Có backend/UI, tồn, chứng từ, đối chiếu sử dụng, lắp/tháo và can thiệp trước–sau; kết quả tổng kết dùng lịch sử dịch vụ hiện có | Task 6 cần nghiệm thu sau merge; task 12 hợp nhất timeline, không tạo sự kiện trùng |
 | Toàn bộ một lần | Yêu cầu mới kiểm tra đủ mọi dòng, một phiếu cấp phát đủ yêu cầu và thực nhận trước khi đóng; sửa chữa cần kết quả đủ và giải phóng giữ chỗ | API sửa chữa/xuất cũ vẫn ghi kết quả từng item; không suy ra hoàn tất yêu cầu từ một item |
 | Thanh lý/lịch bảo trì | Chưa có các module tương ứng | Task 7, 11 |
@@ -161,5 +183,8 @@ Task 1 thống nhất thiết kế dữ liệu tối thiểu; task 4 đã bổ s
 4. Thực hiện các công việc thay thế, bổ sung, nâng cấp và tháo bỏ trên nhiều loại thiết bị: truy được ai làm, lúc nào, thay đổi gì, thông tin trước–sau, vật tư lắp/tháo và cách xử lý nếu có. Bao gồm trường hợp thay cùng thông số, công việc không dùng vật tư và một lần có nhiều thay đổi; lần yêu cầu tiếp theo xem được lịch sử và thông tin hiện tại đã xác nhận.
 5. PMMS giả lập gửi lại: không nhân bản yêu cầu/chứng từ; cập nhật cũ không ghi đè mới; hủy trước thực hiện có lịch sử, hủy sau nhận hàng hoặc sửa chữa không được áp dụng.
 6. Thu hồi, bảo trì, mượn trả và thanh lý giữ mã thiết bị, lịch sử và phạm vi quyền; xuất tạm sửa chữa không làm mất tài sản khỏi tổng sở hữu toàn trường.
+7. Đơn vị lập yêu cầu mua/sửa ở PMMS; PMQTTB kế thừa và tạo/liên kết task chưa phân công, không buộc lập lại yêu cầu. Gửi lại sự kiện không tạo task thứ hai; quản lý giao nhân viên, người khác bị chặn thực hiện nhưng quản lý vẫn duyệt theo quyền.
+8. Nghiệm thu đủ các nhánh trong bảng tình huống nguồn: thông dụng đủ/thiếu tồn, mua chuyên dụng, sửa thông dụng và theo dõi sửa chuyên dụng. Chuyên dụng xử lý tại chỗ không bị hiểu thành QTTB tự có chuyên môn hoặc buộc xuất khỏi trường.
+9. Kiểm kê/thu hồi/cấp phát/bảo trì có nhân viên phụ trách và kết quả đưa vào báo cáo theo nhân viên/toàn phòng, không tạo yêu cầu PMMS giả để hợp thức hóa việc nội bộ.
 
-Các tình huống trên là tiêu chí cho bước triển khai sau, chưa phải kết quả chạy kiểm thử trong task 1.
+Các tình huống là tiêu chí nghiệm thu. Trạng thái kỹ thuật đã kiểm thử và phần còn sai/thiếu phải được đọc cùng mục 8; chưa coi CV-04/CV-11 hoàn tất theo tài liệu nguồn.

@@ -34,6 +34,9 @@ public sealed class ServiceOrderConfiguration : IEntityTypeConfiguration<Service
         b.Property(x => x.DisplayCode).HasMaxLength(64).IsRequired();
         b.Property(x => x.CreateRequestHash).HasMaxLength(64).IsRequired();
         b.Property(x => x.SpecializedHandlingReason).HasMaxLength(1000);
+        b.Property(x => x.SourceRequestCode).HasMaxLength(32);
+        b.HasOne(x => x.SourceRequest).WithMany().HasForeignKey(x => x.SourceRequestId).OnDelete(DeleteBehavior.Restrict);
+        ServiceMapping.Account(b, nameof(ServiceOrder.ExecutionStartedByAccountId));
         b.Property(x => x.OrderType).HasConversion<string>().HasMaxLength(16);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(24);
         b.Property(x => x.Version).IsConcurrencyToken();

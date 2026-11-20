@@ -23,7 +23,8 @@ public sealed partial class ServiceOrderService(
     IRepository<ServiceOrderDeviceHold> holds, IRepository<ExportDeviceGuard> guards,
     IRepository<ExportSlipItem> exportItems, IRepository<ExportReturnSlip> returns,
     IRepository<ExportReturnSlipItem> returnItems, IRepository<ExportReturnHistory> returnHistory,
-    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow) : IServiceOrderService
+    CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow,
+    IRequestAssignmentPolicy assignment) : IServiceOrderService
 {
     public async Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct)
     {
@@ -42,6 +43,12 @@ public sealed partial class ServiceOrderService(
     }
 
     public Task<ServiceOrderDto> CreateAsync(CreateServiceOrderRequest request, CancellationToken ct)
+        => CreateCoreAsync(request, null, ct);
+
+    public Task<ServiceOrderDto> StartSourceExecutionAsync(CreateServiceOrderRequest request, Guid sourceRequestId, CancellationToken ct)
+        => CreateCoreAsync(request, sourceRequestId, ct);
+
+    private Task<ServiceOrderDto> CreateCoreAsync(CreateServiceOrderRequest request, Guid? sourceRequestId, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
             var actor = await RequireActorAsync(null, token);
@@ -53,13 +60,17 @@ public sealed partial class ServiceOrderService(
                 if (existing.CreatedByAccountId != actor || existing.CreateRequestHash != hash) throw IdempotencyConflict();
                 return ToDto(existing, await AccountCodesAsync([existing], token));
             }
+            if (request.OrderType == ServiceOrderType.Repair && sourceRequestId is null)
+                throw Conflict("REPAIR_SOURCE_REQUIRED", "Repair requests originate in PMMS. Start handling the inherited request instead of creating another repair request.");
             var now = clock.GetUtcNow();
             var codeKind = request.OrderType == ServiceOrderType.Maintenance ? BusinessCodeKind.MaintenanceOrder : BusinessCodeKind.RepairOrder;
             var order = new ServiceOrder
             {
                 DisplayCode = await codeGenerator.NextAsync(codeKind, token),
                 OrderType = request.OrderType, CreateRequestId = request.RequestId, CreateRequestHash = hash,
-                CreatedByAccountId = actor, CreatedAt = now, Notes = Clean(request.Notes), SpecializedHandlingReason = Clean(request.SpecializedHandlingReason)
+                CreatedByAccountId = actor, CreatedAt = now, Notes = Clean(request.Notes), SpecializedHandlingReason = Clean(request.SpecializedHandlingReason),
+                SourceRequestId = sourceRequestId, SourceRequestCode = sourceRequestId is null ? null : request.SourceRequestCode,
+                ExecutionStartedByAccountId = sourceRequestId is null ? null : actor, ExecutionStartedAt = sourceRequestId is null ? null : now
             };
             var deviceCodes = request.Items.Select(x => Code(x.DeviceCode)).ToArray();
             var devices = await unitOfWork.Devices.FindAsync(x => deviceCodes.Contains(x.DeviceCode), token);
@@ -99,6 +110,20 @@ public sealed partial class ServiceOrderService(
             await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.Repair, order.DisplayCode, Guid.Empty,
                 sourceBindings, actor, token);
             await AuditAsync(order, request.RequestId, actor, "SERVICE_CREATED", null, null, null, token);
+            if (sourceRequestId is not null)
+            {
+                if (request.OrderType != ServiceOrderType.Repair) throw Validation("Source handling applies to Repair requests.");
+                foreach (var item in order.Items)
+                {
+                    if (await guards.ExistsAsync(g => g.DeviceId == item.DeviceId, token)) throw Busy();
+                    await holds.AddAsync(new ServiceOrderDeviceHold { DeviceId = item.DeviceId, ServiceOrderId = order.Id,
+                        ServiceOrderItemId = item.Id, HeldByAccountId = actor, HeldAt = now }, token);
+                    item.ExecutionStatus = ServiceItemStatus.InProgress; item.Version++;
+                    await AuditAsync(order, request.RequestId, actor, "HOLD_ACQUIRED", null, item, null, token);
+                }
+                order.Status = ServiceWorkflowStatus.InProgress; order.Version++;
+                await AuditAsync(order, request.RequestId, actor, "SOURCE_EXECUTION_STARTED", null, null, null, token);
+            }
             return ToDto(order, await AccountCodesAsync([order], token));
         }, ct);
 
@@ -107,7 +132,7 @@ public sealed partial class ServiceOrderService(
         {
             var actor = await RequireActorAsync(RoleCodes.EquipmentManager, token);
             Validate(request); RequireRequest(request.RequestId);
-            var order = await LoadAsync(code, true, token);
+            var order = await LoadAsync(code, true, token, review: true);
             if (order.ApprovalRequestId == request.RequestId)
             {
                 if (order.ApprovedByAccountId != actor) throw IdempotencyConflict();
@@ -141,7 +166,7 @@ public sealed partial class ServiceOrderService(
             Validate(request); RequireRequest(request.RequestId);
             var reason = Clean(request.Reason) ?? throw Validation("A cancel reason is required.");
             var order = await LoadAsync(code, true, token);
-            if (order.CreatedByAccountId != actor) throw Forbidden();
+            if (order.CreatedByAccountId != actor && !await assignment.RequireDocumentAsync(CSVC.Core.ProcurementRequests.RequestDocumentKind.Repair, order.DisplayCode, actor, token)) throw Forbidden();
             if (order.CancelRequestId == request.RequestId)
             {
                 if (order.CanceledByAccountId != actor || order.CancelReason != reason) throw IdempotencyConflict();
@@ -301,13 +326,21 @@ public sealed partial class ServiceOrderService(
                 deviceCode = item?.DeviceCodeSnapshot, resultDescription = item?.ResultDescription, relatedExportSlipCode = cause?.DisplayCode, cancelReason = order.CancelReason })
         }, ct);
 
-    private async Task<ServiceOrder> LoadAsync(string code, bool tracked, CancellationToken ct)
-        => await orders.GetAggregateAsync(Code(code), tracked, ct) ?? throw Missing("SERVICE_ORDER_NOT_FOUND");
-    private async Task<ServiceOrder> LoadExportAsync(string code, bool tracked, CancellationToken ct)
-        => await orders.GetByExportCodeAsync(Code(code), tracked, ct) ?? throw Missing("EXPORT_SLIP_NOT_FOUND");
+    private async Task<ServiceOrder> LoadAsync(string code, bool tracked, CancellationToken ct, bool review = false)
+    {
+        var order = await orders.GetAggregateAsync(Code(code), tracked, ct) ?? throw Missing("SERVICE_ORDER_NOT_FOUND");
+        if (tracked && !review) await assignment.RequireDocumentAsync(CSVC.Core.ProcurementRequests.RequestDocumentKind.Repair, order.DisplayCode, current.AccountId!.Value, ct, allowClosed: true);
+        return order;
+    }
+    private async Task<ServiceOrder> LoadExportAsync(string code, bool tracked, CancellationToken ct, bool review = false)
+    {
+        var order = await orders.GetByExportCodeAsync(Code(code), tracked, ct) ?? throw Missing("EXPORT_SLIP_NOT_FOUND");
+        if (tracked && !review) await assignment.RequireDocumentAsync(CSVC.Core.ProcurementRequests.RequestDocumentKind.Repair, order.DisplayCode, current.AccountId!.Value, ct, allowClosed: true);
+        return order;
+    }
 
     private Task<IReadOnlyDictionary<Guid, string>> AccountCodesAsync(IEnumerable<ServiceOrder> source, CancellationToken ct)
-        => orders.AccountCodesAsync(source.SelectMany(o => new Guid?[] { o.CreatedByAccountId, o.ApprovedByAccountId, o.CanceledByAccountId }
+        => orders.AccountCodesAsync(source.SelectMany(o => new Guid?[] { o.CreatedByAccountId, o.ApprovedByAccountId, o.CanceledByAccountId, o.ExecutionStartedByAccountId }
             .Concat(o.Items.Select(i => i.ResultRecordedByAccountId))
             .Concat(o.ExportSlips.SelectMany(e => new Guid?[] { e.CreatedByAccountId, e.ApprovedByAccountId, e.CanceledByAccountId, e.LastEditedByAccountId }
                 .Concat(e.Items.Select(i => i.ResultRecordedByAccountId))
@@ -323,7 +356,9 @@ public sealed partial class ServiceOrderService(
             o.Items.OrderBy(i => i.ItemNo).Select(i => new ServiceOrderItemDto(i.ItemNo, i.DeviceCodeSnapshot, i.DeviceNameSnapshot,
                 i.SerialSnapshot, i.ExecutionMethod, i.ExecutionStatus, i.WorkDescription, i.ResultDescription,
                 ActorCode(codes, i.ResultRecordedByAccountId), i.ResultRecordedAt, i.Notes, i.Version) { DamageReportCode = i.RepairDetail?.DamageReport?.ReportCode }).ToArray(),
-            o.ExportSlips.OrderBy(e => e.SequenceNo).Select(e => ToExportDto(e, o, codes)).ToArray()) { SpecializedHandlingReason = o.SpecializedHandlingReason };
+            o.ExportSlips.OrderBy(e => e.SequenceNo).Select(e => ToExportDto(e, o, codes)).ToArray()) { SpecializedHandlingReason = o.SpecializedHandlingReason, SourceRequestCode = o.SourceRequestCode,
+                ExecutionStartedAt = o.ExecutionStartedAt, ExecutionStartedByAccountCode = ActorCode(codes, o.ExecutionStartedByAccountId),
+                CanExecute = o.SourceRequestId is null || (o.SourceRequest?.AssigneeAccountId ?? o.CreatedByAccountId) == current.AccountId };
 
     private static void ValidateCreate(CreateServiceOrderRequest request)
     {

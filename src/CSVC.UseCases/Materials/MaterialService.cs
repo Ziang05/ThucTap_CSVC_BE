@@ -25,7 +25,7 @@ public sealed partial class MaterialService(MaterialAccess access, IMaterialStor
     IRepository<CSVC.Core.ProcurementRequests.ProcurementDocumentLink> requestLinks,
     IDeviceReservationPolicy reservations, IDeviceTransferService transferService, IDeviceService deviceService, MaterialDeliveryScope deliveryScope,
     IRepository<CSVC.Core.ServiceOrders.ServiceOrderDeviceHold> serviceHolds, IRepository<CSVC.Core.ServiceOrders.ExportDeviceGuard> exportGuards,
-    TimeProvider clock) : IMaterialService
+    TimeProvider clock, IRequestAssignmentPolicy assignment) : IMaterialService
 {
     private static void RequireRecorder(MaterialActor actor) { if (!actor.Staff) throw MaterialErrors.Forbidden("Only QTTB employees may record material operations."); }
     private static string Code(string? value) => BusinessCode.Normalize(value) ?? "";

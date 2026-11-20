@@ -47,6 +47,7 @@ public sealed partial class MaterialService
             if (Clean(input.ServiceOrderCode) is not null)
             {
                 service = await services.GetAggregateAsync(Code(input.ServiceOrderCode), false, token) ?? throw MaterialErrors.Missing();
+                await assignment.RequireDocumentAsync(CSVC.Core.ProcurementRequests.RequestDocumentKind.Repair, service.DisplayCode, actor.Id, token);
                 if (service.Status != ServiceWorkflowStatus.InProgress || !service.Items.Any(i => i.DeviceId == device.Id && i.ExecutionStatus == ServiceItemStatus.InProgress)) throw MaterialErrors.Invalid("The device must be in progress on this service order.");
                 if (!await serviceHolds.ExistsAsync(h => h.DeviceId == device.Id && h.ServiceOrderId == service.Id, token)) throw MaterialErrors.Conflict("DEVICE_BUSY", "The repair no longer holds this equipment.");
                 var guard = await exportGuards.FirstOrDefaultAsync(g => g.DeviceId == device.Id, token);
@@ -133,6 +134,7 @@ public sealed partial class MaterialService
             if (prior is not null) { if (prior.ActorAccountId != actor.Id || prior.Fingerprint != hash) throw MaterialErrors.Conflict("IDEMPOTENCY_CONFLICT", "requestId already used."); return prior.Id; }
             RequireRecorder(actor);
             var sourceDoc = await store.IssueOfAsync(input.IssueLineId, token) ?? throw MaterialErrors.Missing();
+            await assignment.RequireMaterialAsync(sourceDoc, actor.Id, token);
             if (sourceDoc.DepartmentId != actor.DepartmentId) throw MaterialErrors.Missing();
             var stock = await IssueForUseAsync(input.IssueLineId, sourceDoc.ServiceOrderId, null, token);
             if (sourceDoc.ServiceOrderId is { } serviceId && (await services.GetByIdAsync(serviceId, token))?.Status != ServiceWorkflowStatus.InProgress) throw MaterialErrors.Invalid("The service order is closed.");

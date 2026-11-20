@@ -73,7 +73,7 @@ public sealed partial class ServiceOrderService
         {
             var actor = await RequireActorAsync(RoleCodes.EquipmentManager, token);
             Validate(request); RequireRequest(request.RequestId);
-            var order = await LoadExportAsync(code, true, token); var slip = Export(order, code);
+            var order = await LoadExportAsync(code, true, token, review: true); var slip = Export(order, code);
             var hash = Hash(new { request.Version });
             if (await ExportRetryAsync(slip, request.RequestId, hash, actor, "APPROVE", token)) return true;
             RequireVersion(slip.Version, request.Version); RequireStatus(slip.Status, ServiceWorkflowStatus.PendingApproval);
@@ -221,6 +221,8 @@ public sealed partial class ServiceOrderService
         => await guards.DeleteAsync(await OwnGuardAsync(item, line, ExportGuardState.HeldForExport, ct), ct);
     private async Task RequireExportEditorAsync(ExportSlip slip, Guid actor, CancellationToken ct)
     {
+        var source = await orders.GetByIdAsync(slip.ServiceOrderId, ct) ?? throw Missing("SERVICE_ORDER_NOT_FOUND");
+        if (await assignment.RequireDocumentAsync(CSVC.Core.ProcurementRequests.RequestDocumentKind.Repair, source.DisplayCode, actor, ct)) return;
         var account = await unitOfWork.Accounts.GetByIdAsync(actor, ct) ?? throw Forbidden();
         var role = await unitOfWork.Roles.GetByIdAsync(account.RoleId, ct);
         if (slip.CreatedByAccountId != actor && role?.Code != RoleCodes.EquipmentManager) throw Forbidden();
