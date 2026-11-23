@@ -8,6 +8,10 @@ public sealed record ServiceOrderDto(string DisplayCode, ServiceOrderType OrderT
     string? Notes, int Version, int ItemCount, IReadOnlyList<ServiceOrderItemDto> Items, IReadOnlyList<ExportSlipDto> ExportSlips)
 {
     public string? SpecializedHandlingReason { get; init; }
+    public string? SourceRequestCode { get; init; }
+    public string? ExecutionStartedByAccountCode { get; init; }
+    public DateTimeOffset? ExecutionStartedAt { get; init; }
+    public bool CanExecute { get; init; }
 }
 
 public sealed record ServiceOrderItemDto(int ItemNo, string DeviceCode, string DeviceName, string? Serial,

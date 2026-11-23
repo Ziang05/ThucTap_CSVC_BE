@@ -542,15 +542,23 @@ public sealed class ServiceOrderApiTests
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var report = await created.Content.ReadFromJsonAsync<JsonElement>(); var code = report.GetProperty("reportCode").GetString();
-        var request = new CreateServiceOrderRequest { RequestId = Guid.NewGuid(), OrderType = ServiceOrderType.Repair,
-            Items = [new() { DeviceCode = "TB_SERVICE_1", ExecutionMethod = ExecutionMethod.OnSite, DamageReportCode = code }] };
-        var source = await f.CreateOrder(request); Assert.Equal(code, source.Items.Single().DamageReportCode);
-        Assert.Equal(code, (await f.GetOrder(source.DisplayCode)).Items.Single().DamageReportCode);
+        async Task<string> Source(string external, string device)
+        {
+            using var received = await f.Manager.PostAsJsonAsync("/api/v1/procurement-requests/simulated-events", new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = 1, action = "Create", request = new { requestType = "Repair", title = "Inherited repair", requestingDepartmentCode = "PB_TEST", sourceStatus = "Submitted", createdAt = f.Host.Clock.GetUtcNow().AddHours(-1), updatedAt = f.Host.Clock.GetUtcNow().AddMinutes(-10), lines = new[] { new { sourceLineCode = "L1", kind = "Equipment", description = "Repair device", quantity = 1, unit = "Cai", deviceCode = device, damageReportCode = code } } } });
+            Assert.Equal(HttpStatusCode.OK, received.StatusCode); var sourceCode = (await received.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("displayCode").GetString()!;
+            using var assigned = await f.Manager.PostAsJsonAsync("/api/v1/procurement-requests/" + sourceCode + "/assignment", new { requestId = Guid.NewGuid(), version = (await f.Manager.GetFromJsonAsync<JsonElement>("/api/v1/procurement-requests/" + sourceCode)).GetProperty("summary").GetProperty("version").GetInt32(), assigneeAccountCode = "TK_STAFF" });
+            Assert.True(assigned.StatusCode == HttpStatusCode.NoContent, await assigned.Content.ReadAsStringAsync()); return sourceCode;
+        }
+        var sourceCode = await Source("REPORT-GOOD", "TB_SERVICE_1");
+        using var started = await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/" + sourceCode + "/start-repair", new { requestId = Guid.NewGuid(), version = (await f.Manager.GetFromJsonAsync<JsonElement>("/api/v1/procurement-requests/" + sourceCode)).GetProperty("summary").GetProperty("version").GetInt32(), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } });
+        Assert.True(started.StatusCode == HttpStatusCode.OK, await started.Content.ReadAsStringAsync());
+        var source = (await started.Content.ReadFromJsonAsync<ServiceOrderDto>(Json))!;
+        Assert.Equal(code, source.Items.Single().DamageReportCode); Assert.Equal(code, (await f.GetOrder(source.DisplayCode)).Items.Single().DamageReportCode);
         var linked = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ServiceOrderDto>>(
             Root + $"?orderType=Repair&damageReportCode={Uri.EscapeDataString(code!)}", Json);
         Assert.Equal(source.DisplayCode, Assert.Single(linked!.Items).DisplayCode);
-        await Expect(await f.Staff.PostAsJsonAsync(Root, new CreateServiceOrderRequest { RequestId = Guid.NewGuid(), OrderType = ServiceOrderType.Repair,
-            Items = [new() { DeviceCode = "TB_SERVICE_2", ExecutionMethod = ExecutionMethod.OnSite, DamageReportCode = code }] }, Json), HttpStatusCode.BadRequest);
+        var invalid = await Source("REPORT-BAD", "TB_SERVICE_2");
+        await Expect(await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/" + invalid + "/start-repair", new { requestId = Guid.NewGuid(), version = (await f.Manager.GetFromJsonAsync<JsonElement>("/api/v1/procurement-requests/" + invalid)).GetProperty("summary").GetProperty("version").GetInt32(), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } }), HttpStatusCode.BadRequest);
         await f.InDb(async db => { var original = await db.DamageReports.SingleAsync(); Assert.Equal(1, original.RowVersion); Assert.Null(original.LastUpdatedAt); Assert.Single(await db.RepairItemDetails.ToListAsync()); });
     }
 

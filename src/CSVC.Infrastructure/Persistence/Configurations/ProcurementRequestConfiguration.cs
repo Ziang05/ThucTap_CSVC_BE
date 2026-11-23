@@ -9,7 +9,11 @@ public sealed class ProcurementRequestConfiguration : IEntityTypeConfiguration<P
 {
     public void Configure(EntityTypeBuilder<ProcurementRequest> b)
     {
-        b.ToTable("procurement_requests", t => t.HasCheckConstraint("ck_procurement_versions", "version > 0 AND source_version > 0"));
+        b.ToTable("procurement_requests", t =>
+        {
+            t.HasCheckConstraint("ck_procurement_versions", "version > 0 AND source_version > 0");
+            t.HasCheckConstraint("ck_request_assignment", "(assignee_account_id IS NULL AND assigned_by_account_id IS NULL AND assigned_at IS NULL) OR (assignee_account_id IS NOT NULL AND assigned_by_account_id IS NOT NULL AND assigned_at IS NOT NULL)");
+        });
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
         b.Property(x => x.DisplayCode).HasMaxLength(32).IsRequired(); b.HasIndex(x => x.DisplayCode).IsUnique();
@@ -22,6 +26,8 @@ public sealed class ProcurementRequestConfiguration : IEntityTypeConfiguration<P
         b.Property(x => x.Notes).HasMaxLength(4000); b.Property(x => x.SourceStatus).HasMaxLength(64);
         b.Property(x => x.PendingSourcePayload).HasColumnType("jsonb"); b.Property(x => x.Version).IsConcurrencyToken();
         b.Property(x => x.WorkflowVersion).HasDefaultValue(1);
+        b.HasOne<Account>().WithMany().HasForeignKey(x => x.AssigneeAccountId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Account>().WithMany().HasForeignKey(x => x.AssignedByAccountId).OnDelete(DeleteBehavior.Restrict);
         b.Property(x => x.ServiceEvidenceJson).HasColumnType("jsonb");
         b.Property(x => x.AcceptanceDecision).HasMaxLength(16); b.Property(x => x.AcceptanceReason).HasMaxLength(1000);
         b.Property(x => x.AcceptanceScopeHash).HasMaxLength(64);

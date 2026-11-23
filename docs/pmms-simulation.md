@@ -1,14 +1,26 @@
 # Task 4 — Tiếp nhận yêu cầu PMMS giả lập
 
-## Phạm vi đã triển khai
+**Cập nhật triển khai:** đã có phân công trực tiếp trên yêu cầu PMMS, chặn thao tác theo người được giao và bắt đầu sửa chữa từ nguồn; API local đã cập nhật. Xem [hướng dẫn, phạm vi và kiểm chứng hiện tại](source-request-assignment.md). CV-11 vẫn còn phần module chung cho nghiệp vụ nội bộ; các ghi chú rà soát bên dưới mô tả khoảng thiếu trước bản cập nhật này.
+
+**Đính chính nghiệp vụ:** yêu cầu mua sắm/sửa chữa được đơn vị lập trên PMMS. PMQTTB kế thừa để theo dõi, phân công và thực hiện, không lập lại yêu cầu hoặc một phiếu sửa chữa nguồn khác. Code/giao diện mô tả phía dưới còn dùng luồng cũ và chưa tích hợp task chung; cần sửa ở CV-04/CV-11. Không coi các bước hiện có là luồng đích đã nghiệm thu.
+
+## Luồng đích theo PMQTTB
+
+1. PMMS có yêu cầu mua/sửa mới → PMQTTB tiếp nhận thông tin nguồn, giữ định danh, phiên bản và lịch sử. Do chưa có API, chỉ mô phỏng việc PMMS phát sinh/gửi sự kiện trong công cụ kiểm thử riêng và thông báo trước khi chạy.
+2. Tạo/liên kết task chưa phân công; quản lý QTTB giao nhân viên phụ trách qua module của đồng đội. Không cần lập một yêu cầu mới trong PMQTTB để sinh việc.
+3. Người được giao xử lý theo nhánh: mua thông dụng đủ tồn/thiếu tồn; mua chuyên dụng; sửa thông dụng; theo dõi sửa chuyên dụng. Chi tiết vai trò tại [hợp đồng nghiệp vụ](pmqttb-business-contract.md).
+4. Ghi nhận các chứng từ thực hiện cần thiết: nhập, cấp phát, vật tư, bàn giao/nhận lại, can thiệp và kết quả dịch vụ; liên kết yêu cầu/task gốc. Bản ghi kỹ thuật sửa chữa không trở thành yêu cầu sửa chữa mới.
+5. Đủ kết quả toàn bộ phạm vi mới đóng việc/yêu cầu; nhân viên phụ trách và báo cáo toàn phòng đọc được chứng từ/kết quả. Nghiệp vụ nội bộ khác cũng phải có người phụ trách, nhưng không cần tạo yêu cầu PMMS giả.
+
+## Hiện trạng đã có trong code — còn phải chỉnh luồng
 
 Backend và frontend có module **Yêu cầu PMMS** tại `/requests`. Nguồn cố định là `PMMS_SIMULATED`; chưa có kết nối, tài khoản tích hợp hay API của phần mềm mua sắm thật. Chủ project đã được thông báo trước khi triển khai giả lập. Không tự sinh dữ liệu khi khởi động, không gửi dữ liệu ra PMMS.
 
 Màn hình giả lập tạo sự kiện mua sắm hoặc sửa chữa/nâng cấp với đơn vị đề xuất, liên hệ, tham chiếu hợp đồng KHTC&ĐT, nhà cung cấp và các dòng hàng/công việc. Người dùng chọn đơn vị, danh mục, thiết bị từ danh sách. Các phiếu được tạo sau đó là chứng từ PMQTTB thực trong database đang sử dụng; nhãn giả lập không có nghĩa mọi thao tác kho đều bị vô hiệu hóa.
 
-Mỗi dòng giữ mã dòng nguồn, mô tả, loại thiết bị/vật tư/dịch vụ, số lượng, đơn vị tính, danh mục, thiết bị cần sửa và báo hỏng tùy chọn. Phân loại thông dụng/chuyên dụng độc lập với cách thực hiện tại chỗ/bên ngoài. Giao diện mặc định đề xuất xử lý bên ngoài cho thiết bị chuyên dụng; QTTB theo dõi việc phối hợp, không xây quy trình đấu thầu, hợp đồng hoặc thanh toán.
+Mỗi dòng giữ mã dòng nguồn, mô tả, loại thiết bị/vật tư/dịch vụ, số lượng, đơn vị tính, danh mục, thiết bị cần sửa và báo hỏng tùy chọn. Code còn mặc định chuyên dụng xử lý bên ngoài; đây là điểm phải sửa vì tài liệu phân biệt vai trò/chuyên môn, không bắt mọi thiết bị chuyên dụng phải xuất khỏi trường. PMQTTB không xây quy trình đấu thầu, hợp đồng hoặc thanh toán.
 
-## Luồng sử dụng
+## Các bước giao diện hiện có — chưa phải luồng đích
 
 1. Mở **Yêu cầu PMMS → Tạo yêu cầu giả lập**, điền nội dung và gửi. Màn hình hiển thị kết quả tiếp nhận hoặc thông tin cần đối chiếu.
 2. Yêu cầu mua sắm: chọn **Chọn từ tồn / cấp phát toàn bộ** để xem thiết bị sẵn sàng ở QTTB, có tìm kiếm/phân trang và lọc theo danh mục từng dòng. Nếu đủ tồn, lập một phiếu cấp phát đủ toàn bộ yêu cầu.
@@ -16,7 +28,7 @@ Mỗi dòng giữ mã dòng nguồn, mô tả, loại thiết bị/vật tư/d�
 4. Nếu QTTB là đơn vị sử dụng cuối, chọn đủ thiết bị từ tồn và ghi nhận sử dụng toàn bộ trong một giao dịch, chọn người chịu trách nhiệm. Không tạo phiếu điều chuyển cùng phòng. Quy tắc sẵn sàng và trạng thái `InStorage` vẫn áp dụng.
 5. Yêu cầu sửa chữa/nâng cấp: **Lập phiếu sửa chữa** tự mang theo thiết bị, mã dòng, mô tả và báo hỏng nguồn nếu có. Duyệt, ghi kết quả, xuất/nhận lại bên ngoài qua module sửa chữa hiện có.
 6. Chỉ **Hoàn tất toàn bộ yêu cầu** khi đủ chứng từ cuối: đơn vị đã thực nhận cấp phát, QTTB đã đưa vào sử dụng, hoặc tất cả dòng sửa chữa có kết quả và không còn giữ chỗ/thiết bị chưa nhận về. Không có API hoàn thành từng dòng hay bàn giao từng phần theo yêu cầu.
-Phân công nhân viên và kiểm kê do thành viên khác phụ trách. Phần này xử lý theo quyền vai trò và liên kết chứng từ trực tiếp.
+Các bước trên hiện mới kiểm tra vai trò và liên kết chứng từ. Chưa có bước giao task/kiểm soát người được giao, đồng thời còn bước “Lập phiếu sửa chữa”; đây là thiếu/sai luồng phải chỉnh theo phần Luồng đích. Module phân công do đồng đội phụ trách, tích hợp module đó là bắt buộc của PMQTTB.
 
 Trường hợp không thực hiện được, phải ghi lý do và kết thúc toàn bộ với kết quả `Failed`; không được còn chứng từ mở hoặc giữ chỗ sửa chữa. Kết quả sửa chữa có dòng thất bại được lưu `CompletedWithIssues`, không đổi thành hủy nguồn.
 
@@ -94,7 +106,7 @@ Task 6 đã bổ sung [chứng từ vật tư và truy vết can thiệp có c�
 - `requestId` UUID chống ghi lặp cho bằng chứng/xác nhận; gửi lại cùng nội dung và tài khoản không thêm sự kiện. Dùng lại cho nội dung/tài khoản khác bị từ chối. Ghi kết quả, phiên bản và sự kiện cùng giao dịch; lỗi audit rollback toàn bộ.
 - Có bằng chứng thực hiện thì hủy nguồn bị từ chối. Cập nhật phạm vi được lưu chờ quản lý xem xét, không đổi nội dung đã làm.
 
-Thiết bị chuyên dụng mặc định đề xuất xử lý bên ngoài. Có thể làm tại chỗ khi phiếu có `specializedHandlingReason`; lý do hiển thị cho quản lý trước khi duyệt. Phân loại chuyên dụng không tự ép mọi tình huống ra ngoài. Không thay đổi quyền duyệt của phiếu sửa chữa.
+Hiện code còn dùng `specializedHandlingReason` khi chọn chuyên dụng/tại chỗ và có vòng duyệt phiếu sửa chữa cục bộ. Phần này cần rà lại cùng CV-04: chuyên dụng là QTTB theo dõi/phối hợp với bên có chuyên môn, có thể làm tại chỗ hoặc bên ngoài; không suy ra thủ tục ngoại lệ chỉ từ địa điểm. Phê duyệt nghiệp vụ phát sinh cần phân biệt với việc lập/duyệt lại yêu cầu sửa chữa nguồn.
 
 ## Triển khai
 

@@ -15,7 +15,10 @@ public sealed class ProcurementFulfillmentTests
     private static async Task Expect(HttpResponseMessage response, HttpStatusCode status = HttpStatusCode.NoContent)
     { using (response) Assert.True(response.StatusCode == status, await response.Content.ReadAsStringAsync()); }
     private static async Task<string> Create(EquipmentStaffWorkflowTests.Fixture f, string external, object[]? lines = null, string department = "PB_TARGET")
-        => (await Read(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = 1, action = "Create", request = new { requestType = "Purchase", title = external, requestingDepartmentCode = department, sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:00:00Z", lines = lines ?? [Line("S1"), Line("S2")] } }))).GetProperty("displayCode").GetString()!;
+    {
+        var code = (await Read(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = 1, action = "Create", request = new { requestType = "Purchase", title = external, requestingDepartmentCode = department, sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:00:00Z", lines = lines ?? [Line("S1"), Line("S2")] } }))).GetProperty("displayCode").GetString()!;
+        await SourceRequestAssignmentTests.Assign(f, code); return code;
+    }
     private static Task<JsonElement> Detail(EquipmentStaffWorkflowTests.Fixture f, string code) => f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code);
     private static int Version(JsonElement d) => d.GetProperty("summary").GetProperty("version").GetInt32();
     private static object Evidence(int version, Guid? id = null, string outcome = "Completed", params string[] codes) => new { requestId = id ?? Guid.NewGuid(), version, lines = (codes.Length == 0 ? ["S1", "S2"] : codes).Select(sourceLineCode => new { sourceLineCode, outcome, provider = "Qualified contractor", evidenceReference = "BB-DV-001", description = "Full result and supporting document" }).ToArray() };
@@ -66,7 +69,7 @@ public sealed class ProcurementFulfillmentTests
             """));
         await Expect(await f.Staff.PostAsJsonAsync(route + "/service-evidence", command), HttpStatusCode.ServiceUnavailable);
         var after = await Detail(f, code); Assert.Equal(Version(before), Version(after)); Assert.Equal(JsonValueKind.Null, after.GetProperty("serviceEvidence").ValueKind);
-        await f.InDb(async db => { Assert.Empty(await db.Set<ProcurementRequestEvent>().Where(e => e.CommandId != null).ToListAsync()); await db.Database.ExecuteSqlRawAsync("DROP TRIGGER fail_service_evidence_audit ON procurement_request_events; DROP FUNCTION fail_service_evidence_audit()"); });
+        await f.InDb(async db => { Assert.Empty(await db.Set<ProcurementRequestEvent>().Where(e => e.Action == "SERVICE_EVIDENCE_RECORDED").ToListAsync()); await db.Database.ExecuteSqlRawAsync("DROP TRIGGER fail_service_evidence_audit ON procurement_request_events; DROP FUNCTION fail_service_evidence_audit()"); });
         await Expect(await f.Staff.PostAsJsonAsync(route + "/service-evidence", command));
     }
 
@@ -122,18 +125,16 @@ public sealed class ProcurementFulfillmentTests
     }
 
     [PostgreSqlFact]
-    public async Task Specialized_on_site_repair_requires_reviewable_reason_and_preserves_command_fingerprint()
+    public async Task Specialized_on_site_repair_starts_from_source_without_a_second_request_or_exception_reason()
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
-        var source = await Read(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "SPECIALIZED-REPAIR", sourceVersion = 1, action = "Create", request = new { requestType = "Repair", title = "Specialized equipment", requestingDepartmentCode = "PB_TARGET", sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:00:00Z", lines = new[] { new { sourceLineCode = "R1", kind = "Equipment", description = "Calibrate equipment", quantity = 1, unit = "Cai", deviceCode = "TB-ROLE-001", specialization = "Specialized" } } } }));
-        var code = source.GetProperty("displayCode").GetString(); var id = Guid.NewGuid();
-        object Body(string? reason) => new { requestId = id, sourceRequestCode = code, orderType = "Repair", specializedHandlingReason = reason, items = new[] { new { sourceLineCode = "R1", deviceCode = "TB-ROLE-001", executionMethod = "OnSite", workDescription = "Qualified technician attends on site" } } };
-        await Expect(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Body(null)), HttpStatusCode.BadRequest);
-        var order = await Read(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Body("Certified on-site technician; no transport permitted")), HttpStatusCode.Created);
-        Assert.Equal("PendingApproval", order.GetProperty("status").GetString());
-        Assert.Contains("Certified", order.GetProperty("specializedHandlingReason").GetString());
-        var replay = await Read(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Body("Certified on-site technician; no transport permitted")), HttpStatusCode.Created);
+        var code = await SourceRequestAssignmentTests.Create(f, repair: true, specialized: true);
+        await SourceRequestAssignmentTests.Assign(f, code);
+        var body = new { requestId = Guid.NewGuid(), version = Version(await Detail(f, code)), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } };
+        var order = await Read(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/start-repair", body));
+        Assert.Equal("InProgress", order.GetProperty("status").GetString()); Assert.Equal(JsonValueKind.Null, order.GetProperty("approvedAt").ValueKind);
+        Assert.Equal("OnSite", order.GetProperty("items")[0].GetProperty("executionMethod").GetString());
+        var replay = await Read(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/start-repair", body));
         Assert.Equal(order.GetProperty("displayCode").GetString(), replay.GetProperty("displayCode").GetString());
-        await Expect(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Body("Changed exception")), HttpStatusCode.Conflict);
     }
 }

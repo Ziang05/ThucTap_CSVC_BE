@@ -22,7 +22,7 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
     IRepository<ProcurementRequestEvent> events, IUnitOfWork uow, IServiceOrderRepository services,
     IEquipmentDepartmentPolicy equipment, TimeProvider clock,
     CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow, CSVC.UseCases.Materials.MaterialDeliveryScope deliveryScope,
-    IRepository<ProcurementRequest> requestRecords) : IProcurementWorkflow
+    IRepository<ProcurementRequest> requestRecords, IRequestAssignmentPolicy assignment) : IProcurementWorkflow
 {
     public async Task AttachAsync(string? sourceCode, RequestDocumentKind kind, string documentCode, Guid departmentId,
         IReadOnlyList<RequestDeviceBinding> inputs, Guid actorId, CancellationToken ct)
@@ -32,6 +32,7 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
             if (inputs.Any(i => !string.IsNullOrWhiteSpace(i.SourceLineCode))) throw Invalid("Source line codes require a sourceRequestCode.");
             return;
         }
+        await assignment.RequireAsync(sourceCode, actorId, ct);
         var request = await requests.GetAsync(sourceCode, true, ct) ?? throw new UseCaseException(FailureKind.NotFound, "SOURCE_REQUEST_NOT_FOUND", "The source request does not exist.");
         if (request.Status is ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled || request.RequiresReview || request.MappingIssue is not null)
             throw Conflict("SOURCE_REQUEST_NOT_READY", "Resolve the source request before creating documents.");
@@ -47,11 +48,6 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
         foreach (var binding in bindings)
         {
             var line = request.Lines.SingleOrDefault(l => l.SourceLineCode == binding.SourceLineCode) ?? throw Invalid("Every item needs a valid sourceLineCode.");
-            if (kind == RequestDocumentKind.Repair && line.Specialization == EquipmentSpecialization.Specialized && binding.ExecutionMethod == "OnSite")
-            {
-                if (string.IsNullOrWhiteSpace(binding.SpecializedHandlingReason))
-                    throw Invalid("Specialized equipment defaults to external handling. Record the on-site exception reason for manager approval.");
-            }
             if (line.Kind != ProcurementLineKind.Equipment) throw Invalid("Equipment documents cannot represent consumable materials or standalone services.");
             if (kind == RequestDocumentKind.Repair && line.DeviceCode != binding.DeviceCode) throw Invalid("Repair must reference the source device.");
             if (kind == RequestDocumentKind.Repair && line.DamageReportCode is not null && line.DamageReportCode != binding.DamageReportCode) throw Invalid("Retain the damage report referenced by the source repair line.");

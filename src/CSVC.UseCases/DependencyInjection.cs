@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.AddScoped<Inventories.IInventoryService, Inventories.InventoryService>();
         services.AddScoped<ProcurementRequests.IProcurementRequestService, ProcurementRequests.ProcurementRequestService>();
         services.AddScoped<ProcurementRequests.IProcurementWorkflow, ProcurementRequests.ProcurementWorkflow>();
+        services.AddScoped<ProcurementRequests.IRequestAssignmentPolicy, ProcurementRequests.RequestAssignmentPolicy>();
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<Settings.IEquipmentSettingsService, Settings.EquipmentSettingsService>();
         services.AddScoped<Settings.IEquipmentDepartmentPolicy, Settings.EquipmentDepartmentPolicy>();

@@ -8,6 +8,7 @@ public interface IServiceOrderService
     Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct);
     Task<ServiceOrderDto> GetAsync(string code, CancellationToken ct);
     Task<ServiceOrderDto> CreateAsync(CreateServiceOrderRequest request, CancellationToken ct);
+    Task<ServiceOrderDto> StartSourceExecutionAsync(CreateServiceOrderRequest request, Guid sourceRequestId, CancellationToken ct);
     Task ApproveAsync(string code, ServiceTransitionRequest request, CancellationToken ct);
     Task CancelAsync(string code, CancelServiceOrderRequest request, CancellationToken ct);
     Task RecordResultsAsync(string code, RecordServiceResultsRequest request, CancellationToken ct);

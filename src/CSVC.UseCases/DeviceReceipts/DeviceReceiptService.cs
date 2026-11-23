@@ -22,7 +22,7 @@ namespace CSVC.UseCases.DeviceReceipts;
 
 public sealed class DeviceReceiptService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IProcurementWorkflow procurement) : IDeviceReceiptService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IProcurementWorkflow procurement, IRequestAssignmentPolicy assignment) : IDeviceReceiptService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -78,8 +78,9 @@ public sealed class DeviceReceiptService(
             Validate(request);
             var key = NormalizeReceiptCode(receiptCode);
             var receipt = await unitOfWork.DeviceReceipts.FirstOrDefaultTrackedAsync(x => x.ReceiptCode == key, token) ?? throw Missing();
+            var linkedToSource = await assignment.RequireDocumentAsync(RequestDocumentKind.Receipt, receipt.ReceiptCode, actor.AccountId, token);
             RequirePending(receipt);
-            if (receipt.CreatorAccountId != actor.AccountId) throw Forbidden("Only the receipt creator may edit it.");
+            if (receipt.CreatorAccountId != actor.AccountId && !linkedToSource) throw Forbidden("Only the receipt creator may edit it.");
             await procurement.PreventLinkedEditAsync(RequestDocumentKind.Receipt, receipt.ReceiptCode, token);
             if (!string.IsNullOrWhiteSpace(request.SourceRequestCode) || request.Items.Any(i => i is not null && !string.IsNullOrWhiteSpace(i.SourceLineCode)))
                 throw Validation("Create a new document from the source request; an existing receipt cannot acquire source bindings through editing.");
@@ -161,6 +162,7 @@ public sealed class DeviceReceiptService(
         {
             var actor = await RequireStaffAsync(token);
             var receipt = await unitOfWork.DeviceReceipts.FirstOrDefaultTrackedAsync(x => x.ReceiptCode == NormalizeReceiptCode(receiptCode), token) ?? throw Missing();
+            var linkedToSource = await assignment.RequireDocumentAsync(RequestDocumentKind.Receipt, receipt.ReceiptCode, actor.AccountId, token);
             if (receipt.Status != DeviceReceiptStatus.Approved) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Only an approved receipt can be completed.");
             var items = await unitOfWork.DeviceReceiptItems.FindAsync(x => x.ReceiptId == receipt.Id, token);
             if (items.Count == 0 || items.Any(x => x.DeviceId is not null)) throw Conflict("INVALID_WORKFLOW_TRANSITION", "Receipt items are invalid or already completed.");
@@ -235,8 +237,9 @@ public sealed class DeviceReceiptService(
         {
             var actor = await RequireStaffAsync(token);
             var receipt = await unitOfWork.DeviceReceipts.FirstOrDefaultTrackedAsync(x => x.ReceiptCode == NormalizeReceiptCode(receiptCode), token) ?? throw Missing();
+            var linkedToSource = await assignment.RequireDocumentAsync(RequestDocumentKind.Receipt, receipt.ReceiptCode, actor.AccountId, token);
             RequirePending(receipt);
-            if (receipt.CreatorAccountId != actor.AccountId) throw Forbidden("Only the receipt creator may cancel it.");
+            if (receipt.CreatorAccountId != actor.AccountId && !linkedToSource) throw Forbidden("Only the receipt creator may cancel it.");
 
             var before = SnapshotDecision(receipt);
             receipt.Status = DeviceReceiptStatus.Cancelled;

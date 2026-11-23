@@ -26,6 +26,9 @@ public sealed class ProcurementRequest
     public int SourceVersion { get; set; }
     public int Version { get; set; } = 1;
     public int WorkflowVersion { get; set; } = 1;
+    public Guid? AssigneeAccountId { get; set; }
+    public Guid? AssignedByAccountId { get; set; }
+    public DateTimeOffset? AssignedAt { get; set; }
     public string? ServiceEvidenceJson { get; set; }
     public Guid? ServiceRecordedByAccountId { get; set; }
     public DateTimeOffset? ServiceRecordedAt { get; set; }

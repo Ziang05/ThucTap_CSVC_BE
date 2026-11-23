@@ -22,9 +22,9 @@ public sealed class ProcurementRequestTests
     }
     private static async Task Expect(HttpResponseMessage response, HttpStatusCode status = HttpStatusCode.NoContent)
     { using (response) Assert.True(response.StatusCode == status, await response.Content.ReadAsStringAsync()); }
-    private static Task<JsonElement> Send(EquipmentStaffWorkflowTests.Fixture f, object body) => SendCore(f.Staff, body);
+    private static Task<JsonElement> Send(EquipmentStaffWorkflowTests.Fixture f, object body) => SendCore(f.Manager, body);
     private static async Task<JsonElement> SendCore(HttpClient client, object body) => await Json(await client.PostAsJsonAsync(Root + "/simulated-events", body));
-    private static Task<JsonElement> Detail(EquipmentStaffWorkflowTests.Fixture f, string code) => f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code);
+    private static Task<JsonElement> Detail(EquipmentStaffWorkflowTests.Fixture f, string code) => f.Manager.GetFromJsonAsync<JsonElement>(Root + "/" + code);
     private static async Task Close(EquipmentStaffWorkflowTests.Fixture f, string code, HttpStatusCode status = HttpStatusCode.NoContent, string? failure = null)
     { var d = await Detail(f, code); await Expect(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/complete", new { version = d.GetProperty("summary").GetProperty("version").GetInt32(), failureReason = failure }), status); }
     private static object Cancel(string external, int revision) => new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = revision, action = "Cancel", reason = "Source cancellation" };
@@ -39,6 +39,7 @@ public sealed class ProcurementRequestTests
         var replayWithDifferentEventId = await Send(f, Event("PMMS-CONCURRENT"));
         Assert.Equal(concurrent[0].ToString(), replayWithDifferentEventId.ToString());
         var code = concurrent[0].GetProperty("displayCode").GetString()!;
+        await SourceRequestAssignmentTests.Assign(f, code);
         var before = await Detail(f, code);
         await f.InDb(async db => await db.Database.ExecuteSqlRawAsync("""
             CREATE FUNCTION fail_source_link_audit() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -55,7 +56,7 @@ public sealed class ProcurementRequestTests
         await f.InDb(async db =>
         {
             Assert.Single(await db.Set<ProcurementRequest>().ToListAsync());
-            Assert.Single(await db.Set<ProcurementRequestEvent>().ToListAsync());
+            Assert.Equal(2, await db.Set<ProcurementRequestEvent>().CountAsync());
             Assert.Empty(await db.Set<ProcurementDocumentLink>().ToListAsync());
             Assert.Empty(await db.DeviceTransfers.ToListAsync());
             Assert.Empty(await db.DeviceOperationHolds.ToListAsync());
@@ -72,7 +73,7 @@ public sealed class ProcurementRequestTests
         var code = first.GetProperty("displayCode").GetString()!;
         var replay = await Send(f, body);
         Assert.Equal(first.ToString(), replay.ToString());
-        await Expect(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-REPLAY", title: "Conflicting revision")), HttpStatusCode.Conflict);
+        await Expect(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-REPLAY", title: "Conflicting revision")), HttpStatusCode.Conflict);
         var fixedSource = await Send(f, Event("PMMS-REPLAY", 3, "Update", title: "Corrected"));
         Assert.Equal("Applied", fixedSource.GetProperty("outcome").GetString());
         Assert.Equal("IgnoredStale", (await Send(f, Event("PMMS-REPLAY", 2, "Update", title: "Obsolete"))).GetProperty("outcome").GetString());
@@ -81,7 +82,7 @@ public sealed class ProcurementRequestTests
         Assert.Equal("Corrected", d.GetProperty("summary").GetProperty("title").GetString());
         Assert.Equal(3, d.GetProperty("summary").GetProperty("sourceVersion").GetInt32());
         Assert.False(d.GetProperty("summary").GetProperty("requiresReview").GetBoolean());
-        var history = await f.Staff.GetFromJsonAsync<JsonElement>(Root + "/" + code + "/history");
+        var history = await f.Manager.GetFromJsonAsync<JsonElement>(Root + "/" + code + "/history");
         Assert.Equal(3, history.GetProperty("totalCount").GetInt32());
         Assert.Contains(history.GetProperty("items").EnumerateArray(), e => e.GetProperty("sourcePayload").GetString()!.Contains("UNKNOWN"));
         await Expect(await f.Department.GetAsync(Root), HttpStatusCode.OK);
@@ -98,6 +99,7 @@ public sealed class ProcurementRequestTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         var first = await Send(f, Event("PMMS-STOCK", lines: [Line(quantity: 2)]));
         var code = first.GetProperty("displayCode").GetString()!;
+        await SourceRequestAssignmentTests.Assign(f, code);
         object Transfer(params string[] codes) => new { sourceRequestCode = code, sourceDepartmentCode = "PB_TEST", targetDepartmentCode = "PB_TARGET", targetResponsibleAccountCode = "TK_DEPARTMENT", reason = "Source allocation", items = codes.Select(c => new { sourceLineCode = "L1", deviceCode = c }).ToArray() };
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/device-transfers", Transfer("TB-ROLE-001")), HttpStatusCode.BadRequest);
         await f.InDb(async db => { Assert.Empty(await db.DeviceTransfers.ToListAsync()); Assert.Empty(await db.DeviceOperationHolds.ToListAsync()); Assert.Empty(await db.Set<ProcurementDocumentLink>().ToListAsync()); });
@@ -130,6 +132,7 @@ public sealed class ProcurementRequestTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         await f.InDb(async db => { db.Add(new Supplier { DisplayCode = "SUP_PMMS", Name = "PMMS supplier" }); await db.SaveChangesAsync(); });
         var code = (await Send(f, Event("PMMS-RECEIPT", lines: [Line(quantity: 2)]))).GetProperty("displayCode").GetString()!;
+        await SourceRequestAssignmentTests.Assign(f, code);
         var receipt = await Json(await f.Staff.PostAsJsonAsync("/api/v1/device-receipts", new { sourceRequestCode = code, supplierCode = "SUP_PMMS", requestingDepartmentCode = "PB_TARGET", deliveryDate = "2026-10-21", deliveryBatch = "1", items = new[] { new { sourceLineCode = "L1", deviceCode = "PMMS-NEW", name = "New stock", categoryCode = "CAT_ROLE" } } }), HttpStatusCode.Created);
         var receiptRoute = "/api/v1/device-receipts/" + receipt.GetProperty("receiptCode").GetString();
         await Expect(await f.Manager.PostAsJsonAsync(receiptRoute + "/approve", new { }));
@@ -152,12 +155,14 @@ public sealed class ProcurementRequestTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         await f.InDb(async db => { foreach (var device in await db.Devices.Where(d => d.DeviceCode != "TB-ROLE-003").ToListAsync()) device.UseState = DeviceUseState.InStorage; await db.SaveChangesAsync(); });
         var code = (await Send(f, Event("PMMS-INTERNAL", lines: [Line(quantity: 2)], department: "PB_TEST"))).GetProperty("displayCode").GetString()!;
+        await SourceRequestAssignmentTests.Assign(f, code);
         object Use(params string[] codes) => new { sourceRequestCode = code, items = codes.Select(c => new { sourceLineCode = "L1", deviceCode = c, responsibleAccountCode = "TK_STAFF" }) };
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/devices/put-into-use", Use("TB-ROLE-001")), HttpStatusCode.BadRequest);
         await f.InDb(async db => Assert.Equal(DeviceUseState.InStorage, (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-ROLE-001")).UseState));
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/devices/put-into-use", Use("TB-ROLE-001", "TB-ROLE-002")));
         await Close(f, code);
         var material = (await Send(f, Event("PMMS-MATERIAL", lines: [Line(kind: "Material")]))).GetProperty("displayCode").GetString()!;
+        await SourceRequestAssignmentTests.Assign(f, material);
         await Close(f, material, HttpStatusCode.Conflict);
         await Close(f, material, failure: "Cannot supply requested materials");
         Assert.Equal("Failed", (await Detail(f, material)).GetProperty("result").GetString());
@@ -170,12 +175,10 @@ public sealed class ProcurementRequestTests
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         var code = (await Send(f, Event("PMMS-REPAIR", type: "Repair", lines: [Line(device: "TB-ROLE-001")]))).GetProperty("displayCode").GetString()!;
+        await SourceRequestAssignmentTests.Assign(f, code);
         if (workflowVersion == 1) await f.InDb(async db => { (await db.Set<ProcurementRequest>().SingleAsync()).WorkflowVersion = 1; await db.SaveChangesAsync(); });
-        object Order(string device) => new { sourceRequestCode = code, requestId = Guid.NewGuid(), orderType = "Repair", items = new[] { new { sourceLineCode = "L1", deviceCode = device, executionMethod = "OnSite", workDescription = "Inspect and upgrade equipment" } } };
-        await Expect(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Order("TB-ROLE-002")), HttpStatusCode.BadRequest);
-        var order = await Json(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", Order("TB-ROLE-001")), HttpStatusCode.Created);
+        var order = await Json(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/start-repair", new { requestId = Guid.NewGuid(), version = (await Detail(f, code)).GetProperty("summary").GetProperty("version").GetInt32(), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } }));
         var route = "/api/v1/service-orders/" + order.GetProperty("displayCode").GetString();
-        await Expect(await f.Manager.PostAsJsonAsync(route + "/approve", new { requestId = Guid.NewGuid(), version = order.GetProperty("version").GetInt32() }));
         Assert.Equal("CancelRejected", (await Send(f, Cancel("PMMS-REPAIR", 2))).GetProperty("outcome").GetString());
         await Close(f, code, HttpStatusCode.Conflict);
         order = await f.Staff.GetFromJsonAsync<JsonElement>(route);
@@ -202,6 +205,6 @@ public sealed class ProcurementRequestTests
         var detail = await Detail(f, result.GetProperty("displayCode").GetString()!);
         Assert.Equal(category, detail.GetProperty("lines")[0].GetProperty("categoryCode").GetString());
         await f.InDb(async db => Assert.Equal(category, (await db.Set<ProcurementRequestLine>().SingleAsync()).CategoryCode));
-        await Expect(await f.Staff.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-TOO-LONG", lines: [Line(category: category + "A")])), HttpStatusCode.BadRequest);
+        await Expect(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", Event("PMMS-TOO-LONG", lines: [Line(category: category + "A")])), HttpStatusCode.BadRequest);
     }
 }

@@ -1,8 +1,12 @@
 # PMQTTB — Danh sách công việc còn phải làm
 
+**Cập nhật triển khai:** đã có phân công trực tiếp trên yêu cầu PMMS, chặn thao tác theo người được giao và bắt đầu sửa chữa từ nguồn; API local đã cập nhật. Xem [hướng dẫn, phạm vi và kiểm chứng hiện tại](source-request-assignment.md). CV-11 vẫn còn phần module chung cho nghiệp vụ nội bộ; các ghi chú rà soát bên dưới mô tả khoảng thiếu trước bản cập nhật này.
+
 Tổng hợp từ [backlog sau rà soát](pmqttb-priority-backlog.md) và [hợp đồng nghiệp vụ](pmqttb-business-contract.md). Danh sách bắt đầu từ các việc còn lại: sửa lệch, bổ sung, tích hợp và nghiệm thu; mục đã hoàn tất được giữ để theo dõi kết quả, không yêu cầu xây lại phần đã có.
 
 Dùng mã **CV-01 → CV-12** cho danh sách mới. Cột “Task cũ” dùng đối chiếu các trao đổi trước. Tất cả checkbox ban đầu để trống; chỉ đánh dấu khi có kết quả kiểm chứng tương ứng. Không suy ra đã triển khai từ việc có code hoặc build thành công.
+
+**Đính chính sau khi đọc lại PMQTTB:** yêu cầu mua sắm/sửa chữa được lập tại PMMS, PMQTTB kế thừa để theo dõi và phân task. Phân công là luồng chính của toàn phần mềm dù đồng đội phụ trách module. CV-04 chưa đạt nghiệp vụ đích; CV-11 nâng lên P0 và cần xử lý cùng CV-04 trước khi nghiệm thu tiếp các nhánh. Các báo cáo test trước đây giữ làm bằng chứng kỹ thuật của mô hình đã chạy, không khẳng định mô hình đó đúng toàn bộ yêu cầu nguồn.
 
 ## Quy tắc áp dụng cho mọi công việc
 
@@ -11,7 +15,7 @@ Dùng mã **CV-01 → CV-12** cho danh sách mới. Cột “Task cũ” dùng �
 - Dùng mã vạch, không QR; thiết bị có mã riêng và số lượng `0/1`, vật tư có số lượng nhiều.
 - Nhập về QTTB trước rồi cấp phát riêng; yêu cầu chỉ hoàn tất toàn bộ một lần, không nhận hủy sau phát sinh thực hiện.
 - PMMS chỉ giả lập; **thông báo cho chủ project trước khi tạo/chạy giả lập**. Không tự seed vào database đang sử dụng hoặc mô tả là kết nối API thật.
-- Giữ mượn trả. Không xây lại phân công công việc hoặc kiểm kê do đồng đội phụ trách; không khôi phục module phân công cũ để thay module của team.
+- Giữ mượn trả. Phân công/kiểm kê do đồng đội phụ trách triển khai nhưng là nghiệp vụ PMQTTB; phải tích hợp trách nhiệm nhân viên, không loại bỏ phân công khỏi luồng hoặc khôi phục hệ thống task cũ song song.
 - Trên các form cần chọn hồ sơ đã có, ưu tiên danh sách tìm/chọn thay vì bắt nhập mã thủ công.
 
 ## Thứ tự ưu tiên
@@ -21,17 +25,17 @@ Dùng mã **CV-01 → CV-12** cho danh sách mới. Cột “Task cũ” dùng �
 | CV-01 | **Hoàn tất:** kiểm chứng và đồng bộ sau merge | P0 | 0 | [Báo cáo CV-01](cv01-validation.md) |
 | CV-02 | Đã triển khai: thu hẹp quan hệ thiết bị cha–con | P0 | 2 | [Biên bản CV-02–CV-05](cv02-05-validation.md) |
 | CV-03 | Đã triển khai phần mềm: in/quét mã vạch | P0 | 8 | Còn nghiệm thu máy in/máy quét vật lý |
-| CV-04 | Đã triển khai: hoàn thiện yêu cầu PMMS giả lập | P0 | 4 | Dịch vụ, nghiệm thu đơn vị, ngoại lệ chuyên dụng |
+| CV-04 | Cần sửa: kế thừa yêu cầu PMMS → task → thực hiện | P0 | 4 | Làm cùng CV-11; không tạo lại yêu cầu mua/sửa trong PMQTTB |
 | CV-05 | Đã kiểm chứng: nhập → QTTB → cấp phát | P0 | 3 | Kiểm tra lại sau thay đổi chọn thiết bị ở CV-02 |
 | CV-06 | Hoàn thiện nghiệm thu kho vật tư/can thiệp | P1 | 6 | CV-01; chốt danh mục sử dụng thực tế |
 | CV-07 | Hợp nhất timeline vòng đời thiết bị | P1 | 12 | Dùng lịch sử sẵn có; mở rộng khi nguồn mới hoàn tất |
 | CV-08 | Bổ sung thanh lý/xuất vĩnh viễn | P1 | 7 | Chốt quy trình và thẩm quyền |
 | CV-09 | Báo cáo thiết bị toàn trường theo kỳ | P1 | 10 | CV-08 cho phần xuất vĩnh viễn |
 | CV-10 | Lịch bảo trì/bảo dưỡng và cảnh báo | P2 | 11 | Chốt cách tính lịch và đối tượng nhận cảnh báo |
-| CV-11 | Phối hợp tích hợp phân công công việc | Theo team | 5 | Đồng đội cung cấp module và hợp đồng tích hợp |
+| CV-11 | Tích hợp phân công và báo cáo nhân viên vào luồng chính | P0 | 5 | Module do đồng đội phụ trách; là phụ thuộc của CV-04 và các nghiệp vụ |
 | CV-12 | Phối hợp nghiệm thu kiểm kê | Theo team | 9 | Module đã pull; phối hợp CV-03 về mã vạch |
 
-CV-11/CV-12 có thể phối hợp song song khi đồng đội sẵn sàng. CV-07 có thể làm trước phần nguồn đã có, không cần chờ thanh lý để bắt đầu.
+Thứ tự hiện tại: thống nhất/tích hợp hợp đồng CV-11 → sửa luồng nguồn và xử lý các nhánh CV-04 → nghiệm thu lại CV-05/CV-06 với người phụ trách → các phần vòng đời tiếp theo. CV-12 phối hợp module kiểm kê đang có; CV-07 có thể làm các nguồn đã sẵn sàng.
 
 ## P0 — Đồng bộ và sửa lệch nghiệp vụ
 
@@ -67,12 +71,22 @@ Phạm vi CV-02–CV-05 được chủ project giao triển khai và tự quyế
 
 Hướng dẫn: [in và quét mã vạch](barcode-labels.md). Kết quả kỹ thuật tại [biên bản](cv02-05-validation.md).
 
-### CV-04. Hoàn thiện PMMS giả lập — đã triển khai
+### CV-04. Sửa luồng kế thừa PMMS và xử lý theo task — chưa hoàn tất
+
+- [ ] Màn tác nghiệp chỉ tiếp nhận/theo dõi yêu cầu mua/sửa do PMMS lập; tách tạo/cập nhật/hủy nguồn giả lập thành công cụ kiểm thử nguồn, không coi QTTB là bên lập yêu cầu.
+- [ ] Liên kết yêu cầu nguồn với task chưa phân công, quản lý giao nhân viên qua module CV-11; gửi lặp không sinh thêm việc.
+- [ ] Bỏ bước bắt lập lại phiếu/yêu cầu sửa chữa cục bộ và vòng duyệt yêu cầu trùng. Tận dụng bản ghi kỹ thuật/chứng từ có sẵn để ghi thực hiện dưới đúng yêu cầu/task; giữ dữ liệu và lịch sử cũ.
+- [ ] Nghiệm thu mua thông dụng đủ tồn → cấp phát; thiếu tồn → phối hợp KHTC&ĐT → nhận về QTTB → cấp phát riêng; mua chuyên dụng → KHTC&ĐT/đơn vị làm việc nhà cung cấp, QTTB ghi nhận/bàn giao.
+- [ ] Nghiệm thu sửa thông dụng → QTTB xử lý và dùng vật tư nếu cần; sửa chuyên dụng → QTTB theo dõi phối hợp, ghi kết quả bên thực hiện, xuất/nhận lại chỉ khi thực tế có di chuyển.
+- [ ] Tách chuyên môn/đơn vị thực hiện khỏi nơi xử lý. Rà bỏ mặc định ép chuyên dụng ra ngoài hoặc coi tại chỗ là ngoại lệ chuyên môn của QTTB.
+- [ ] Chỉ nhân viên được giao thực hiện; quản lý duyệt theo quyền; đóng task/yêu cầu khi đủ toàn bộ kết quả. Đồng bộ kết quả cho báo cáo nhân viên/phòng QTTB.
+
+Các thành phần kỹ thuật đang có dưới đây được giữ để tái sử dụng; chưa đại diện cho việc đã đáp ứng luồng nguồn/task:
 
 - [x] Nhân viên QTTB ghi đủ kết quả dịch vụ, bên thực hiện, chứng từ/bằng chứng và thời điểm; không hoàn thành từng phần.
 - [x] Nhân viên đơn vị đề xuất đọc yêu cầu/lịch sử của đơn vị mình và xác nhận/từ chối toàn bộ kết quả. QTTB không xác nhận thay đơn vị khác.
 - [x] Yêu cầu sửa chữa mới cần nghiệm thu riêng trước đóng; yêu cầu sửa chữa cũ giữ luồng phiên bản 1.
-- [x] Chuyên dụng mặc định bên ngoài; xử lý tại chỗ phải có lý do hiển thị cho quản lý duyệt phiếu.
+- [ ] Sửa quy tắc chuyên dụng hiện có: vai trò QTTB là theo dõi/phối hợp; không suy ra bắt buộc `External` hoặc bắt lý do chỉ vì `OnSite`.
 - [x] Yêu cầu thiết bị/vật tư/dịch vụ/hỗn hợp chỉ đóng khi đủ kết quả, thực nhận và giải phóng giữ chỗ. Dịch vụ không đạt không bị tính thành công.
 - [x] Từ chối có lý do; sửa bằng chứng giữ bản cũ và yêu cầu nghiệm thu lại; bản được chấp nhận không ghi đè. Quản lý có thể kết thúc kết quả bị từ chối thành thất bại kèm lý do.
 - [x] Giữ kiểm tra phiên bản/sự kiện nguồn, hủy/cập nhật sau thực hiện, chống ghi lặp theo lệnh/tài khoản và rollback khi lỗi audit.
@@ -81,6 +95,8 @@ Hướng dẫn: [in và quét mã vạch](barcode-labels.md). Kết quả kỹ t
 Hướng dẫn/API: [PMMS giả lập](pmms-simulation.md); kết quả tại [biên bản](cv02-05-validation.md).
 
 ### CV-05. Nhập → QTTB → cấp phát — đã kiểm chứng sau thay đổi
+
+Các kiểm tra dưới đây xác nhận xử lý kho/cấp phát. Vẫn cần nghiệm thu lại liên kết nguồn và người được giao sau CV-04/CV-11; không tạo lại yêu cầu nguồn để sử dụng các chứng từ này.
 
 - [x] Duyệt chưa làm tăng số lượng/đổi trách nhiệm; hoàn tất nhập đưa thiết bị về QTTB/InStorage.
 - [x] Cấp phát riêng chỉ đổi đơn vị giữ/InUse khi thực nhận; dùng thiết bị từ tồn không tạo lần nhập mới.
@@ -147,15 +163,18 @@ Hướng dẫn: [nhập và cấp phát](receipt-custody-release.md); kết qu�
 
 **Đạt khi:** nhận biết thiết bị cần bảo trì trước khi có hỏng hóc và truy lại được lịch thực hiện.
 
-## Phối hợp với đồng đội — không xây lại module
+## Tích hợp với đồng đội — phân công là nghiệp vụ cốt lõi
 
-### CV-11. Tích hợp phân công công việc
+### CV-11. Tích hợp phân công công việc — P0, chưa hoàn tất
 
-- [ ] Nhận hợp đồng tích hợp từ người phụ trách: định danh yêu cầu/chứng từ, sự kiện, trạng thái, người thực hiện và quyền.
-- [ ] Thống nhất thời điểm tạo/liên kết việc, đồng bộ kết quả, hủy và xử lý nhận lặp; không khôi phục module phân công cũ.
-- [ ] Kiểm chứng module đồng đội đọc được kết quả/chứng từ và phục vụ báo cáo nhân viên/phòng QTTB; không tự thêm điều kiện được giao việc vào phần này khi chưa thống nhất.
+- [ ] Tích hợp hợp đồng của module đồng đội: định danh yêu cầu PMMS, task/phần việc, chứng từ, người được giao, người thực hiện, trạng thái/phiên bản và quyền.
+- [ ] Yêu cầu PMMS kế thừa vào có task chưa phân công, quản lý giao nhân viên; không cần QTTB tự tạo yêu cầu mua/sửa để sinh việc.
+- [ ] Chặn thực hiện khi chưa được giao hoặc giao người khác; giữ quyền duyệt riêng của quản lý. Hiện code mới kiểm tra vai trò nên phần này còn thiếu.
+- [ ] Mọi nghiệp vụ cần nhân viên phụ trách: tiếp nhận/cấp phát/thu hồi/kiểm kê/bảo trì/sửa chữa và phần vật tư liên quan. Liên kết theo hợp đồng module; không sinh việc trùng hoặc yêu cầu PMMS giả cho nghiệp vụ nội bộ.
+- [ ] Đồng bộ kết quả, hủy, đổi người phụ trách và nhận lặp, giữ lịch sử; người được giao xác nhận hoàn tất khi đủ kết quả.
+- [ ] Báo cáo theo từng nhân viên và toàn phòng QTTB, truy được yêu cầu nguồn và chứng từ thực hiện. Không khôi phục module task cũ để thay phần của team.
 
-**Đạt khi:** hai phần trao đổi đúng định danh/kết quả, không tạo hai hệ thống phân công song song.
+**Đạt khi:** yêu cầu từ PMMS và các nghiệp vụ thực sự có người phụ trách, quyền thực hiện và kết quả/báo cáo liên thông; không có hai hệ thống task song song.
 
 ### CV-12. Nghiệm thu kiểm kê và giao diện tích hợp
 
@@ -170,8 +189,8 @@ Hướng dẫn: [nhập và cấp phát](receipt-custody-release.md); kết qu�
 
 ## Các điểm cần chốt trước khi thực hiện phần phụ thuộc
 
-- **Với chủ project:** mẫu tem; bằng chứng dịch vụ độc lập; nghiệm thu sửa chữa; chính sách chuyên dụng; danh mục vật tư; quy trình thanh lý; cách tính lịch bảo trì.
-- **Với team:** phạm vi thay đổi cha–con/in tem trong code đã pull; hai lỗi test có sẵn; hợp đồng phân công; phạm vi tình trạng/vị trí/quét kiểm kê.
-- Không chốt lại các quyết định đã có: mã vạch, nhập trước/cấp phát riêng, hoàn tất toàn bộ một lần, chặn hủy sau thực hiện và giữ mượn trả.
+- **Với chủ project:** các chi tiết còn mở về danh mục dùng thật, thanh lý và cách tính lịch bảo trì; không hỏi lại ranh giới nguồn/task đã được làm rõ.
+- **Với team:** hợp đồng module phân công, liên kết yêu cầu/task/chứng từ, quyền và đồng bộ kết quả; phạm vi tình trạng/vị trí/quét kiểm kê.
+- Không chốt lại: PMMS lập yêu cầu mua/sửa; PMQTTB kế thừa, phân công và theo dõi; mọi nghiệp vụ có người phụ trách; mã vạch, nhập trước/cấp phát riêng, hoàn tất toàn bộ một lần, chặn hủy sau thực hiện và giữ mượn trả.
 
-Hợp đồng nghiệp vụ cốt lõi ở task 1 cũ đã hoàn tất, nên không tạo một task viết lại từ đầu. Cập nhật tài liệu khi từng công việc trên được nghiệm thu, đồng thời ghi rõ phiên bản triển khai và giới hạn còn lại.
+Hợp đồng cũ đã được đính chính theo PMQTTB và yêu cầu mới nhất. Giữ các phần kỹ thuật phù hợp để sửa đúng luồng; không coi việc có code/test là đã hoàn tất nghiệp vụ nguồn/task.

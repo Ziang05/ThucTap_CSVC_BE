@@ -19,12 +19,15 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
     IProcurementWorkflow workflow, IUnitOfWork uow, IInventoryTransaction transaction, ICurrentAccount current,
     IEquipmentDepartmentPolicy equipment, IServiceOrderRepository services, IRepository<ServiceOrderDeviceHold> serviceHolds,
     IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, TimeProvider clock,
-    CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow) : IProcurementRequestService
+    CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow, IRequestAssignmentPolicy assignment,
+    CSVC.UseCases.ServiceOrders.IServiceOrderService repairExecution) : IProcurementRequestService
 {
     public Task<PmmsEventResult> SimulateAsync(PmmsSimulatedEvent input, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
-            var actor = await ActorAsync(true, token);
+            var sourceActor = await ReadActorAsync(token);
+            if (sourceActor.Role != RoleCodes.EquipmentManager) throw ForbiddenSource();
+            var actor = sourceActor.Id;
             var normalized = source.Normalize(input);
             var payload = ProcurementJson.Write(new { normalized.ExternalCode, normalized.SourceVersion, normalized.Action, normalized.Request, normalized.Reason });
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
@@ -134,7 +137,10 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
 
     public async Task<PagedResult<ProcurementSummary>> ListAsync(ProcurementQuery query, CancellationToken ct)
     {
-        var actor = await ReadActorAsync(ct); Validate(query); return await requests.ListAsync(query, ct, actor.Role == RoleCodes.DepartmentStaff ? actor.DepartmentCode : null);
+        var actor = await ReadActorAsync(ct); Validate(query);
+        if (query.AssignedToMe && query.Unassigned) throw Invalid("Choose one responsibility filter.");
+        return await requests.ListAsync(query, ct, actor.Role == RoleCodes.DepartmentStaff ? actor.DepartmentCode : null,
+            actor.Role == RoleCodes.EquipmentStaff || query.AssignedToMe ? actor.Id : null);
     }
     public async Task<ProcurementDetail> GetAsync(string code, CancellationToken ct)
     {
@@ -154,6 +160,9 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
             request.Lines.OrderBy(l => l.SourceLineCode).Select(l => new ProcurementLineDto(l.SourceLineCode, l.Kind, l.Description, l.Quantity, l.Unit, l.CategoryCode, l.DeviceCode, l.DamageReportCode, l.Specialization)).ToArray(),
             documents, request.Status is not (ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled) && !documents.Any(d => d.Executed || d.Open))
         {
+            Assignment = await AssignmentAsync(request, ct),
+            CanAssign = actor.Role == RoleCodes.EquipmentManager && request.Status is not (ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled),
+            CanExecute = actor.Role == RoleCodes.EquipmentStaff && request.AssigneeAccountId == actor.Id && request.Status is not (ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled),
             RequiresResultAcceptance = NeedsAcceptance(request),
             CanAcceptResults = IsReceiver(request, actor),
             RepairResults = repairResults,
@@ -176,6 +185,7 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
         {
             var actor = await ActorAsync(true, token); Validate(input);
             var request = await EditableAsync(code, input.Version, token);
+            await assignment.RequireAsync(code, actor, token);
             if (request.RequiresReview) throw Conflict("SOURCE_REQUEST_NOT_READY", "Resolve mapping or source changes first.");
             if (input.Status is not (ProcurementRequestStatus.InProgress or ProcurementRequestStatus.WaitingForGoods or ProcurementRequestStatus.WaitingForExternal or ProcurementRequestStatus.AwaitingHandover)) throw Invalid("Use the completion or source cancellation operation to close a request.");
             request.Status = input.Status; request.Version++;
@@ -199,6 +209,9 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
         {
             var actor = await ActorAsync(true, token); Validate(input);
             var request = await EditableAsync(code, input.Version, token);
+            var closingActor = await ReadActorAsync(token);
+            if (!(closingActor.Role == RoleCodes.EquipmentManager && request.AcceptanceDecision == "Rejected" && !string.IsNullOrWhiteSpace(input.FailureReason)))
+                await assignment.RequireAsync(code, actor, token);
             if (request.RequiresReview) throw Conflict("SOURCE_REQUEST_NOT_READY", "Resolve mapping or source changes first.");
             var result = await ValidateCompletionAsync(request, input.FailureReason, token);
             var documents = await workflow.DocumentsAsync(request, token);
