@@ -30,6 +30,7 @@ public sealed partial class ServiceOrderService(
     {
         await RequireActorAsync(null, ct);
         Validate(query);
+        if (query.CreatedFrom > query.CreatedTo) throw Validation("The creation date range is invalid.");
         var page = await orders.ListAsync(query, ct);
         var codes = await AccountCodesAsync(page.Items, ct);
         return new(page.Items.Select(x => ToDto(x, codes)).ToArray(), page.TotalCount, page.Page, page.PageSize);

@@ -209,6 +209,10 @@ public sealed class DamageReportApiTests
     {
         await using var f = await Fixture.CreateAsync();
         var r = await f.Create(f.Employee, new { requestId = Guid.NewGuid(), deviceCode = "TB-A", incidentType = "DAMAGE", incidentDescription = "With image", images = new[] { Image() } });
+        var detected = Uri.EscapeDataString(r.GetProperty("detectedAt").GetDateTimeOffset().ToOffset(TimeSpan.FromHours(7)).ToString("O"));
+        var evidenceFilter = Url + $"?reporterAccountCode=tk_employee&detectedFrom={detected}&detectedTo={detected}";
+        Assert.Equal(1, (await Get(f.Employee, evidenceFilter + "&hasEvidence=true")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await Get(f.Outsider, evidenceFilter + "&hasEvidence=true")).GetProperty("totalCount").GetInt32());
         var route = Route(r); var content = r.GetProperty("evidence")[0].GetProperty("contentUrl").GetString()!;
         var download = await f.Employee.GetAsync(content); await Expect(download, HttpStatusCode.OK);
         Assert.Equal(Convert.FromBase64String(Png), await download.Content.ReadAsByteArrayAsync());
@@ -221,6 +225,7 @@ public sealed class DamageReportApiTests
         await Expect(await f.Employee.GetAsync(content), HttpStatusCode.NotFound);
         await Expect(await f.Employee.PutAsJsonAsync(route, replace), HttpStatusCode.OK);
         await Expect(await f.Employee.PutAsJsonAsync(route, new { requestId = Guid.NewGuid(), expectedVersion = 3, removeImages = new[] { 2 } }), HttpStatusCode.OK);
+        Assert.Equal(1, (await Get(f.Employee, evidenceFilter + "&hasEvidence=false")).GetProperty("totalCount").GetInt32());
         var add = await Json(await f.Employee.PutAsJsonAsync(route, new { requestId = Guid.NewGuid(), expectedVersion = 4, addImages = new[] { Image() } }), HttpStatusCode.OK);
         Assert.Equal(3, add.GetProperty("evidence")[0].GetProperty("sequenceNo").GetInt32());
         await f.Db(async db =>
