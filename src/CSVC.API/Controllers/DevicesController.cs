@@ -74,22 +74,6 @@ public sealed class DevicesController(IDeviceService devices) : AuthenticatedApi
         return NoContent();
     }
 
-    [HttpPut("{deviceCode}/lock")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Lock(string deviceCode, CancellationToken cancellationToken)
-    {
-        await devices.SetLockedAsync(deviceCode, true, cancellationToken);
-        return NoContent();
-    }
-
-    [HttpDelete("{deviceCode}/lock")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Unlock(string deviceCode, CancellationToken cancellationToken)
-    {
-        await devices.SetLockedAsync(deviceCode, false, cancellationToken);
-        return NoContent();
-    }
-
     [HttpGet("{deviceCode}/history")]
     [ProducesResponseType<PagedResult<DeviceHistoryDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<DeviceHistoryDto>>> History(string deviceCode, [FromQuery] DeviceHistoryQuery query, CancellationToken cancellationToken)

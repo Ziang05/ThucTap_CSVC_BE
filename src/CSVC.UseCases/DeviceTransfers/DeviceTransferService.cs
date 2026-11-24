@@ -418,7 +418,6 @@ public sealed partial class DeviceTransferService(
     {
         if (device.Quantity != 1) throw Conflict("DEVICE_NOT_RECEIVED", "The device has not been received yet.");
         if (device.DepartmentId != sourceDepartmentId) throw Conflict("DEVICE_NOT_IN_SOURCE_DEPARTMENT", "Every device must still belong to the source department.");
-        if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "A locked device cannot be transferred.");
         if (device.Condition != DeviceCondition.Good && !(transferType == DeviceTransferType.Recovery && device.Condition == DeviceCondition.Damaged))
             throw Conflict("DEVICE_NOT_AVAILABLE", "Only good devices may be transferred; recovery also accepts damaged devices.");
     }

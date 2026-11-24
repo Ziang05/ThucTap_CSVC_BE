@@ -6,7 +6,7 @@ namespace CSVC.UseCases.Devices.DTOs;
 
 public sealed record DeviceDto(
     string DeviceCode, string? Barcode, string Name, string CategoryCode, string CategoryName,
-    string DepartmentCode, string DepartmentName, string? AreaCode, EntityStatus Status,
+    string DepartmentCode, string DepartmentName, string? AreaCode,
     DeviceCondition Condition, DeviceAvailability Availability, string? ResponsibleAccountCode,
     string? ResponsibleFullName, string? ManufacturerCode, string? ManufacturerName,
     string? Model, string? SerialNumber, DateOnly? PurchaseDate, string? PaidInvoiceCode,

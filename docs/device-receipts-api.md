@@ -86,7 +86,6 @@ Response thêm `workflowVersion`, `receivingDepartmentCode/Name`. `requestingDep
 | 409 | `DEVICE_BUSY` | Một item đang được operation khác giữ |
 | 409 | `DEVICE_ALREADY_RECEIVED` | Mã đã có số lượng 1, không được tiếp nhận lần nữa |
 | 409 | `DEVICE_RECEIPT_DEPARTMENT_MISMATCH` | Hồ sơ có sẵn khác phòng ban của phiếu |
-| 409 | `DEVICE_LOCKED` | Hồ sơ có sẵn đang khóa |
 | 409 | `SUPPLIER_UNAVAILABLE`, `DEPARTMENT_UNAVAILABLE`, `DEVICE_CATEGORY_UNAVAILABLE` | Danh mục/phòng ban bị khóa |
 | 409 | `DEVICE_OPERATION_CONFLICT` / `DEVICE_REFERENCE_CHANGED` | Unique/FK conflict khác |
 

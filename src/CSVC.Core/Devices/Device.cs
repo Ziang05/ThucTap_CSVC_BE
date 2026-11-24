@@ -22,6 +22,7 @@ public sealed class Device
     public Guid? AreaId { get; set; }
     public Guid? ResponsibleAccountId { get; set; }
     public Guid? ParentDeviceId { get; set; }
+    // Legacy persistence only. Device eligibility is based on physical condition, quantity and custody.
     public EntityStatus Status { get; set; } = EntityStatus.Active;
     public DeviceCondition Condition { get; set; } = DeviceCondition.Good;
     public string? Notes { get; set; }

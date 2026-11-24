@@ -52,9 +52,8 @@ public sealed class UpdateDeviceRequest
     [RegularExpression("^[A-Fa-f0-9]{64}$")] public string? Version { get; init; }
 }
 
-public enum DeviceStatusFilter { Active, Locked }
 public enum DeviceAvailability { Available, Reserved, OnLoan, TransferPending, NotReceived }
-public enum DeviceSortBy { DeviceCode, Name, Category, Department, Status }
+public enum DeviceSortBy { DeviceCode, Name, Category, Department }
 public enum DeviceSortDirection { Asc, Desc }
 public enum DeviceWorkflowEligibility { Loan, Transfer, Recovery }
 
@@ -65,7 +64,6 @@ public sealed class DeviceListQuery
     [StringLength(32)] public string? ParentDeviceCode { get; set; }
     [StringLength(200)] public string? Search { get; init; }
     [StringLength(64)] public string? CategoryCode { get; init; }
-    [EnumDataType(typeof(DeviceStatusFilter))] public DeviceStatusFilter? Status { get; init; }
     [EnumDataType(typeof(DeviceCondition))] public DeviceCondition? Condition { get; init; }
     [StringLength(32)] public string? DepartmentCode { get; init; }
     [StringLength(32)] public string? AreaCode { get; init; }

@@ -241,8 +241,11 @@ public sealed class DeviceQuantityApiTests
             supplierCode = "SUP_QTY", deliveryDate = "2026-10-21", deliveryBatch = "1", requestingDepartmentCode = "PB_TEST",
             items = new[] { new { existingDeviceCode = device.DeviceCode, quantity = 2 } }
         }), HttpStatusCode.BadRequest);
-        await Expect(await f.Staff.PutAsync(Devices + "/" + device.DeviceCode + "/lock", null), HttpStatusCode.NoContent);
-        await Expect(await f.Staff.PostAsJsonAsync(Receipts, f.Request(new DeviceReceiptItemRequest { ExistingDeviceCode = device.DeviceCode }), Json), HttpStatusCode.Conflict, "DEVICE_LOCKED");
+        await f.InDb(async db => { (await db.Devices.SingleAsync(x => x.DeviceCode == device.DeviceCode)).Status = EntityStatus.Locked; await db.SaveChangesAsync(); });
+        using var legacyDetail = await f.Staff.GetAsync(Devices + "/" + device.DeviceCode);
+        Assert.Equal(HttpStatusCode.OK, legacyDetail.StatusCode);
+        Assert.False((await legacyDetail.Content.ReadFromJsonAsync<JsonElement>()).TryGetProperty("status", out _));
+        await Expect(await f.Staff.PostAsJsonAsync(Receipts, f.Request(new DeviceReceiptItemRequest { ExistingDeviceCode = device.DeviceCode }), Json), HttpStatusCode.Created);
     }
 
     [PostgreSqlFact]

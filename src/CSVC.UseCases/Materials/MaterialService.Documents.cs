@@ -82,7 +82,7 @@ public sealed partial class MaterialService
                 if (to.Id == location.Id) throw MaterialErrors.Invalid("Transfer locations must differ."); toId = to.Id;
             }
             else if (Clean(line.ToLocationCode) is not null) throw MaterialErrors.Invalid("Only transfers have a destination location.");
-            var device = Clean(line.DeviceCode) is null ? null : await uow.Devices.FirstOrDefaultAsync(d => d.DeviceCode == Code(line.DeviceCode) && d.Quantity == 1 && d.Status == EntityStatus.Active, ct) ?? throw MaterialErrors.Missing("Received active device not found.");
+            var device = Clean(line.DeviceCode) is null ? null : await uow.Devices.FirstOrDefaultAsync(d => d.DeviceCode == Code(line.DeviceCode) && d.Quantity == 1, ct) ?? throw MaterialErrors.Missing("Received device not found.");
             if (service is not null && (device is null || !service.Items.Any(i => i.DeviceId == device.Id && i.ExecutionStatus == ServiceItemStatus.InProgress))) throw MaterialErrors.Invalid("Select an in-progress device from the service order.");
             if (device is not null && service is null && device.DepartmentId != actor.DepartmentId && device.DepartmentId != doc.TargetDepartmentId) throw MaterialErrors.Forbidden("The equipment is outside this document's scope.");
             if (line.Condition == MaterialCondition.Reusable && Clean(line.ConditionNote) is null) throw MaterialErrors.Invalid("Describe the condition of reusable materials.");

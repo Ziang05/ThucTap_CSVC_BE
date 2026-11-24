@@ -41,7 +41,7 @@ public sealed partial class MaterialService
             { if (prior.RecordedByAccountId != actor.Id || prior.Fingerprint != hash) throw MaterialErrors.Conflict("IDEMPOTENCY_CONFLICT", "requestId already used."); return prior.Code; }
             RequireRecorder(actor);
             if (input.Kind == EquipmentChangeKind.WorkResult) throw MaterialErrors.Invalid("Record professional results on the service order; select a detailed intervention type here.");
-            var device = await uow.Devices.FirstOrDefaultAsync(d => d.DeviceCode == Code(input.DeviceCode) && d.Quantity == 1 && d.Status == EntityStatus.Active, token) ?? throw MaterialErrors.Missing("Received active device not found.");
+            var device = await uow.Devices.FirstOrDefaultAsync(d => d.DeviceCode == Code(input.DeviceCode) && d.Quantity == 1, token) ?? throw MaterialErrors.Missing("Received device not found.");
             await transaction.LockDevicesAsync([device.Id], token);
             ServiceOrder? service = null;
             if (Clean(input.ServiceOrderCode) is not null)

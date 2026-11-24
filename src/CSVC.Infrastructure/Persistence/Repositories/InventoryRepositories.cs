@@ -48,7 +48,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
                HasParent = device.ParentDeviceId != null,
                CategoryCode = category.DisplayCode, CategoryName = category.Name,
                DepartmentCode = department.Code, DepartmentName = department.Name, AreaCode = area == null ? null : area.Code,
-               Status = device.Status, Condition = device.Condition, Quantity = device.Quantity, UseState = device.UseState,
+               Condition = device.Condition, Quantity = device.Quantity, UseState = device.UseState,
                ResponsibleAccountCode = account == null ? null : account.AccountCode,
                ResponsibleFullName = profile == null ? null : profile.FullName,
                ManufacturerCode = manufacturer == null ? null : manufacturer.DisplayCode,
@@ -106,7 +106,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
     }
 
     private IQueryable<Guid> Unavailable(bool recovering, bool sameDepartment)
-        => _context.Devices.Where(d => d.Quantity != 1 || d.Status != EntityStatus.Active
+        => _context.Devices.Where(d => d.Quantity != 1
             || (d.Condition != DeviceCondition.Good && (!recovering || d.Condition != DeviceCondition.Damaged))
             || _context.DeviceOperationHolds.Any(h => h.DeviceId == d.Id)
             || (!recovering && _context.Set<CSVC.Core.ServiceOrders.ServiceOrderDeviceHold>().Any(h => h.DeviceId == d.Id)))
@@ -156,7 +156,6 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
                 || (x.SerialNumber != null && x.SerialNumber.ToLower().Contains(search)));
         }
         if (!string.IsNullOrWhiteSpace(query.CategoryCode)) source = source.Where(x => x.CategoryCode.ToLower() == query.CategoryCode.Trim().ToLower());
-        if (query.Status is { } status) source = source.Where(x => x.Status == (status == DeviceStatusFilter.Active ? EntityStatus.Active : EntityStatus.Locked));
         if (query.Condition is { } condition) source = source.Where(x => x.Condition == condition);
         if (!string.IsNullOrWhiteSpace(query.DepartmentCode)) source = source.Where(x => x.DepartmentCode.ToLower() == query.DepartmentCode.Trim().ToLower());
         if (!string.IsNullOrWhiteSpace(query.AreaCode)) source = source.Where(x => x.AreaCode != null && x.AreaCode.ToLower() == query.AreaCode.Trim().ToLower());
@@ -179,8 +178,6 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
             (DeviceSortBy.Category, _) => source.OrderBy(x => x.CategoryName),
             (DeviceSortBy.Department, DeviceSortDirection.Desc) => source.OrderByDescending(x => x.DepartmentName),
             (DeviceSortBy.Department, _) => source.OrderBy(x => x.DepartmentName),
-            (DeviceSortBy.Status, DeviceSortDirection.Desc) => source.OrderByDescending(x => x.Status),
-            (DeviceSortBy.Status, _) => source.OrderBy(x => x.Status),
             (DeviceSortBy.DeviceCode, DeviceSortDirection.Desc) => source.OrderByDescending(x => x.DeviceCode),
             _ => source.OrderBy(x => x.DeviceCode)
         };

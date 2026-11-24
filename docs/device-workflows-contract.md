@@ -2,6 +2,10 @@
 
 Trạng thái: **Phase 0 hoàn tất; contract baseline cho implementation**. Tài liệu này cụ thể hóa quyết định tại [backend-device-workflows-plan.md](plan/backend-device-workflows-plan.md) và là đầu vào cho [implementation plan](plan/backend-device-workflows-implementation-plan.md). Nếu có khác biệt với tài liệu SRS/sơ đồ cũ thì ưu tiên contract này. Các endpoint dưới đây là contract dự kiến để implement, không khẳng định API đã tồn tại.
 
+## Cập nhật: bỏ khóa mềm thiết bị
+
+Thiết bị cụ thể không có trạng thái khóa quản trị. Quy tắc `status=Active|Locked`, API khóa/mở khóa và điều kiện chặn thiết bị vì cờ khóa trong baseline bên dưới đã được thay thế. Xem contract đang áp dụng tại [devices-api.md](devices-api.md). Các điều kiện số lượng, tình trạng vật lý, quyền, giữ chỗ và chứng từ vẫn được kiểm tra.
+
 ## Bổ sung từ phần mua sắm và kho vật tư
 
 Trạng thái: **baseline lịch sử, một số quy tắc đã được thay thế về nghiệp vụ đích**. Dùng [Hợp đồng nghiệp vụ PMQTTB](pmqttb-business-contract.md) cho phạm vi và quy tắc mới; dùng tài liệu API từng module cho hành vi code hiện tại. Tài liệu này giữ quyết định thiết kế trước đây để đối chiếu, không phải xác nhận mọi endpoint bên dưới đã tồn tại hoặc vẫn là thiết kế đích.

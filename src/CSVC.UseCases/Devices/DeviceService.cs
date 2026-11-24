@@ -118,7 +118,6 @@ public sealed class DeviceService(
             Validate(request);
             var key = ValidateDeviceCode(deviceCode);
             var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == key, token) ?? throw Missing();
-            if (device.Status == EntityStatus.Locked) throw Conflict("DEVICE_LOCKED", "Unlock the device before editing it.");
             var currentManufacturer = device.ManufacturerId is { } manufacturerId ? await unitOfWork.Manufacturers.GetByIdAsync(manufacturerId, token) : null;
             var currentArea = device.AreaId is { } areaId ? await unitOfWork.Areas.GetByIdAsync(areaId, token) : null;
             if (request.Version is not null && !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(request.Version.ToLowerInvariant()), Encoding.ASCII.GetBytes(VersionOf(device, currentManufacturer?.DisplayCode, currentArea?.Code))))
@@ -192,7 +191,7 @@ public sealed class DeviceService(
             var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == code, ct) ?? throw Missing();
             await transaction.LockDevicesAsync([device.Id], ct);
             if (device.DepartmentId != equipmentId || device.UseState != DeviceUseState.InStorage || device.Quantity != 1
-                || device.Status != EntityStatus.Active || device.Condition != DeviceCondition.Good)
+                || device.Condition != DeviceCondition.Good)
                 throw Conflict("DEVICE_NOT_IN_EQUIPMENT_STORAGE", "Select a received, usable device currently held in equipment storage.");
             await reservations.RequireAsync(device, false, ct: ct);
             var responsible = await FindByCodeAsync(unitOfWork.Accounts, request.ResponsibleAccountCode, x => x.AccountCode, "RESPONSIBLE_ACCOUNT_NOT_FOUND", ct);
@@ -225,26 +224,6 @@ public sealed class DeviceService(
         _ = await unitOfWork.Devices.FirstOrDefaultAsync(x => x.DeviceCode == ValidateDeviceCode(deviceCode), ct) ?? throw Missing();
         throw Conflict("DEVICE_COMPONENT_RELATIONSHIPS_RETIRED", "Device component references are historical and read-only. Record an equipment intervention instead.");
     }
-
-    public async Task SetLockedAsync(string deviceCode, bool locked, CancellationToken ct)
-        => await transaction.ExecuteAsync(async token =>
-        {
-            var actor = await RequireActorAsync(true, token);
-            var key = ValidateDeviceCode(deviceCode);
-            var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == key, token) ?? throw Missing();
-            var next = locked ? EntityStatus.Locked : EntityStatus.Active;
-            await transaction.LockDevicesAsync([device.Id], token);
-            if (locked) await reservations.RequireAsync(device, false, ct: token);
-            if (device.Status != next)
-            {
-                var before = StateSnapshot(device);
-                device.Status = next;
-                unitOfWork.Devices.Update(device);
-                await AuditAsync(device, actor.AccountId, (locked ? "DEVICE_LOCKED_" : "DEVICE_UNLOCKED_") + device.DeviceCode, ["status"], before, StateSnapshot(device), token);
-            }
-            await unitOfWork.CommitAsync(token);
-            return true;
-        }, ct);
 
     public async Task<PagedResult<DeviceHistoryDto>> HistoryAsync(string deviceCode, DeviceHistoryQuery query, CancellationToken ct)
     {
@@ -308,7 +287,7 @@ public sealed class DeviceService(
 
     private static DeviceDto ToDto(DeviceReadModel x, bool includeBarcode)
         => new(x.DeviceCode, includeBarcode ? x.Barcode : null, x.Name, x.CategoryCode, x.CategoryName, x.DepartmentCode, x.DepartmentName,
-            x.AreaCode, x.Status, x.Condition, Availability(x), x.ResponsibleAccountCode, x.ResponsibleFullName,
+            x.AreaCode, x.Condition, Availability(x), x.ResponsibleAccountCode, x.ResponsibleFullName,
             x.ManufacturerCode, x.ManufacturerName, x.Model, x.SerialNumber, x.PurchaseDate, x.PaidInvoiceCode,
             x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, VersionOf(x), x.ParentDeviceCode, x.ParentDeviceName, x.IsComponent, x.Quantity)
         { UseState = x.UseState, ActiveLoanCode = x.ActiveLoanCode, BorrowerDepartmentCode = x.BorrowerDepartmentCode,
@@ -330,7 +309,6 @@ public sealed class DeviceService(
     private static string VersionOf(DeviceReadModel x) => Hash(new { x.Name, x.SerialNumber, x.ManufacturerCode, x.Model, x.PurchaseDate, x.PaidInvoiceCode, x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, x.AreaCode });
     private static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))).ToLowerInvariant();
     private static string EditableSnapshot(Device d, string? manufacturerCode, string? areaCode) => JsonSerializer.Serialize(new { d.Name, d.SerialNumber, ManufacturerCode = manufacturerCode, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes, AreaCode = areaCode });
-    private static string StateSnapshot(Device d) => JsonSerializer.Serialize(new { d.DeviceCode, status = d.Status.ToString() });
     private static string CreateSnapshot(Device d, string categoryCode, string departmentCode, string? responsibleAccountCode, string? manufacturerCode, string? areaCode)
         => JsonSerializer.Serialize(new { d.DeviceCode, d.Barcode, d.Name, d.Quantity, categoryCode, departmentCode, responsibleAccountCode, manufacturerCode, areaCode, condition = d.Condition.ToString(), d.SerialNumber, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes });
     private static List<string> ChangedFields(string before, string after)
