@@ -586,6 +586,16 @@ public sealed class DeviceTransferRepository(CsvcDbContext context) : GenericRep
             var departmentCode = query.DepartmentCode.Trim().ToLower();
             source = source.Where(x => x.SourceDepartmentCode.ToLower() == departmentCode || x.TargetDepartmentCode.ToLower() == departmentCode);
         }
+        if (!string.IsNullOrWhiteSpace(query.SourceDepartmentCode))
+        {
+            var sourceCode = query.SourceDepartmentCode.Trim().ToLower();
+            source = source.Where(x => x.SourceDepartmentCode.ToLower() == sourceCode);
+        }
+        if (!string.IsNullOrWhiteSpace(query.TargetDepartmentCode))
+        {
+            var targetCode = query.TargetDepartmentCode.Trim().ToLower();
+            source = source.Where(x => x.TargetDepartmentCode.ToLower() == targetCode);
+        }
         if (query.Status is { } status) source = source.Where(x => x.Status == status);
         if (query.FromDate is { } from)
         {
