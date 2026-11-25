@@ -17,7 +17,7 @@ public sealed class DevicePackagePolicyTests
     { using (response) Assert.True(response.StatusCode == status, await response.Content.ReadAsStringAsync()); }
 
     [PostgreSqlFact]
-    public async Task Legacy_references_survive_upgrade_locks_and_individual_transfers_without_expansion()
+    public async Task Legacy_references_survive_upgrade_and_individual_transfers_without_expansion()
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         await f.InDb(async db =>
@@ -33,9 +33,9 @@ public sealed class DevicePackagePolicyTests
             var violation = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("UPDATE devices SET parent_device_id=NULL WHERE device_code='TB-ROLE-002'"));
             Assert.Equal(PostgresErrorCodes.CheckViolation, violation.SqlState);
         });
-        await Expect(await f.Manager.PutAsJsonAsync("/api/v1/devices/TB-ROLE-001/lock", new { }));
+        await Expect(await f.Manager.PutAsJsonAsync("/api/v1/devices/TB-ROLE-001/lock", new { }), HttpStatusCode.NotFound);
         await f.InDb(async db => Assert.Equal(EntityStatus.Active, (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-ROLE-002")).Status));
-        await Expect(await f.Manager.DeleteAsync("/api/v1/devices/TB-ROLE-001/lock"));
+        await Expect(await f.Manager.DeleteAsync("/api/v1/devices/TB-ROLE-001/lock"), HttpStatusCode.NotFound);
         using var created = await f.Staff.PostAsJsonAsync("/api/v1/device-transfers", new { sourceDepartmentCode = "PB_TEST", targetDepartmentCode = "PB_TARGET", targetResponsibleAccountCode = "TK_DEPARTMENT", reason = "Independent device", items = new[] { new { deviceCode = "TB-ROLE-001" } } });
         Assert.True(created.StatusCode == HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
         var transfer = await created.Content.ReadFromJsonAsync<JsonElement>(); Assert.Equal(1, transfer.GetProperty("itemCount").GetInt32());

@@ -352,7 +352,6 @@ public sealed class DeviceReceiptService(
     private static void RequireReceivable(Device device, Guid? departmentId)
     {
         if (device.Quantity != 0) throw Conflict("DEVICE_ALREADY_RECEIVED", "The device has already been received.");
-        if (device.Status != EntityStatus.Active) throw Conflict("DEVICE_LOCKED", "Unlock the device before receiving it.");
         if (departmentId is { } expectedDepartment && device.DepartmentId != expectedDepartment)
             throw Conflict("DEVICE_RECEIPT_DEPARTMENT_MISMATCH", "The device must belong to the receipt department.");
     }

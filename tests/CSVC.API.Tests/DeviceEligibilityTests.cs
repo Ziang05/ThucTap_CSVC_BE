@@ -69,11 +69,11 @@ public sealed class DeviceEligibilityTests
         using var retiredLoanOptions = await staff.GetAsync("/api/v1/devices?eligibleFor=Loan");
         Assert.Equal(HttpStatusCode.BadRequest, retiredLoanOptions.StatusCode);
         Assert.Contains("LOAN_ELIGIBILITY_ENDPOINT_CHANGED", await retiredLoanOptions.Content.ReadAsStringAsync());
-        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(staff, "eligibleFor=Transfer")));
-        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "GOOD-CHILD", "GOOD-PARENT", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(departmentStaff, "eligibleFor=Transfer")));
+        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "LOCKED", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(staff, "eligibleFor=Transfer")));
+        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "GOOD-CHILD", "GOOD-PARENT", "LOCKED", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(departmentStaff, "eligibleFor=Transfer")));
         Assert.Empty(Codes(await List(departmentStaff, "eligibleFor=Transfer&departmentCode=OTHER")));
-        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "DAMAGED", "DAMAGED-CHILD", "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(staff, "eligibleFor=Recovery")));
-        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "DAMAGED", "DAMAGED-CHILD", "GOOD-CHILD", "GOOD-PARENT", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(departmentStaff, "eligibleFor=Recovery")));
+        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "DAMAGED", "DAMAGED-CHILD", "FOREIGN-CHILD", "GOOD-CHILD", "GOOD-PARENT", "LOCKED", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(staff, "eligibleFor=Recovery")));
+        Assert.Equal(new[] { "BLOCKED-MIDDLE", "BLOCKED-ROOT", "DAMAGED", "DAMAGED-CHILD", "GOOD-CHILD", "GOOD-PARENT", "LOCKED", "MIXED-PARENT", "READY", "RECOVERY-PARENT" }, Codes(await List(departmentStaff, "eligibleFor=Recovery")));
         Assert.Empty(Codes(await List(departmentStaff, "eligibleFor=Recovery&departmentCode=OTHER")));
         var paged = await List(staff, "eligibleFor=Transfer&departmentCode=PB_TEST&search=GOOD&pageSize=1&page=2&sortBy=Name");
         Assert.Equal(2, paged.GetProperty("totalCount").GetInt32());

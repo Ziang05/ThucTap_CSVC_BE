@@ -20,7 +20,6 @@ public sealed class DeviceReadModel
     public required string DepartmentCode { get; init; }
     public required string DepartmentName { get; init; }
     public string? AreaCode { get; init; }
-    public EntityStatus Status { get; init; }
     public DeviceCondition Condition { get; init; }
     public string? ResponsibleAccountCode { get; init; }
     public string? ResponsibleFullName { get; init; }

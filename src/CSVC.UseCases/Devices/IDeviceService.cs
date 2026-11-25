@@ -14,7 +14,6 @@ public interface IDeviceService
     Task PutIntoUseBatchAsync(PutDeviceIntoUseBatchRequest request, CancellationToken cancellationToken);
     Task PutIntoUseAsync(string deviceCode, PutDeviceIntoUseRequest request, CancellationToken cancellationToken);
     Task SetParentAsync(string deviceCode, string? parentDeviceCode, CancellationToken cancellationToken);
-    Task SetLockedAsync(string deviceCode, bool locked, CancellationToken cancellationToken);
     Task<PagedResult<DeviceHistoryDto>> HistoryAsync(string deviceCode, DeviceHistoryQuery query, CancellationToken cancellationToken);
     Task<PagedResult<DeviceHistoryDto>> GlobalHistoryAsync(DeviceHistoryQuery query, CancellationToken cancellationToken);
 }

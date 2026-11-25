@@ -200,7 +200,7 @@ public sealed partial class ServiceOrderService
         RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
         if (item.ExecutionMethod != ExecutionMethod.External || item.ExecutionStatus != ServiceItemStatus.InProgress) throw InvalidTransition();
         var device = await unitOfWork.Devices.GetByIdAsync(item.DeviceId, ct) ?? throw Missing("DEVICE_NOT_FOUND");
-        if (device.Quantity != 1 || device.Status != EntityStatus.Active || device.Condition == DeviceCondition.Missing
+        if (device.Quantity != 1 || device.Condition == DeviceCondition.Missing
             || device.DepartmentId != await equipment.RequireConfiguredAsync(ct))
             throw Conflict("DEVICE_NOT_EXPORTABLE", "Device must be available in the equipment department.");
         if (await unitOfWork.DeviceOperationHolds.ExistsForDeviceAsync(item.DeviceId, ct)) throw Busy();

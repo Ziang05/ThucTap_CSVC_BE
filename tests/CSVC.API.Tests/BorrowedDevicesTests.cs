@@ -32,7 +32,7 @@ public sealed class BorrowedDevicesTests
             Assert.False(item.TryGetProperty(field, out _));
         Assert.Equal(1, Count(await Get(f.A, "/api/v1/devices"))); // A still owns only OWN.
         using (var detail = await f.A.GetAsync("/api/v1/devices/READY")) Assert.Equal(HttpStatusCode.NotFound, detail.StatusCode);
-        using (var edit = await f.A.PutAsJsonAsync("/api/v1/devices/READY/lock", new { })) Assert.Equal(HttpStatusCode.Forbidden, edit.StatusCode);
+        using (var edit = await f.A.PutAsJsonAsync("/api/v1/devices/READY", new { name = "Forbidden edit" })) Assert.Equal(HttpStatusCode.Forbidden, edit.StatusCode);
         Assert.Equal(0, Count(await Get(f.C, List + "?departmentCode=A")));
         Assert.Equal(0, Count(await Get(f.Manager, List))); // Global management roles still use their own borrower department here.
 

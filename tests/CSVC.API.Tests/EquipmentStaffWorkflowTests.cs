@@ -310,11 +310,9 @@ public sealed class EquipmentStaffWorkflowTests
     [InlineData("quantity", "DEVICE_NOT_RECEIVED", true)]
     [InlineData("missing", "DEVICE_NOT_AVAILABLE", false)]
     [InlineData("missing", "DEVICE_NOT_AVAILABLE", true)]
-    [InlineData("locked", "DEVICE_LOCKED", false)]
-    [InlineData("locked", "DEVICE_LOCKED", true)]
     [InlineData("busy", "DEVICE_BUSY", false)]
     [InlineData("busy", "DEVICE_BUSY", true)]
-    public async Task Recovery_rejects_unreceived_missing_locked_and_busy_devices_including_children(string invalid, string code, bool child)
+    public async Task Recovery_rejects_unreceived_missing_and_busy_devices_including_children(string invalid, string code, bool child)
     {
         await using var f = await Fixture.CreateAsync();
         await f.PrepareRecovery(DeviceCondition.Good, child);
@@ -323,7 +321,6 @@ public sealed class EquipmentStaffWorkflowTests
             var device = await db.Devices.SingleAsync(x => x.DeviceCode == (child ? "TB-ROLE-002" : "TB-ROLE-001"));
             if (invalid == "quantity") device.Quantity = 0;
             if (invalid == "missing") device.Condition = DeviceCondition.Missing;
-            if (invalid == "locked") device.Status = CSVC.Core.Common.EntityStatus.Locked;
             if (invalid == "busy") db.Add(new DeviceOperationHold { DeviceCode = device.DeviceCode, DeviceId = device.Id, OperationKind = DeviceOperationKind.Loan, OperationId = Guid.NewGuid(), HeldAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
         });
