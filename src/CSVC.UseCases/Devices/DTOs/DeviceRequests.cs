@@ -28,6 +28,7 @@ public sealed class CreateDeviceRequest
 public sealed class UpdateDeviceRequest
 {
     private string? areaCode;
+    private string? categoryCode;
 
     [Required, StringLength(200)] public string Name { get; init; } = "";
     [StringLength(100)] public string? SerialNumber { get; init; }
@@ -48,6 +49,17 @@ public sealed class UpdateDeviceRequest
         }
     }
     internal bool HasAreaCode { get; private set; }
+    [StringLength(64)]
+    public string? CategoryCode
+    {
+        get => categoryCode;
+        init
+        {
+            categoryCode = value;
+            HasCategoryCode = true;
+        }
+    }
+    internal bool HasCategoryCode { get; private set; }
     [StringLength(4000)] public string? Notes { get; init; }
     [RegularExpression("^[A-Fa-f0-9]{64}$")] public string? Version { get; init; }
 }

@@ -70,6 +70,46 @@ public sealed class DeviceQuantityApiTests
     }
 
     [PostgreSqlFact]
+    public async Task Device_edit_changes_category_with_audit_and_rejects_invalid_or_stale_changes()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.InDb(async db =>
+        {
+            db.AddRange(new DeviceCategory { DisplayCode = "CAT_NEXT", Name = "New device category" },
+                new DeviceCategory { DisplayCode = "CAT_LOCKED", Name = "Locked device category", Status = EntityStatus.Locked });
+            await db.SaveChangesAsync();
+        });
+        var created = await f.CreateDevice();
+        var url = Devices + "/" + created.DeviceCode;
+
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, categoryCode = (string?)null, created.Version }),
+            HttpStatusCode.BadRequest);
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, categoryCode = "CAT_UNKNOWN", created.Version }),
+            HttpStatusCode.NotFound, "DEVICE_CATEGORY_NOT_FOUND");
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, categoryCode = "CAT_LOCKED", created.Version }),
+            HttpStatusCode.Conflict, "DEVICE_CATEGORY_UNAVAILABLE");
+        await Expect(await f.Staff.PutAsJsonAsync(url,
+            new { created.Name, created.SerialNumber, categoryCode = "cat_next", created.Version }), HttpStatusCode.NoContent);
+
+        var updated = await f.GetDevice(created.DeviceCode);
+        Assert.Equal("CAT_NEXT", updated.CategoryCode);
+        Assert.Equal(created.SerialNumber, updated.SerialNumber);
+        Assert.NotEqual(created.Version, updated.Version);
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { created.Name, categoryCode = "CAT_QTY", created.Version }),
+            HttpStatusCode.Conflict, "VERSION_CONFLICT");
+        await Expect(await f.Staff.PutAsJsonAsync(url, new { name = "Renamed", updated.SerialNumber, updated.Version }),
+            HttpStatusCode.NoContent);
+        Assert.Equal("CAT_NEXT", (await f.GetDevice(created.DeviceCode)).CategoryCode);
+        await f.InDb(async db =>
+        {
+            var history = await db.DeviceHistories.Where(entry => entry.ActionCode == "DEVICE_UPDATED").ToListAsync();
+            var categoryEdit = Assert.Single(history, entry => entry.ChangedFields!.Contains("\"categoryCode\""));
+            Assert.Equal("CAT_QTY", JsonDocument.Parse(categoryEdit.BeforeData!).RootElement.GetProperty("CategoryCode").GetString());
+            Assert.Equal("CAT_NEXT", JsonDocument.Parse(categoryEdit.AfterData!).RootElement.GetProperty("CategoryCode").GetString());
+        });
+    }
+
+    [PostgreSqlFact]
     public async Task Full_device_form_can_register_then_receive_an_existing_device_without_losing_metadata()
     {
         await using var f = await Fixture.CreateAsync();
