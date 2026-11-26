@@ -19,6 +19,26 @@ public sealed class EquipmentInitiatedRecoveryTests
         => new { version, items = child ? new[] { new { deviceCode = "TB-ROLE-001", condition = rootCondition, note = "Recorded" }, new { deviceCode = "TB-ROLE-002", condition = "Damaged", note = "Recorded" } }
             : new[] { new { deviceCode = "TB-ROLE-001", condition = rootCondition, note = "Recorded" } } };
 
+    [PostgreSqlFact]
+    public async Task List_filters_source_and_target_departments_independently()
+    {
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await f.PrepareRecovery(DeviceCondition.Good);
+        var code = Code(await Create(f.Manager, Body(Guid.NewGuid())));
+
+        async Task<int> Count(string filter)
+        {
+            var page = await f.Manager.GetFromJsonAsync<JsonElement>($"{Root}?{filter}");
+            return page.GetProperty("totalCount").GetInt32();
+        }
+
+        Assert.Equal(1, await Count("sourceDepartmentCode=PB_TARGET&targetDepartmentCode=PB_TEST"));
+        Assert.Equal(0, await Count("sourceDepartmentCode=PB_TEST"));
+        Assert.Equal(0, await Count("targetDepartmentCode=PB_TARGET"));
+        var matching = await f.Manager.GetFromJsonAsync<JsonElement>($"{Root}?sourceDepartmentCode=PB_TARGET&targetDepartmentCode=PB_TEST");
+        Assert.Equal(code, matching.GetProperty("items")[0].GetProperty("transferCode").GetString());
+    }
+
     [PostgreSqlTheory]
     [InlineData(true)]
     [InlineData(false)]

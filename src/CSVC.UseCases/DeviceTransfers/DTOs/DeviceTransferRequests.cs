@@ -54,6 +54,8 @@ public sealed class DeviceTransferListQuery
 {
     [StringLength(32)] public string? TransferCode { get; init; }
     [StringLength(32)] public string? DepartmentCode { get; init; }
+    [StringLength(32)] public string? SourceDepartmentCode { get; init; }
+    [StringLength(32)] public string? TargetDepartmentCode { get; init; }
     [EnumDataType(typeof(DeviceTransferStatus))] public DeviceTransferStatus? Status { get; init; }
     public DateOnly? FromDate { get; init; }
     public DateOnly? ToDate { get; init; }
