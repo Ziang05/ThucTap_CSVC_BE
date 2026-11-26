@@ -116,6 +116,7 @@ public sealed class MaterialInventoryConfiguration : IEntityTypeConfiguration<Ma
         b.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<ServiceOrder>().WithMany().HasForeignKey(x => x.ServiceOrderId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<EquipmentChange>().WithMany().HasForeignKey(x => x.ReplacesId).OnDelete(DeleteBehavior.Restrict); Account(b, nameof(EquipmentChange.RecordedByAccountId));
+        b.HasOne<MaterialDocument>().WithMany().HasForeignKey(x => x.IssueDocumentId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Uses).WithOne().HasForeignKey(x => x.ChangeId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Removed).WithOne().HasForeignKey(x => x.ChangeId).OnDelete(DeleteBehavior.Restrict);
         b.ToTable(t => t.HasCheckConstraint("ck_equipment_change_time", "performed_at <= recorded_at AND (before_value IS NOT NULL OR after_value IS NOT NULL)")); Finish(b);

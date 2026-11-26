@@ -154,6 +154,7 @@ public sealed class EquipmentChange
     public required string Code { get; set; }
     public Guid DeviceId { get; set; }
     public Guid? ServiceOrderId { get; set; }
+    public Guid? IssueDocumentId { get; set; }
     public Guid? ReplacesId { get; set; }
     public Guid RequestId { get; set; }
     public required string Fingerprint { get; set; }

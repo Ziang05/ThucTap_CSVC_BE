@@ -128,7 +128,7 @@ public sealed class SourceRequestAssignmentTests
     }
 
     [PostgreSqlFact]
-    public async Task Repair_material_documents_follow_current_source_assignee_when_posting_and_returning()
+    public async Task Repair_issue_posting_follows_assignee_but_receiving_department_submits_returns_for_QTTB_review()
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); await MoveSecondEmployee(f); var code = await Create(f, repair: true); await Assign(f, code);
         var order = await Read(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/start-repair", new { requestId = Guid.NewGuid(), version = await Version(f, code), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } }));
@@ -143,10 +143,13 @@ public sealed class SourceRequestAssignmentTests
         var post = new { requestId = Guid.NewGuid(), version = issue.GetProperty("summary").GetProperty("version").GetInt32() };
         await Expect(await f.Staff.PostAsJsonAsync(route + "/post", post), HttpStatusCode.Forbidden);
         await Expect(await f.ForeignStaff.PostAsJsonAsync(route + "/post", post));
-        await Expect(await f.ForeignStaff.PostAsJsonAsync(route + "/receive", new { requestId = Guid.NewGuid(), version = post.version + 1 }));
+        var posted = await Read(await f.ForeignStaff.GetAsync(route));
+        Assert.Equal("Completed", posted.GetProperty("summary").GetProperty("status").GetString());
         var back = new { requestId = Guid.NewGuid(), kind = "ReturnUnused", reason = "Unused part", lines = new[] { new { materialCode = "VT_ASSIGN", quantity = 1, condition = "New", originalIssueLineId = issue.GetProperty("lines")[0].GetProperty("id").GetGuid() } } };
-        await Expect(await f.Staff.PostAsJsonAsync(materials + "/documents", back), HttpStatusCode.Forbidden);
-        await Read(await f.ForeignStaff.PostAsJsonAsync(materials + "/documents", back));
+        var returned = await Read(await f.Staff.PostAsJsonAsync(materials + "/documents", back));
+        Assert.Equal("PendingApproval", returned.GetProperty("summary").GetProperty("status").GetString());
+        await Expect(await f.ForeignStaff.PostAsJsonAsync(materials + "/documents/" + returned.GetProperty("summary").GetProperty("code").GetString() + "/approve",
+            new { requestId = Guid.NewGuid(), version = 1 }));
     }
 
     [PostgreSqlFact]

@@ -4,12 +4,12 @@ Task 6 triển khai riêng danh mục và tồn vật tư/dụng cụ, không c�
 
 ## Quy tắc đã xác nhận
 
-- Nhân viên QTTB ghi nhận nhập, xuất và nhập trả theo quyền vai trò; riêng điều chỉnh tồn cần quản lý duyệt trước khi ghi sổ. Không tự tạo task và không yêu cầu được giao việc trong module này.
+- Nhân viên QTTB ghi nhận nhập và xuất. Bên nhận của phiếu xuất ghi số đã dùng và lập phiếu trả chưa dùng hoặc trả dụng cụ đã dùng; nhân viên/quản lý QTTB duyệt phiếu trả và đồng thời ghi sổ nhập lại kho. Điều chỉnh tồn vẫn cần quản lý duyệt. Chứng từ gắn yêu cầu sửa chữa tiếp tục kiểm tra nhân viên được giao khi xuất; thao tác sử dụng/trả thuộc đơn vị nhận, duyệt trả thuộc QTTB.
 
 - Vật tư thu hồi còn dùng được cộng chung tồn với vật tư mới, giữ tình trạng và nguồn thu hồi trên từng dòng chứng từ. Vật tư hỏng không được nhập theo diện còn dùng được.
 - Dụng cụ xuất dùng như vật tư. Không tạo quy trình xuất tạm bắt buộc trả. Có thể nhập trả dụng cụ đã dùng sau khi công việc đã đóng, bằng phiếu thu hồi có liên kết dòng xuất.
 - Vật tư phục vụ sửa chữa/bảo trì phải được đối chiếu: **đã dùng + đã nhập trả chưa dùng = đã xuất**, trước khi ghi kết quả cuối của phiếu. Bộ phận tháo được chọn trả kho phải nhập đủ. Với phiếu xuất dùng trực tiếp, chi tiết phiếu cung cấp số đã dùng/đã trả để module của team đối chiếu khi tích hợp.
-- Nhập kho QTTB trước rồi xuất riêng. Xuất cho đơn vị khác cần đơn vị nhận xác nhận nhận đủ. Xuất cho công việc tại QTTB do nhân viên QTTB xác nhận nhận vật tư.
+- Nhập kho QTTB trước rồi xuất riêng. Phiếu chỉ xuất vật tư hoàn tất khi ghi sổ, không yêu cầu xác nhận nhận thêm. Yêu cầu hỗn hợp thiết bị và vật tư vẫn giữ bước bàn giao phối hợp hiện có.
 
 ## Chứng từ và tồn
 
@@ -25,6 +25,8 @@ Các phiếu hiện dùng: nhập, xuất dùng, điều chỉnh tăng/giảm, n
 
 Xuất làm giảm tồn khi ghi sổ; ghi nhận vật tư đã dùng không trừ tồn lần hai. Nhập trả chưa dùng liên kết đúng dòng xuất và không vượt phần chưa dùng/chưa trả. Thu hồi bộ phận liên kết bản ghi tháo còn hiệu lực, đúng danh mục, đúng số lượng và tình trạng. Các dòng thu hồi không được đếm hai lần; nhiều dòng tác động cùng số dư vẫn được kiểm tra tổng trong giao dịch.
 
+Phiếu trả do bên nhận lập ở trạng thái `PendingApproval`, giữ nguyên kho, danh mục, đơn vị tính và dòng xuất nguồn. Phiếu chờ duyệt chưa tăng tồn nhưng giữ phần số lượng trả để không thể ghi dùng hoặc gửi trả trùng. QTTB duyệt sẽ kiểm tra lại số lượng và cộng tồn trong cùng giao dịch; từ chối phải ghi lý do và giải phóng phần giữ này. Các quyền `canRecordConsumption`, `canSubmitReturn`, `canApproveReturn` và số trả chờ duyệt được trả trong chi tiết phiếu. Bên xuất không được ghi sử dụng/trả thay một đơn vị nhận khác.
+
 Ghi sổ chạy trong giao dịch có khóa dùng chung, không cho tồn âm, có kiểm tra phiên bản và chống gửi lặp bằng `requestId`. Khi lưu lịch sử thất bại, tồn và chứng từ cùng rollback. Sổ biến động, lịch sử và bằng chứng sử dụng/can thiệp được bảo vệ chỉ ghi thêm ở PostgreSQL. Dòng phiếu đã ghi sổ không được sửa/xóa/thêm; đầu phiếu chỉ cho chuyển từ chờ nhận sang đã nhận với thông tin người nhận.
 
 Báo cáo trên giao diện theo khoảng thời gian có tồn đầu kỳ, nhập, xuất, nhập trả, điều chỉnh tăng/giảm và tồn cuối kỳ tại QTTB. Sổ biến động có số dư sau từng bút toán, người thực hiện và phiếu nguồn. Chi tiết kho/vị trí cũ vẫn giữ trong API và lịch sử.
@@ -33,7 +35,9 @@ Báo cáo trên giao diện theo khoảng thời gian có tồn đầu kỳ, nh�
 
 Mỗi can thiệp gắn thiết bị và phiếu nghiệp vụ, có loại thay thế/bổ sung/nâng cấp/tháo bỏ/sửa chữa/kiểm tra, nội dung bị tác động, trước–sau, lý do, người thực hiện thực tế và người ghi nhận. Công việc có thể có nhiều can thiệp hoặc không dùng vật tư; không tạo thiết bị con.
 
-Vật tư lắp/dùng ghi nguồn kho QTTB hoặc nguồn nhà cung cấp/đơn vị/nguồn khác. Nguồn kho cần phiếu đã xuất và được nhận đúng công việc, đúng thiết bị; nguồn ngoài giữ mô tả, đơn vị và tham chiếu nguồn. Bộ phận tháo giữ tình trạng, số lượng và cách xử lý: trả kho, trả đơn vị, loại bỏ hoặc giữ cùng thiết bị. Lô/serial lưu khi có.
+Form vật tư lắp/dùng luôn dùng nguồn kho QTTB. Người ghi chọn vật tư từ danh mục, số lượng, tình trạng, lô/serial nếu có và điền đơn vị nhận, người nhận, lý do, ngày/chứng từ tham chiếu, ghi chú của phiếu xuất mới. `POST /changes` nhận nhóm `issue` và lập/ghi sổ phiếu xuất cùng can thiệp trong một giao dịch. Không chọn phiếu xuất cũ, không tự ghi số đã dùng. Lịch sử giữ `issueDocumentCode` để mở phiếu xuất; bên nhận ghi sử dụng và trả phần dư sau đó. Thiết bị mở từ hồ sơ được cố định trong form.
+
+Bằng chứng vật tư theo luồng cũ vẫn được giữ để tra cứu/hiệu chỉnh; hiệu chỉnh mô tả can thiệp giữ liên kết phiếu xuất đã ghi sổ, không tự tạo thêm phiếu hoặc thay đổi tồn. Bộ phận tháo giữ tình trạng, số lượng và cách xử lý: trả kho, trả đơn vị, loại bỏ hoặc giữ cùng thiết bị. Lô/serial lưu khi có.
 
 Hiệu chỉnh can thiệp bằng bản mới thay thế bản cũ trong cùng công việc còn mở, giữ cả hai để đối chiếu. Không viết lại bằng chứng đã gắn phiếu thu hồi hoặc dụng cụ đã nhập trả. Kết quả chuyên môn cuối cùng dùng kết quả và lịch sử của phiếu bảo trì/sửa chữa hiện có; không tạo thêm một can thiệp tổng kết trùng nội dung. Các can thiệp chi tiết vẫn giữ riêng. Vật tư dùng chung cho công việc không gắn thiết bị có bảng ghi nhận sử dụng riêng.
 

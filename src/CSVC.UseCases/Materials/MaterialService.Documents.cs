@@ -10,7 +10,7 @@ public sealed partial class MaterialService
     {
         var code = await transaction.ExecuteAsync(async token =>
         {
-            var actor = await access.RequireAsync(token); Validate(input); RequestId(input.RequestId);
+            var actor = await access.RequireAsync(token, allowDepartment: input.Kind is MaterialDocumentKind.ReturnUnused or MaterialDocumentKind.ReceiveRecovered); Validate(input); RequestId(input.RequestId);
             var hash = Hash(input);
             var prior = await documents.FirstOrDefaultAsync(d => d.CreateRequestId == input.RequestId, token);
             if (prior is not null)
@@ -18,6 +18,10 @@ public sealed partial class MaterialService
                 if (prior.CreatedByAccountId != actor.Id || prior.CreateHash != hash) throw MaterialErrors.Conflict("IDEMPOTENCY_CONFLICT", "requestId already belongs to another operation.");
                 return prior.Code;
             }
+            if (input.Kind == MaterialDocumentKind.ReturnUnused || (input.Kind == MaterialDocumentKind.ReceiveRecovered
+                && input.Lines is { Count: > 0 } && input.Lines.All(l => l is not null && l.OriginalIssueLineId != null)))
+                return (await CreateRecipientReturnAsync(input, actor, hash, token)).Code;
+            if (actor.Department) throw MaterialErrors.Forbidden();
             var doc = new MaterialDocument { Code = CSVC.UseCases.Common.FeatureCode.New("PV"), Kind = input.Kind,
                 Status = input.Kind == MaterialDocumentKind.Adjustment ? MaterialDocumentStatus.PendingApproval : MaterialDocumentStatus.Ready,
                 DepartmentId = actor.DepartmentId, CreateRequestId = input.RequestId, CreateHash = hash,
@@ -129,6 +133,8 @@ public sealed partial class MaterialService
         var actor = await access.RequireAsync(token); Validate(input); RequestId(input.RequestId);
         var doc = await ReadDocumentAsync(code, actor, true, token); var hash = Hash(new { code = doc.Code, action = "EDIT", input });
         if (await ReplayAsync(doc, actor, input.RequestId, hash, token)) return true;
+        if (doc.Kind is MaterialDocumentKind.ReturnUnused or MaterialDocumentKind.ReceiveRecovered && doc.Status == MaterialDocumentStatus.PendingApproval)
+            throw MaterialErrors.Invalid("Submitted returns are reviewed by QTTB; their source lines cannot be rewritten.");
         if (doc.PostedAt is not null || doc.Status is not (MaterialDocumentStatus.Ready or MaterialDocumentStatus.PendingApproval) || doc.Kind != input.Kind) throw MaterialErrors.Invalid("Only unposted, unapproved documents can be edited; their kind is immutable.");
         Version(doc.Version, input.Version); RequireRecorder(actor);
         var before = ProcurementRequests.ProcurementJson.Write(new { doc.Reason, doc.Version, doc.Reference, doc.Lines });
@@ -148,15 +154,22 @@ public sealed partial class MaterialService
         var actor = await access.RequireAsync(token, allowDepartment: action == "receive"); Validate(input); RequestId(input.RequestId);
         var doc = await ReadDocumentAsync(code, actor, true, token); var hash = Hash(new { code = doc.Code, action, input });
         if (await ReplayAsync(doc, actor, input.RequestId, hash, token)) return true;
-        if (!actor.Department && !(actor.Manager && action is "approve" or "reject")) await assignment.RequireMaterialAsync(doc, actor.Id, token);
+        if (!actor.Department && action is not ("approve" or "reject")) await assignment.RequireMaterialAsync(doc, actor.Id, token);
         Version(doc.Version, input.Version); var before = ProcurementRequests.ProcurementJson.Write(new { doc.Status, doc.Version });
         if (action is "approve" or "reject")
         {
-            if (!actor.Manager) throw MaterialErrors.Forbidden();
-            if (doc.Kind != MaterialDocumentKind.Adjustment || doc.Status != MaterialDocumentStatus.PendingApproval) throw MaterialErrors.Invalid("Only pending stock adjustments require approval.");
+            var recipientReturn = doc.Kind is MaterialDocumentKind.ReturnUnused or MaterialDocumentKind.ReceiveRecovered;
+            if (recipientReturn ? !(actor.Staff || actor.Manager) : !actor.Manager) throw MaterialErrors.Forbidden();
+            if ((!recipientReturn && doc.Kind != MaterialDocumentKind.Adjustment) || doc.Status != MaterialDocumentStatus.PendingApproval)
+                throw MaterialErrors.Invalid("The document is not awaiting approval.");
             if (action == "reject" && Clean(input.Reason) is null) throw MaterialErrors.Invalid("A rejection reason is required.");
             doc.Status = action == "approve" ? MaterialDocumentStatus.Approved : MaterialDocumentStatus.Rejected;
             doc.ApprovedByAccountId = actor.Id; doc.ApprovedAt = clock.GetUtcNow();
+            if (recipientReturn && action == "approve")
+            {
+                await PostAsync(doc, actor, token);
+                doc.PostedByAccountId = actor.Id; doc.PostedAt = clock.GetUtcNow(); doc.Status = MaterialDocumentStatus.Completed;
+            }
         }
         else if (action == "post")
         {
@@ -165,7 +178,8 @@ public sealed partial class MaterialService
             await ValidateSourceAsync(doc, actor, token);
             await PostAsync(doc, actor, token);
             doc.PostedByAccountId = actor.Id; doc.PostedAt = clock.GetUtcNow();
-            doc.Status = doc.Kind == MaterialDocumentKind.Issue ? MaterialDocumentStatus.AwaitingReceipt : MaterialDocumentStatus.Completed;
+            doc.Status = await RequiresCombinedDeliveryAsync(doc, token)
+                ? MaterialDocumentStatus.AwaitingReceipt : MaterialDocumentStatus.Completed;
         }
         else if (action == "receive")
         {

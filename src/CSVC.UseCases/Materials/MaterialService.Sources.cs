@@ -48,9 +48,16 @@ public sealed partial class MaterialService
         }
         else if (existing.Any(d => d.Kind == MaterialDocumentKind.Issue)) throw MaterialErrors.Invalid("Prepare incoming materials before creating the issue.");
     }
+    private async Task<bool> RequiresCombinedDeliveryAsync(MaterialDocument doc, CancellationToken ct)
+    {
+        if (doc.Kind != MaterialDocumentKind.Issue || doc.ProcurementRequestId is not { } requestId) return false;
+        var record = await requestRecords.GetByIdAsync(requestId, ct);
+        var request = record is null ? null : await requests.GetAsync(record.DisplayCode, false, ct);
+        return request?.Lines.Any(l => l.Kind == ProcurementLineKind.Equipment) == true;
+    }
     private async Task CompleteCombinedDeliveryAsync(MaterialDocument doc, MaterialAction input, MaterialActor actor, CancellationToken ct)
     {
-        var detail = await DetailAsync(doc, ct);
+        var detail = await DetailAsync(doc, actor, ct);
         if (detail.EquipmentRequirements.Count == 0)
         { if (input.Devices.Count > 0) throw MaterialErrors.Invalid("No equipment belongs to this material delivery."); return; }
         var requestId = doc.ProcurementRequestId!.Value;

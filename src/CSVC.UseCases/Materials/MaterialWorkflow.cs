@@ -47,7 +47,7 @@ public sealed class MaterialWorkflow(IMaterialStore store) : IMaterialWorkflow
         var lines = request.Lines.Where(l => l.Kind == ProcurementLineKind.Material).ToArray();
         if (lines.Length == 0) return;
         var issue = (await store.RequestDocumentsAsync(request.Id, ct)).SingleOrDefault(d => d.Kind == MaterialDocumentKind.Issue && d.Status == MaterialDocumentStatus.Completed)
-            ?? throw MaterialErrors.Conflict("SOURCE_REQUEST_INCOMPLETE", "Receive the complete material issue before closing this request.");
+            ?? throw MaterialErrors.Conflict("SOURCE_REQUEST_INCOMPLETE", "Complete the material issue before closing this request.");
         foreach (var line in lines)
             if (issue.Lines.Where(l => l.SourceLineCode == line.SourceLineCode).Sum(l => l.Quantity) != line.Quantity) throw MaterialErrors.Conflict("SOURCE_REQUEST_INCOMPLETE", "All material request lines must be delivered in full.");
     }

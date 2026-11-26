@@ -134,12 +134,14 @@ public sealed record MaterialLineDto(Guid Id, int LineNo, string MaterialCode, s
     string UnitCode, string UnitName, int DecimalPlaces, string LocationCode, string LocationName, string WarehouseCode,
     string? ToLocationCode, decimal Quantity, MaterialCondition Condition, string? ConditionNote,
     string? DeviceCode, Guid? OriginalIssueLineId, Guid? RemovedMaterialId, string? SourceLineCode, string? LotOrSerial,
-    decimal UsedQuantity, decimal ReturnedQuantity, decimal RecoverableQuantity);
+    decimal UsedQuantity, decimal ReturnedQuantity, decimal RecoverableQuantity,
+    decimal PendingReturnQuantity = 0, decimal PendingRecoveryQuantity = 0);
 public sealed record MaterialDocumentDetail(MaterialDocumentSummary Summary, DateOnly? ReferenceDate, string? Reference, string? Notes,
     string? SupplierCode, string? SupplierName, string? ApprovedByAccountCode, DateTimeOffset? ApprovedAt,
     string? ReceivedByAccountCode, DateTimeOffset? ReceivedAt, string? TargetResponsibleAccountCode,
     string? ServiceOrderCode, string? CombinedTransferCode, bool CombinedInternalUse,
-    IReadOnlyList<MaterialDeliveryRequirement> EquipmentRequirements, IReadOnlyList<MaterialLineDto> Lines);
+    IReadOnlyList<MaterialDeliveryRequirement> EquipmentRequirements, IReadOnlyList<MaterialLineDto> Lines,
+    bool CanRecordConsumption = false, bool CanSubmitReturn = false, bool CanApproveReturn = false);
 public sealed record MaterialDeliveryRequirement(string SourceLineCode, string Description, int Quantity, string? CategoryCode);
 public sealed record MaterialHistoryDto(string Action, string? Reason, string ActorAccountCode, DateTimeOffset OccurredAt, string? BeforeData, string AfterData);
 public sealed record MaterialMovementDto(string DocumentCode, MaterialDocumentKind Kind, string MaterialCode, string MaterialName,
@@ -160,8 +162,20 @@ public sealed class RecordEquipmentChange
     [StringLength(4000)] public string? Notes { get; init; }
     public DateTimeOffset? PerformedAt { get; init; }
     [StringLength(200)] public string? Executor { get; init; }
+    public InterventionIssueInput? Issue { get; init; }
     [Required, MaxLength(100)] public List<EquipmentMaterialUseInput> Uses { get; init; } = [];
     [Required, MaxLength(100)] public List<EquipmentRemovedInput> Removed { get; init; } = [];
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class InterventionIssueInput
+{
+    [Required, StringLength(1000)] public string Reason { get; init; } = "";
+    [StringLength(4000)] public string? Notes { get; init; }
+    public DateOnly? ReferenceDate { get; init; }
+    [StringLength(200)] public string? Reference { get; init; }
+    [Required, StringLength(32)] public string TargetDepartmentCode { get; init; } = "";
+    [StringLength(32)] public string? TargetResponsibleAccountCode { get; init; }
+    [Required, MinLength(1), MaxLength(100)] public List<MaterialLineInput> Lines { get; init; } = [];
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class EquipmentMaterialUseInput
@@ -194,7 +208,8 @@ public sealed record EquipmentRemovedDto(Guid Id, string? MaterialCode, string D
 public sealed record EquipmentChangeDto(string Code, string DeviceCode, string DeviceName, string? ServiceOrderCode,
     string? ReplacesCode, string? ReplacedByCode, EquipmentChangeKind Kind, string Target, string? BeforeValue, string? AfterValue,
     string Reason, string? Notes, string RecordedByAccountCode, string RecordedByName, string Executor, DateTimeOffset PerformedAt,
-    DateTimeOffset RecordedAt, IReadOnlyList<EquipmentUseDto> Uses, IReadOnlyList<EquipmentRemovedDto> Removed);
+    DateTimeOffset RecordedAt, IReadOnlyList<EquipmentUseDto> Uses, IReadOnlyList<EquipmentRemovedDto> Removed,
+    string? IssueDocumentCode = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RecordMaterialWorkUse

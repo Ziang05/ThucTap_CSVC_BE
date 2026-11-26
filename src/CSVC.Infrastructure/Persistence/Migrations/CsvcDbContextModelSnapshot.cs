@@ -1963,7 +1963,7 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_device_transfers_reason", "btrim(reason) <> ''");
 
-                            t.HasCheckConstraint("ck_equipment_recovery_workflow", "initiation_type IN ('SourceDepartment','EquipmentDepartment') AND\n(initiation_type = 'SourceDepartment' OR (\n    transfer_type = 'Recovery' AND create_request_id IS NOT NULL AND create_request_id <> '00000000-0000-0000-0000-000000000000'::uuid\n    AND create_request_hash IS NOT NULL AND create_request_hash ~ '^[0-9A-F]{64}$'\n    AND receiver_confirmed_account_id IS NULL AND receiver_confirmed_at IS NULL\n    AND receiver_rejected_account_id IS NULL AND receiver_rejected_at IS NULL\n    AND decision_account_id IS NULL AND decided_at IS NULL\n    AND (source_accepted_by_account_id IS NULL) = (source_accepted_at IS NULL)\n    AND (source_rejected_by_account_id IS NULL) = (source_rejected_at IS NULL)\n    AND (source_handover_confirmed_by_account_id IS NULL) = (source_handover_confirmed_at IS NULL)\n    AND (source_accepted_at IS NULL OR source_accepted_at >= created_at)\n    AND (source_rejected_at IS NULL OR source_rejected_at >= created_at)\n    AND (source_handover_confirmed_at IS NULL OR (source_accepted_at IS NOT NULL AND source_handover_confirmed_at >= source_accepted_at))\n    AND (status::text NOT IN ('APPROVED','COMPLETED') OR source_accepted_at IS NOT NULL)\n    AND (status::text NOT IN ('PENDING_CONFIRMATION','CANCELLED','REJECTED') OR source_accepted_at IS NULL)\n    AND (status::text <> 'REJECTED' OR (source_rejected_at IS NOT NULL AND source_rejection_reason IS NOT NULL AND btrim(source_rejection_reason) <> ''))\n    AND (status::text = 'REJECTED' OR source_rejected_at IS NULL)\n    AND (status::text <> 'COMPLETED' OR (source_handover_confirmed_at IS NOT NULL AND completed_at IS NOT NULL\n        AND target_handover_account_id IS NOT NULL AND completed_at >= source_handover_confirmed_at))\n    AND status::text IN ('PENDING_CONFIRMATION','APPROVED','COMPLETED','REJECTED','CANCELLED')\n))");
+                            t.HasCheckConstraint("ck_equipment_recovery_workflow", "initiation_type IN ('SourceDepartment','EquipmentDepartment') AND\r\n(initiation_type = 'SourceDepartment' OR (\r\n    transfer_type = 'Recovery' AND create_request_id IS NOT NULL AND create_request_id <> '00000000-0000-0000-0000-000000000000'::uuid\r\n    AND create_request_hash IS NOT NULL AND create_request_hash ~ '^[0-9A-F]{64}$'\r\n    AND receiver_confirmed_account_id IS NULL AND receiver_confirmed_at IS NULL\r\n    AND receiver_rejected_account_id IS NULL AND receiver_rejected_at IS NULL\r\n    AND decision_account_id IS NULL AND decided_at IS NULL\r\n    AND (source_accepted_by_account_id IS NULL) = (source_accepted_at IS NULL)\r\n    AND (source_rejected_by_account_id IS NULL) = (source_rejected_at IS NULL)\r\n    AND (source_handover_confirmed_by_account_id IS NULL) = (source_handover_confirmed_at IS NULL)\r\n    AND (source_accepted_at IS NULL OR source_accepted_at >= created_at)\r\n    AND (source_rejected_at IS NULL OR source_rejected_at >= created_at)\r\n    AND (source_handover_confirmed_at IS NULL OR (source_accepted_at IS NOT NULL AND source_handover_confirmed_at >= source_accepted_at))\r\n    AND (status::text NOT IN ('APPROVED','COMPLETED') OR source_accepted_at IS NOT NULL)\r\n    AND (status::text NOT IN ('PENDING_CONFIRMATION','CANCELLED','REJECTED') OR source_accepted_at IS NULL)\r\n    AND (status::text <> 'REJECTED' OR (source_rejected_at IS NOT NULL AND source_rejection_reason IS NOT NULL AND btrim(source_rejection_reason) <> ''))\r\n    AND (status::text = 'REJECTED' OR source_rejected_at IS NULL)\r\n    AND (status::text <> 'COMPLETED' OR (source_handover_confirmed_at IS NOT NULL AND completed_at IS NOT NULL\r\n        AND target_handover_account_id IS NOT NULL AND completed_at >= source_handover_confirmed_at))\r\n    AND status::text IN ('PENDING_CONFIRMATION','APPROVED','COMPLETED','REJECTED','CANCELLED')\r\n))");
                         });
                 });
 
@@ -3316,6 +3316,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("fingerprint");
 
+                    b.Property<Guid?>("IssueDocumentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("issue_document_id");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -3367,6 +3371,8 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Code")
                         .IsUnique();
+
+                    b.HasIndex("IssueDocumentId");
 
                     b.HasIndex("RecordedByAccountId");
 
@@ -6687,6 +6693,11 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("CSVC.Core.Materials.MaterialDocument", null)
+                        .WithMany()
+                        .HasForeignKey("IssueDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("CSVC.Core.Accounts.Account", null)
                         .WithMany()
