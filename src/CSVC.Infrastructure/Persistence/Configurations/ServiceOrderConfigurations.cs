@@ -64,6 +64,8 @@ public sealed class ServiceOrderItemConfiguration : IEntityTypeConfiguration<Ser
             t.HasCheckConstraint("ck_service_items_no", "item_no > 0");
             t.HasCheckConstraint("ck_service_items_method", "execution_method IN ('OnSite','External')");
             t.HasCheckConstraint("ck_service_items_status", "execution_status IS NULL OR execution_status IN ('InProgress','NotExecuted','Completed','Failed')");
+            t.HasCheckConstraint("ck_service_items_maintenance_performed_on",
+                "(maintenance_period_id IS NOT NULL AND execution_status IS NOT DISTINCT FROM 'Completed') = (performed_on IS NOT NULL)");
             t.HasCheckConstraint("ck_service_items_result", "execution_status NOT IN ('NotExecuted','Completed','Failed') OR (result_recorded_at IS NOT NULL AND result_recorded_by_account_id IS NOT NULL AND COALESCE(btrim(result_description), '') <> '')");
         });
         b.HasKey(x => x.Id);
@@ -79,6 +81,12 @@ public sealed class ServiceOrderItemConfiguration : IEntityTypeConfiguration<Ser
         b.HasIndex(x => new { x.ServiceOrderId, x.DeviceId }).IsUnique();
         b.HasIndex(x => new { x.ServiceOrderId, x.ExecutionStatus });
         b.HasIndex(x => new { x.DeviceId, x.ExecutionStatus });
+        b.HasIndex(x => new { x.Id, x.MaintenancePeriodId }).IsUnique()
+            .HasDatabaseName("uq_service_items_id_maintenance_period");
+        b.HasIndex(x => x.MaintenancePeriodId).HasDatabaseName("ix_service_items_maintenance_period");
+        b.HasOne(x => x.MaintenancePeriod).WithMany().HasForeignKey(x => new { x.MaintenancePeriodId, x.DeviceId })
+            .HasPrincipalKey(x => new { x.Id, x.DeviceId }).HasConstraintName("fk_service_item_maintenance_period")
+            .OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.RepairDetail).WithOne().HasForeignKey<RepairItemDetail>(x => x.ServiceOrderItemId).OnDelete(DeleteBehavior.Restrict);
         ServiceMapping.Account(b, nameof(ServiceOrderItem.ResultRecordedByAccountId));

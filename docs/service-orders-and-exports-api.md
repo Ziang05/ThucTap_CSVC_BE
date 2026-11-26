@@ -74,6 +74,10 @@ Ghi kết quả:
 
 Kết quả: Completed/Failed/NotExecuted; description bắt buộc, đặc biệt lý do NotExecuted. External Completed/Failed cần một lần xuất Success. Khi có guard HeldForExport, phải xử lý kết quả PX trước khi kết thúc item chuyên môn. Success còn chờ về vẫn được ghi kết quả chuyên môn, nhưng giữ service hold. Source Completed chỉ khi mọi item có kết quả cuối.
 
+Khi lập phiếu bảo trì, dòng thêm thủ công được gắn với kỳ đang mở của thiết bị nếu có. Dòng đã chọn từ lịch tiếp tục kiểm tra đúng kỳ đã chọn. Mỗi kỳ chỉ có một phiếu đang xử lý. Bảng chọn có thể gọi `GET /devices?includeMaintenanceDue=true` để nhận ngày đến hạn `maintenanceDueOn` của các thiết bị trong trang.
+
+Khi ghi kết quả `Completed` cho dòng đã gắn kỳ, backend lấy `performedOn` từ thời điểm ghi kết quả theo giờ Việt Nam. Giá trị `performedOn` gửi bởi client cũ không quyết định ngày thực tế. Nếu kết quả được ghi từ ngày đóng kỳ trở đi, ngày thực tế vẫn hiện trên phiếu nhưng kỳ đã qua không chuyển thành hoàn thành.
+
 Service hold được xóa ngay khi item cuối và không có export guard; việc xóa và HOLD_RELEASED cùng transaction. Nếu còn guard thì giữ hold. Sau nhập lại, gọi reconcile bằng body transition ở trên: chỉ xóa hold của item cuối và không còn guard; không đổi kết quả hay trạng thái nguồn. Retry trả lại số đã giải phóng của lần gốc. Không có worker tự động: frontend/vận hành cần chủ động gọi endpoint này cho nguồn đã hoàn thành còn hold.
 
 Tạo nhanh Thu hồi chỉ là frontend mở biểu mẫu với dữ liệu điền sẵn. Backend BT/SC không gọi, sinh hoặc liên kết chứng từ Thu hồi.

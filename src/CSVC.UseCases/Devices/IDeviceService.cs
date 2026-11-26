@@ -1,10 +1,16 @@
 using CSVC.UseCases.Common;
 using CSVC.UseCases.Devices.DTOs;
+using CSVC.UseCases.Maintenance;
+using CSVC.UseCases.ServiceOrders.DTOs;
 
 namespace CSVC.UseCases.Devices;
 
 public interface IDeviceService
 {
+    Task<MaintenanceScheduleDto> GetMaintenanceScheduleAsync(string deviceCode, CancellationToken ct);
+    Task<MaintenanceScheduleDto> ConfigureMaintenanceScheduleAsync(string deviceCode, CreateMaintenanceScheduleRequest request, CancellationToken ct);
+    Task<PagedResult<MaintenancePeriodDto>> ListMaintenancePeriodsAsync(string? deviceCode, MaintenancePeriodQuery query, CancellationToken ct);
+    Task<PagedResult<MaintenanceAttemptDto>> ListUnscheduledMaintenanceAsync(string deviceCode, ServiceHistoryQuery query, CancellationToken ct);
     Task<PagedResult<BorrowedDeviceDto>> BorrowedAsync(BorrowedDeviceListQuery query, CancellationToken cancellationToken);
     Task<PagedResult<DeviceDto>> ListAsync(DeviceListQuery query, CancellationToken cancellationToken);
     Task<DeviceDto> GetAsync(string deviceCode, CancellationToken cancellationToken);

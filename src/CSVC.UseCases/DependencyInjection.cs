@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<Suppliers.ISupplierService, Suppliers.SupplierService>();
         services.AddScoped<Manufacturers.IManufacturerService, Manufacturers.ManufacturerService>();
         services.AddScoped<Areas.IAreaService, Areas.AreaService>();
+        services.AddScoped<Maintenance.MaintenanceScheduleService>();
         services.AddScoped<Devices.IDeviceService, Devices.DeviceService>();
         services.AddScoped<Devices.IDeviceReservationPolicy, Devices.DeviceReservationPolicy>();
         services.AddScoped<DeviceReceipts.IDeviceReceiptService, DeviceReceipts.DeviceReceiptService>();

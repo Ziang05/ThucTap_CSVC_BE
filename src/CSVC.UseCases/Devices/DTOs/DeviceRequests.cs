@@ -73,6 +73,7 @@ public enum DeviceCategoryScope { Exact, Subtree }
 
 public sealed class DeviceListQuery
 {
+    public bool IncludeMaintenanceDue { get; init; }
     [EnumDataType(typeof(DeviceUseState))] public DeviceUseState? UseState { get; init; }
     [EnumDataType(typeof(DeviceWorkflowEligibility))] public DeviceWorkflowEligibility? EligibleFor { get; init; }
     [StringLength(32)] public string? ParentDeviceCode { get; set; }

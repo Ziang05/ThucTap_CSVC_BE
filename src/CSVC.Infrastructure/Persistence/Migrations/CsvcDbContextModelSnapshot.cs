@@ -2356,6 +2356,134 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceMaintenancePeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly?>("ClosesOn")
+                        .HasColumnType("date")
+                        .HasColumnName("closes_on");
+
+                    b.Property<Guid?>("CompletedByItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("completed_by_item_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateOnly>("DueOn")
+                        .HasColumnType("date")
+                        .HasColumnName("due_on");
+
+                    b.Property<int>("IntervalMonths")
+                        .HasColumnType("integer")
+                        .HasColumnName("interval_months");
+
+                    b.Property<Guid>("IntervalSourceCategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("interval_source_category_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Scheduled")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "DeviceId")
+                        .HasName("uq_maintenance_periods_id_device");
+
+                    b.HasIndex("IntervalSourceCategoryId");
+
+                    b.HasIndex("DeviceId", "DueOn")
+                        .IsUnique()
+                        .HasDatabaseName("uq_maintenance_periods_device_due");
+
+                    b.HasIndex("Status", "ClosesOn")
+                        .HasDatabaseName("ix_maintenance_periods_status_close");
+
+                    b.HasIndex("Status", "DueOn")
+                        .HasDatabaseName("ix_maintenance_periods_status_due");
+
+                    b.HasIndex(new[] { "DeviceId" }, "DueDevice")
+                        .IsUnique()
+                        .HasDatabaseName("uq_maintenance_periods_one_due")
+                        .HasFilter("status = 'Due'");
+
+                    b.HasIndex(new[] { "DeviceId" }, "ScheduledDevice")
+                        .IsUnique()
+                        .HasDatabaseName("uq_maintenance_periods_one_scheduled")
+                        .HasFilter("status = 'Scheduled'");
+
+                    b.ToTable("device_maintenance_periods", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_maintenance_periods_completion", "(status = 'Completed') = (completed_by_item_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_maintenance_periods_interval", "interval_months > 0");
+
+                            t.HasCheckConstraint("ck_maintenance_periods_status", "status IN ('Scheduled', 'Due', 'Completed', 'Missed')");
+
+                            t.HasCheckConstraint("ck_maintenance_periods_window", "(status = 'Scheduled' AND closes_on IS NULL) OR (status <> 'Scheduled' AND closes_on IS NOT NULL AND closes_on > due_on)");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceMaintenanceSchedule", b =>
+                {
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_account_id");
+
+                    b.Property<DateOnly?>("PausedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("paused_on");
+
+                    b.Property<DateOnly>("StartOn")
+                        .HasColumnType("date")
+                        .HasColumnName("start_on");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("version");
+
+                    b.HasKey("DeviceId");
+
+                    b.HasIndex("CreatedByAccountId");
+
+                    b.ToTable("device_maintenance_schedules", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_maintenance_schedules_version", "version > 0");
+                        });
+                });
+
             modelBuilder.Entity("CSVC.Core.Devices.DeviceOperationHold", b =>
                 {
                     b.Property<string>("DeviceCode")
@@ -5609,9 +5737,17 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("item_no");
 
+                    b.Property<Guid?>("MaintenancePeriodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("maintenance_period_id");
+
                     b.Property<string>("Notes")
                         .HasColumnType("text")
                         .HasColumnName("notes");
+
+                    b.Property<DateOnly?>("PerformedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("performed_on");
 
                     b.Property<string>("ResultDescription")
                         .HasColumnType("text")
@@ -5652,9 +5788,18 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("Id", "ServiceOrderId", "DeviceId")
                         .HasName("uq_service_order_item_hold_fk");
 
+                    b.HasIndex("MaintenancePeriodId")
+                        .HasDatabaseName("ix_service_items_maintenance_period");
+
                     b.HasIndex("ResultRecordedByAccountId");
 
                     b.HasIndex("DeviceId", "ExecutionStatus");
+
+                    b.HasIndex("Id", "MaintenancePeriodId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_service_items_id_maintenance_period");
+
+                    b.HasIndex("MaintenancePeriodId", "DeviceId");
 
                     b.HasIndex("ServiceOrderId", "DeviceId")
                         .IsUnique();
@@ -5666,6 +5811,8 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                     b.ToTable("service_order_items", null, t =>
                         {
+                            t.HasCheckConstraint("ck_service_items_maintenance_performed_on", "(maintenance_period_id IS NOT NULL AND execution_status IS NOT DISTINCT FROM 'Completed') = (performed_on IS NOT NULL)");
+
                             t.HasCheckConstraint("ck_service_items_method", "execution_method IN ('OnSite','External')");
 
                             t.HasCheckConstraint("ck_service_items_no", "item_no > 0");
@@ -6479,6 +6626,36 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceMaintenancePeriod", b =>
+                {
+                    b.HasOne("CSVC.Core.Devices.DeviceMaintenanceSchedule", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null)
+                        .WithMany()
+                        .HasForeignKey("IntervalSourceCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.Devices.DeviceMaintenanceSchedule", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithOne()
+                        .HasForeignKey("CSVC.Core.Devices.DeviceMaintenanceSchedule", "DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSVC.Core.Devices.DeviceOperationHold", b =>
@@ -7305,6 +7482,15 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ServiceOrderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("CSVC.Core.Devices.DeviceMaintenancePeriod", "MaintenancePeriod")
+                        .WithMany()
+                        .HasForeignKey("MaintenancePeriodId", "DeviceId")
+                        .HasPrincipalKey("Id", "DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_service_item_maintenance_period");
+
+                    b.Navigation("MaintenancePeriod");
                 });
 
             modelBuilder.Entity("CSVC.Core.Settings.EquipmentSettings", b =>

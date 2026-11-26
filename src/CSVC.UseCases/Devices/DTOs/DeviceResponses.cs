@@ -14,6 +14,7 @@ public sealed record DeviceDto(
     string? ParentDeviceCode = null, string? ParentDeviceName = null, bool IsComponent = false, int Quantity = 0)
 {
     public DeviceUseState UseState { get; init; }
+    public DateOnly? MaintenanceDueOn { get; init; }
     public string? ActiveLoanCode { get; init; }
     public string? BorrowerDepartmentCode { get; init; }
     public string? BorrowerDepartmentName { get; init; }

@@ -8,6 +8,7 @@ namespace CSVC.API.Controllers;
 
 [Route("api/v1/devices")]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class DevicesController(IDeviceService devices) : AuthenticatedApiControllerBase
 {
     [HttpGet("borrowed")]

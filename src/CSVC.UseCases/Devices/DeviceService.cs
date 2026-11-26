@@ -22,9 +22,10 @@ using CSVC.UseCases.Exceptions;
 
 namespace CSVC.UseCases.Devices;
 
-public sealed class DeviceService(
+public sealed partial class DeviceService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IProcurementWorkflow procurement) : IDeviceService
+    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IProcurementWorkflow procurement,
+    Maintenance.MaintenanceScheduleService maintenance, Maintenance.IMaintenanceScheduleRepository maintenanceRepository) : IDeviceService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex BarcodePattern = new("^BC[A-F0-9]{30}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -43,13 +44,23 @@ public sealed class DeviceService(
         if (query.EligibleFor == CSVC.UseCases.Devices.DTOs.DeviceWorkflowEligibility.Loan)
             throw new UseCaseException(FailureKind.Validation, "LOAN_ELIGIBILITY_ENDPOINT_CHANGED", "Use /api/v1/device-loans/eligible-devices to borrow devices from another department.");
         var page = await unitOfWork.Devices.ListAsync(query, actor.RoleCode == RoleCodes.DepartmentStaff ? actor.DepartmentId : null, ct);
-        return new(page.Items.Select(x => ToDto(x, actor.RoleCode != RoleCodes.DepartmentStaff)).ToArray(), page.TotalCount, page.Page, page.PageSize);
+        var dueDates = query.IncludeMaintenanceDue && page.Items.Count > 0 && await CanViewMaintenanceOrdersAsync(actor, ct)
+            ? await maintenanceRepository.ListOpenDueDatesAsync(page.Items.Select(device => device.Id).ToArray(), maintenance.Today, ct)
+            : null;
+        var items = page.Items.Select(device =>
+        {
+            var dto = ToDto(device, actor.RoleCode != RoleCodes.DepartmentStaff);
+            return dueDates is not null && dueDates.TryGetValue(device.Id, out var dueOn)
+                ? dto with { MaintenanceDueOn = dueOn }
+                : dto;
+        }).ToArray();
+        return new(items, page.TotalCount, page.Page, page.PageSize);
     }
 
     public async Task<DeviceDto> GetAsync(string deviceCode, CancellationToken ct)
     {
         var actor = await RequireActorAsync(false, ct);
-        var result = await unitOfWork.Devices.GetByCodeAsync(ValidateDeviceCode(deviceCode), actor.RoleCode == RoleCodes.DepartmentStaff ? actor.DepartmentId : null, ct)
+        var result = await unitOfWork.Devices.GetByCodeAsync(ValidateDeviceCode(Uri.UnescapeDataString(deviceCode)), actor.RoleCode == RoleCodes.DepartmentStaff ? actor.DepartmentId : null, ct)
             ?? throw Missing();
         return ToDto(result, true);
     }
@@ -116,7 +127,7 @@ public sealed class DeviceService(
         {
             var actor = await RequireActorAsync(true, token);
             Validate(request);
-            var key = ValidateDeviceCode(deviceCode);
+            var key = ValidateDeviceCode(Uri.UnescapeDataString(deviceCode));
             var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == key, token) ?? throw Missing();
             var currentCategory = (await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, token))!;
             var currentManufacturer = device.ManufacturerId is { } manufacturerId ? await unitOfWork.Manufacturers.GetByIdAsync(manufacturerId, token) : null;

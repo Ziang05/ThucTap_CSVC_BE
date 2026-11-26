@@ -7,6 +7,7 @@ namespace CSVC.API.Controllers;
 
 [Route("api/v1/service-orders")]
 [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class ServiceOrdersController(IServiceOrderService service) : AuthenticatedApiControllerBase
 {
     [HttpGet]
@@ -44,11 +45,13 @@ public sealed class ServiceOrdersController(IServiceOrderService service) : Auth
     }
 
     [HttpPost("{code}/results")]
+    [ProducesResponseType<ServiceOrderDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Results(string code, RecordServiceResultsRequest request, CancellationToken ct)
+    public async Task<IActionResult> Results(string code, RecordServiceResultsRequest request, CancellationToken ct,
+        [FromQuery] bool includeOrder = false)
     {
         await service.RecordResultsAsync(code, request, ct);
-        return NoContent();
+        return includeOrder ? Ok(await service.GetAsync(code, ct)) : NoContent();
     }
 
     [HttpPost("{code}/reconcile-holds")]
