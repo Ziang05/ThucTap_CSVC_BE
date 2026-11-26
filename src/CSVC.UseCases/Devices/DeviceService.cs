@@ -22,9 +22,10 @@ using CSVC.UseCases.Exceptions;
 
 namespace CSVC.UseCases.Devices;
 
-public sealed class DeviceService(
+public sealed partial class DeviceService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IProcurementWorkflow procurement) : IDeviceService
+    IRequestContext requestContext, TimeProvider clock, IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IProcurementWorkflow procurement,
+    Maintenance.MaintenanceScheduleService maintenance, Maintenance.IMaintenanceScheduleRepository maintenanceRepository) : IDeviceService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex BarcodePattern = new("^BC[A-F0-9]{30}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -43,13 +44,23 @@ public sealed class DeviceService(
         if (query.EligibleFor == CSVC.UseCases.Devices.DTOs.DeviceWorkflowEligibility.Loan)
             throw new UseCaseException(FailureKind.Validation, "LOAN_ELIGIBILITY_ENDPOINT_CHANGED", "Use /api/v1/device-loans/eligible-devices to borrow devices from another department.");
         var page = await unitOfWork.Devices.ListAsync(query, actor.RoleCode == RoleCodes.DepartmentStaff ? actor.DepartmentId : null, ct);
-        return new(page.Items.Select(x => ToDto(x, actor.RoleCode != RoleCodes.DepartmentStaff)).ToArray(), page.TotalCount, page.Page, page.PageSize);
+        var dueDates = query.IncludeMaintenanceDue && page.Items.Count > 0 && await CanViewMaintenanceOrdersAsync(actor, ct)
+            ? await maintenanceRepository.ListOpenDueDatesAsync(page.Items.Select(device => device.Id).ToArray(), maintenance.Today, ct)
+            : null;
+        var items = page.Items.Select(device =>
+        {
+            var dto = ToDto(device, actor.RoleCode != RoleCodes.DepartmentStaff);
+            return dueDates is not null && dueDates.TryGetValue(device.Id, out var dueOn)
+                ? dto with { MaintenanceDueOn = dueOn }
+                : dto;
+        }).ToArray();
+        return new(items, page.TotalCount, page.Page, page.PageSize);
     }
 
     public async Task<DeviceDto> GetAsync(string deviceCode, CancellationToken ct)
     {
         var actor = await RequireActorAsync(false, ct);
-        var result = await unitOfWork.Devices.GetByCodeAsync(ValidateDeviceCode(deviceCode), actor.RoleCode == RoleCodes.DepartmentStaff ? actor.DepartmentId : null, ct)
+        var result = await unitOfWork.Devices.GetByCodeAsync(ValidateDeviceCode(Uri.UnescapeDataString(deviceCode)), actor.RoleCode == RoleCodes.DepartmentStaff ? actor.DepartmentId : null, ct)
             ?? throw Missing();
         return ToDto(result, true);
     }
@@ -116,13 +127,26 @@ public sealed class DeviceService(
         {
             var actor = await RequireActorAsync(true, token);
             Validate(request);
-            var key = ValidateDeviceCode(deviceCode);
+            var key = ValidateDeviceCode(Uri.UnescapeDataString(deviceCode));
             var device = await unitOfWork.Devices.FirstOrDefaultTrackedAsync(x => x.DeviceCode == key, token) ?? throw Missing();
+            var currentCategory = (await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, token))!;
             var currentManufacturer = device.ManufacturerId is { } manufacturerId ? await unitOfWork.Manufacturers.GetByIdAsync(manufacturerId, token) : null;
             var currentArea = device.AreaId is { } areaId ? await unitOfWork.Areas.GetByIdAsync(areaId, token) : null;
-            if (request.Version is not null && !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(request.Version.ToLowerInvariant()), Encoding.ASCII.GetBytes(VersionOf(device, currentManufacturer?.DisplayCode, currentArea?.Code))))
+            if (request.Version is not null && !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(request.Version.ToLowerInvariant()), Encoding.ASCII.GetBytes(VersionOf(device, currentCategory.DisplayCode, currentManufacturer?.DisplayCode, currentArea?.Code))))
                 throw Conflict("VERSION_CONFLICT", "The device has changed. Reload and retry.");
-            var before = EditableSnapshot(device, currentManufacturer?.DisplayCode, currentArea?.Code);
+            var before = EditableSnapshot(device, currentCategory.DisplayCode, currentManufacturer?.DisplayCode, currentArea?.Code);
+            var category = currentCategory;
+            if (request.HasCategoryCode)
+            {
+                if (string.IsNullOrWhiteSpace(request.CategoryCode)) throw Validation("A device category is required.");
+                if (!string.Equals(request.CategoryCode.Trim(), currentCategory.DisplayCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    category = await FindByCodeAsync(unitOfWork.DeviceCategories, request.CategoryCode,
+                        x => x.DisplayCode, "DEVICE_CATEGORY_NOT_FOUND", token);
+                    if (category.Status != EntityStatus.Active)
+                        throw Conflict("DEVICE_CATEGORY_UNAVAILABLE", "The selected category is locked.");
+                }
+            }
             var newName = TextNormalization.Name(request.Name);
             if (newName.Length == 0) throw Validation("Name is required.");
             Manufacturer? manufacturer = string.IsNullOrWhiteSpace(request.ManufacturerCode) ? null
@@ -135,6 +159,7 @@ public sealed class DeviceService(
                 device.AreaId = area?.Id;
             }
             device.Name = newName;
+            device.CategoryId = category.Id;
             device.SerialNumber = Clean(request.SerialNumber);
             device.ManufacturerId = manufacturer?.Id;
             device.Model = Clean(request.Model);
@@ -143,7 +168,7 @@ public sealed class DeviceService(
             device.PurchasePrice = request.PurchasePrice;
             device.WarrantyExpiryDate = request.WarrantyExpiryDate;
             device.Notes = Clean(request.Notes);
-            var after = EditableSnapshot(device, manufacturer?.DisplayCode, area?.Code);
+            var after = EditableSnapshot(device, category.DisplayCode, manufacturer?.DisplayCode, area?.Code);
             var fields = ChangedFields(before, after);
             if (fields.Count == 0) return true;
             unitOfWork.Devices.Update(device);
@@ -305,10 +330,10 @@ public sealed class DeviceService(
         return value;
     }
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : TextNormalization.Name(value);
-    private static string VersionOf(Device device, string? manufacturerCode, string? areaCode) => Hash(new { device.Name, device.SerialNumber, ManufacturerCode = manufacturerCode, device.Model, device.PurchaseDate, device.PaidInvoiceCode, device.PurchasePrice, device.WarrantyExpiryDate, device.Notes, AreaCode = areaCode });
-    private static string VersionOf(DeviceReadModel x) => Hash(new { x.Name, x.SerialNumber, x.ManufacturerCode, x.Model, x.PurchaseDate, x.PaidInvoiceCode, x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, x.AreaCode });
+    private static string VersionOf(Device device, string categoryCode, string? manufacturerCode, string? areaCode) => Hash(new { device.Name, CategoryCode = categoryCode, device.SerialNumber, ManufacturerCode = manufacturerCode, device.Model, device.PurchaseDate, device.PaidInvoiceCode, device.PurchasePrice, device.WarrantyExpiryDate, device.Notes, AreaCode = areaCode });
+    private static string VersionOf(DeviceReadModel x) => Hash(new { x.Name, x.CategoryCode, x.SerialNumber, x.ManufacturerCode, x.Model, x.PurchaseDate, x.PaidInvoiceCode, x.PurchasePrice, x.WarrantyExpiryDate, x.Notes, x.AreaCode });
     private static string Hash(object value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))).ToLowerInvariant();
-    private static string EditableSnapshot(Device d, string? manufacturerCode, string? areaCode) => JsonSerializer.Serialize(new { d.Name, d.SerialNumber, ManufacturerCode = manufacturerCode, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes, AreaCode = areaCode });
+    private static string EditableSnapshot(Device d, string categoryCode, string? manufacturerCode, string? areaCode) => JsonSerializer.Serialize(new { d.Name, CategoryCode = categoryCode, d.SerialNumber, ManufacturerCode = manufacturerCode, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes, AreaCode = areaCode });
     private static string CreateSnapshot(Device d, string categoryCode, string departmentCode, string? responsibleAccountCode, string? manufacturerCode, string? areaCode)
         => JsonSerializer.Serialize(new { d.DeviceCode, d.Barcode, d.Name, d.Quantity, categoryCode, departmentCode, responsibleAccountCode, manufacturerCode, areaCode, condition = d.Condition.ToString(), d.SerialNumber, d.Model, d.PurchaseDate, d.PaidInvoiceCode, d.PurchasePrice, d.WarrantyExpiryDate, d.Notes });
     private static List<string> ChangedFields(string before, string after)

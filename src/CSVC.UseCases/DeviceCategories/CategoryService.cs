@@ -21,7 +21,8 @@ public sealed class CategoryService(
     IUnitOfWork unitOfWork, ICategoryTransaction transaction, ICurrentAccount current,
     IRequestContext requestContext, IMapper mapper, TimeProvider clock, ILogger<CategoryService> logger, IBusinessCodeGenerator codeGenerator) : ICategoryService
 {
-    private static readonly string[] SnapshotFields = ["display_code", "name", "description", "notes", "status"];
+    private static readonly string[] SnapshotFields =
+        ["display_code", "name", "description", "notes", "status", "parent_display_code", "maintenance_interval_months"];
 
     public Task<PagedResult<CategoryListItemDto>> ListAsync(CategoryListQuery query, CancellationToken ct)
         => ReadAsync(async () =>
@@ -37,9 +38,10 @@ public sealed class CategoryService(
             var actor = await RequireActorAsync(false, ct);
             var category = await FindAsync(displayCode, ct);
             var detail = mapper.Map<CategoryDetailDto>(category);
+            CategoryHierarchy.Populate(detail, category, await GetCategoriesAsync(ct));
             if (IsEquipmentRole(actor.RoleCode))
             {
-                detail.Version = Version(category);
+                detail.Version = Version(category, detail.ParentDisplayCode);
                 detail.Management = await unitOfWork.DeviceCategories.GetManagementAsync(category.Id, ct);
             }
             else detail.Notes = null;
@@ -52,15 +54,20 @@ public sealed class CategoryService(
             var actor = await RequireActorAsync(true, token);
             Validate(request);
             await RequireUniqueNameAsync(request.Name, null, token);
+            var categories = await GetCategoriesAsync(token);
+            var parent = ResolveParent(request.ParentDisplayCode, null, categories);
             var category = mapper.Map<DeviceCategory>(request);
             category.DisplayCode = request.DisplayCode ?? await codeGenerator.NextAsync(BusinessCodeKind.DeviceCategory, token);
             if (await unitOfWork.DeviceCategories.DisplayCodeExistsAsync(category.DisplayCode, null, token))
                 throw Error(FailureKind.Conflict, "CATEGORY_CODE_CONFLICT", "A category with this display code already exists.");
             category.Status = EntityStatus.Active;
+            category.ParentId = parent?.Id;
+            category.MaintenanceIntervalMonths = request.MaintenanceIntervalMonths;
             await unitOfWork.DeviceCategories.AddAsync(category, token);
-            await AuditAsync("CATEGORY_CREATED", category, actor.AccountId, null, Snapshot(category), AuditOutcome.Success, token);
+            await AuditAsync("CATEGORY_CREATED", category, actor.AccountId, null, Snapshot(category, parent?.DisplayCode), AuditOutcome.Success, token);
             var detail = mapper.Map<CategoryDetailDto>(category);
-            detail.Version = Version(category);
+            CategoryHierarchy.Populate(detail, category, categories);
+            detail.Version = Version(category, detail.ParentDisplayCode);
             var account = await unitOfWork.Accounts.GetByIdAsync(actor.AccountId, token);
             var profile = await unitOfWork.UserProfiles.GetByIdAsync(account!.UserProfileId, token);
             detail.Management = new()
@@ -79,14 +86,24 @@ public sealed class CategoryService(
             var category = await FindAsync(displayCode, token);
             if (category.Status != EntityStatus.Active)
                 throw Error(FailureKind.Conflict, "CATEGORY_LOCKED", "Unlock this category before editing it.");
-            if (request.Version is not null && !string.Equals(request.Version, Version(category), StringComparison.OrdinalIgnoreCase))
+            var categories = await GetCategoriesAsync(token);
+            var parentCode = category.ParentId is { } parentId ? categories.GetValueOrDefault(parentId)?.DisplayCode : null;
+            if (request.Version is not null && !string.Equals(request.Version, Version(category, parentCode), StringComparison.OrdinalIgnoreCase))
                 throw Error(FailureKind.Conflict, "CATEGORY_VERSION_CONFLICT", "This category has changed. Reload it before editing.");
             await RequireUniqueNameAsync(request.Name, category.Id, token);
-            var before = Snapshot(category);
+            var before = Snapshot(category, parentCode);
+            if (request.HasParentChange && !string.Equals(request.ParentDisplayCode, parentCode, StringComparison.OrdinalIgnoreCase))
+            {
+                var parent = ResolveParent(request.ParentDisplayCode, category.Id, categories);
+                category.ParentId = parent?.Id;
+                parentCode = parent?.DisplayCode;
+            }
+            if (request.HasMaintenanceIntervalChange)
+                category.MaintenanceIntervalMonths = request.MaintenanceIntervalMonths;
             mapper.Map(request, category);
-            var after = Snapshot(category);
+            var after = Snapshot(category, parentCode);
             if (before == after)
-                await AuditAsync("CATEGORY_UPDATED", category, actor.AccountId, null, null, AuditOutcome.NoChange, token);
+                await AuditAsync("CATEGORY_UPDATED", category, actor.AccountId, before, after, AuditOutcome.NoChange, token);
             else
             {
                 unitOfWork.DeviceCategories.Update(category);
@@ -100,16 +117,17 @@ public sealed class CategoryService(
         {
             var actor = await RequireActorAsync(true, token);
             var category = await FindAsync(displayCode, token);
+            var parentCode = await ParentCodeAsync(category, token);
             var status = locked ? EntityStatus.Locked : EntityStatus.Active;
             var action = locked ? "CATEGORY_LOCKED" : "CATEGORY_UNLOCKED";
+            var before = Snapshot(category, parentCode);
             if (category.Status == status)
-                await AuditAsync(action, category, actor.AccountId, null, null, AuditOutcome.NoChange, token);
+                await AuditAsync(action, category, actor.AccountId, before, before, AuditOutcome.NoChange, token);
             else
             {
-                var before = Snapshot(category);
                 category.Status = status;
                 unitOfWork.DeviceCategories.Update(category);
-                await AuditAsync(action, category, actor.AccountId, before, Snapshot(category), AuditOutcome.Success, token);
+                await AuditAsync(action, category, actor.AccountId, before, Snapshot(category, parentCode), AuditOutcome.Success, token);
             }
             return true;
         }, ct);
@@ -166,7 +184,8 @@ public sealed class CategoryService(
             // Do not echo arbitrary values from imported or older audit records.
             detail.ReasonCode = item.ReasonCode is "VALIDATION_FAILED" or "AUTHENTICATION_REQUIRED" or "CATEGORY_ACCESS_FORBIDDEN"
                 or "CATEGORY_DELETE_FORBIDDEN" or "CATEGORY_NAME_CONFLICT" or "CATEGORY_CODE_CONFLICT" or "CATEGORY_NOT_FOUND"
-                or "CATEGORY_LOCKED" or "CATEGORY_VERSION_CONFLICT" or "CATEGORY_UNAVAILABLE" ? item.ReasonCode : null;
+                or "CATEGORY_LOCKED" or "CATEGORY_VERSION_CONFLICT" or "CATEGORY_UNAVAILABLE"
+                or "CATEGORY_PARENT_NOT_FOUND" or "CATEGORY_PARENT_LOCKED" or "CATEGORY_CYCLE" ? item.ReasonCode : null;
             detail.BeforeData = SafeSnapshot(item.BeforeData);
             detail.AfterData = SafeSnapshot(item.AfterData);
             detail.ChangedFields = item.Outcome == AuditOutcome.Success && detail.BeforeData is not null && detail.AfterData is not null
@@ -191,6 +210,24 @@ public sealed class CategoryService(
         => await unitOfWork.DeviceCategories.GetByDisplayCodeAsync(NormalizeCode(displayCode), ct)
             ?? throw Error(FailureKind.NotFound, "CATEGORY_NOT_FOUND", "Category was not found.");
 
+    private async Task<Dictionary<Guid, DeviceCategory>> GetCategoriesAsync(CancellationToken ct)
+        => (await unitOfWork.DeviceCategories.GetAllAsync(ct)).ToDictionary(category => category.Id);
+
+    private async Task<string?> ParentCodeAsync(DeviceCategory category, CancellationToken ct)
+        => category.ParentId is { } id ? (await unitOfWork.DeviceCategories.GetByIdAsync(id, ct))?.DisplayCode : null;
+
+    private static DeviceCategory? ResolveParent(string? code, Guid? sourceId, IReadOnlyDictionary<Guid, DeviceCategory> categories)
+    {
+        if (code is null) return null;
+        var parent = categories.Values.FirstOrDefault(category => string.Equals(category.DisplayCode, code, StringComparison.OrdinalIgnoreCase))
+            ?? throw Error(FailureKind.NotFound, "CATEGORY_PARENT_NOT_FOUND", "The selected parent category was not found.");
+        if (CategoryHierarchy.WalkToRoot(parent, categories).Any(category => category.Id == sourceId))
+            throw Error(FailureKind.Conflict, "CATEGORY_CYCLE", "A category cannot be moved below itself or one of its descendants.");
+        if (parent.Status == EntityStatus.Locked)
+            throw Error(FailureKind.Conflict, "CATEGORY_PARENT_LOCKED", "Select an active parent category.");
+        return parent;
+    }
+
     private async Task RequireUniqueNameAsync(string name, Guid? id, CancellationToken ct)
     {
         if (await unitOfWork.DeviceCategories.NameExistsAsync(name, id, ct))
@@ -199,14 +236,13 @@ public sealed class CategoryService(
 
     private Task AuditAsync(string action, DeviceCategory category, Guid actor, string? before, string? after, AuditOutcome outcome, CancellationToken ct)
     {
-        var snapshot = Snapshot(category);
         return unitOfWork.CategoryHistories.AddAsync(new CategoryHistory
         {
             RequestId = requestContext.RequestId, ActorAccountId = actor, CategoryId = category.Id,
             ActionCode = action, Outcome = outcome, OccurredAt = clock.GetUtcNow(),
-            BeforeData = before ?? (outcome == AuditOutcome.NoChange ? snapshot : null),
-            AfterData = after ?? (outcome == AuditOutcome.NoChange ? snapshot : null),
-            ChangedFields = before is not null && after is not null
+            BeforeData = before,
+            AfterData = after,
+            ChangedFields = outcome == AuditOutcome.Success && before is not null && after is not null
                 ? JsonSerializer.Serialize(Changes(SafeSnapshot(before)!, SafeSnapshot(after)!)) : null
         }, ct);
     }
@@ -245,7 +281,7 @@ public sealed class CategoryService(
                 {
                     RequestId = requestContext.RequestId, ActorAccountId = actor, CategoryId = category?.Id,
                     ActionCode = action, Outcome = outcome, ReasonCode = reason, OccurredAt = clock.GetUtcNow(),
-                    BeforeData = category is null ? null : Snapshot(category)
+                    BeforeData = category is null ? null : Snapshot(category, await ParentCodeAsync(category, token))
                 }, token);
                 return true;
             }, ct);
@@ -278,14 +314,20 @@ public sealed class CategoryService(
         return code;
     }
 
-    private static string Snapshot(DeviceCategory category) => JsonSerializer.Serialize(new
+    private static string Snapshot(DeviceCategory category, string? parentCode)
     {
-        display_code = category.DisplayCode, name = category.Name, description = category.Description,
-        notes = category.Notes, status = category.Status.ToString()
-    });
+        var values = new Dictionary<string, object?>
+        {
+            ["display_code"] = category.DisplayCode, ["name"] = category.Name, ["description"] = category.Description,
+            ["notes"] = category.Notes, ["status"] = category.Status.ToString()
+        };
+        if (parentCode is not null) values["parent_display_code"] = parentCode;
+        if (category.MaintenanceIntervalMonths is { } months) values["maintenance_interval_months"] = months;
+        return JsonSerializer.Serialize(values);
+    }
 
-    private static string Version(DeviceCategory category)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Snapshot(category))));
+    private static string Version(DeviceCategory category, string? parentCode)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Snapshot(category, parentCode))));
 
     private static IReadOnlyDictionary<string, JsonElement>? SafeSnapshot(string? json)
     {
@@ -294,10 +336,18 @@ public sealed class CategoryService(
         if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
         var result = new Dictionary<string, JsonElement>();
         foreach (var field in SnapshotFields)
-            if (document.RootElement.TryGetProperty(field, out var value)
-                && (value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.String
-                    && value.GetString()!.Length <= (field is "description" or "notes" ? 4000 : field == "name" ? 200 : 64)))
+        {
+            if (!document.RootElement.TryGetProperty(field, out var value)) continue;
+            if (field == "maintenance_interval_months")
+            {
+                if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var months) && months > 0)
+                    result[field] = value.Clone();
+                continue;
+            }
+            if (value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.String
+                && value.GetString()!.Length <= (field is "description" or "notes" ? 4000 : field == "name" ? 200 : 64))
                 result[field] = value.Clone();
+        }
         return result;
     }
 

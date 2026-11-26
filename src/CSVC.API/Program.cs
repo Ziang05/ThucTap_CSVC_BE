@@ -26,6 +26,7 @@ builder.Services.AddOptions<CSVC.UseCases.Authentication.AuthenticationOptions>(
     .ValidateDataAnnotations().ValidateOnStart();
 builder.Services.AddHostedService<SessionExpirationWorker>();
 builder.Services.AddHostedService<InventoryReminderWorker>();
+builder.Services.AddHostedService<MaintenanceScheduleWorker>();
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationHandler.SchemeName, _ => { });
 builder.Services.AddAuthorization();

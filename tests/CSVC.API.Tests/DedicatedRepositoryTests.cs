@@ -132,7 +132,9 @@ public sealed class DedicatedRepositoryTests
         var context = scope.ServiceProvider.GetRequiredService<CsvcDbContext>();
         var script = context.Database.GenerateCreateScript();
 
-        Assert.Equal(62 + 18, context.Model.GetEntityTypes().Count());
+        Assert.Equal(62 + 18 + 2, context.Model.GetEntityTypes().Count());
+        Assert.Contains("CREATE TABLE device_maintenance_schedules", script);
+        Assert.Contains("CREATE TABLE device_maintenance_periods", script);
         foreach (var table in new[] { "inventory_slips", "inventory_plan_revisions", "inventory_plan_items", "inventory_revision_assignees", "inventory_results", "inventory_item_history", "inventory_history", "inventory_notice_policies", "inventory_notice_policy_history", "inventory_notifications" })
             Assert.Contains($"CREATE TABLE {table}", script);
         foreach (var table in new[] { "procurement_requests", "procurement_request_lines", "procurement_request_events", "procurement_document_links" })

@@ -33,7 +33,8 @@ internal sealed class AccountApiTestHost(string connectionString) : WebApplicati
         builder.ConfigureHostConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:Database"] = connectionString,
-            ["Authentication:ExpirationEnabled"] = "false"
+            ["Authentication:ExpirationEnabled"] = "false",
+            ["Maintenance:SchedulesEnabled"] = "false"
         }));
         return base.CreateHost(builder);
     }

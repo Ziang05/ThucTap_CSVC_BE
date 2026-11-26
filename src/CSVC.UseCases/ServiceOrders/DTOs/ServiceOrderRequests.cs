@@ -19,6 +19,7 @@ public sealed class CreateServiceOrderRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ServiceItemRequest
 {
+    public Guid? MaintenancePeriodId { get; init; }
     [StringLength(64)] public string? SourceLineCode { get; init; }
     [Required, StringLength(32)] public string DeviceCode { get; init; } = "";
     [EnumDataType(typeof(ExecutionMethod))] public ExecutionMethod ExecutionMethod { get; init; }
@@ -64,6 +65,8 @@ public sealed class RecordServiceResultsRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ServiceItemResultRequest
 {
+    [Range(0, int.MaxValue)] public int? Version { get; init; }
+    public DateOnly? PerformedOn { get; init; }
     [Range(1, 100)] public int ItemNo { get; init; }
     [EnumDataType(typeof(ServiceItemStatus))] public ServiceItemStatus Result { get; init; }
     [Required, StringLength(4000)] public string Description { get; init; } = "";

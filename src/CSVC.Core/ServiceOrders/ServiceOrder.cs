@@ -1,3 +1,4 @@
+using CSVC.Core.Devices;
 using CSVC.Core.Suppliers;
 
 namespace CSVC.Core.ServiceOrders;
@@ -56,6 +57,9 @@ public sealed class ServiceOrderItem
     public required string DeviceNameSnapshot { get; set; }
     public string? SerialSnapshot { get; set; }
     public int Version { get; set; }
+    public Guid? MaintenancePeriodId { get; set; }
+    public DeviceMaintenancePeriod? MaintenancePeriod { get; set; }
+    public DateOnly? PerformedOn { get; set; }
     public RepairItemDetail? RepairDetail { get; set; }
 }
 

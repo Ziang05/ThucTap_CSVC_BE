@@ -12,8 +12,13 @@ public sealed class CategoryMappingProfile : Profile
     {
         MapWrite<CreateCategoryRequest>();
         MapWrite<UpdateCategoryRequest>();
-        CreateMap<DeviceCategory, CategoryListItemDto>();
+        CreateMap<DeviceCategory, CategoryListItemDto>()
+            .ForMember(d => d.ParentDisplayCode, o => o.Ignore())
+            .ForMember(d => d.Path, o => o.Ignore())
+            .ForMember(d => d.EffectiveMaintenanceIntervalMonths, o => o.Ignore())
+            .ForMember(d => d.MaintenanceIntervalSourceCode, o => o.Ignore());
         CreateMap<DeviceCategory, CategoryDetailDto>()
+            .IncludeBase<DeviceCategory, CategoryListItemDto>()
             .ForMember(d => d.Version, o => o.Ignore()).ForMember(d => d.Management, o => o.Ignore());
         CreateMap<CategoryHistoryReadModel, CategoryHistoryListItemDto>();
         CreateMap<CategoryHistoryDetailReadModel, CategoryHistoryDetailDto>()
@@ -26,6 +31,8 @@ public sealed class CategoryMappingProfile : Profile
         => CreateMap<T, DeviceCategory>()
             .ForMember(d => d.Id, o => o.Ignore()).ForMember(d => d.DisplayCode, o => o.Ignore())
             .ForMember(d => d.Status, o => o.Ignore())
+            .ForMember(d => d.ParentId, o => o.Ignore())
+            .ForMember(d => d.MaintenanceIntervalMonths, o => o.Ignore())
             .ForMember(d => d.Name, o => o.MapFrom(s => TextNormalization.Name(s.Name)))
             .ForMember(d => d.Description, o => o.MapFrom(s => string.IsNullOrWhiteSpace(s.Description) ? null : s.Description.Trim()))
             .ForMember(d => d.Notes, o => o.MapFrom(s => string.IsNullOrWhiteSpace(s.Notes) ? null : s.Notes.Trim()));

@@ -1,7 +1,7 @@
 using AutoMapper;
-using AutoMapper.QueryableExtensions;
 using CSVC.UseCases.Common;
 using CSVC.UseCases.DeviceCategories.DTOs;
+using CSVC.UseCases.DeviceCategories;
 using CSVC.Core.DeviceCategories;
 using CSVC.Core.Common;
 using CSVC.UseCases.Abstractions.Persistence;
@@ -12,6 +12,16 @@ namespace CSVC.Infrastructure.Persistence.Repositories;
 public sealed class DeviceCategoryRepository(CsvcDbContext context, IMapper mapper)
     : GenericRepository<DeviceCategory>(context), IDeviceCategoryRepository
 {
+    internal static IQueryable<Guid> SubtreeIds(CsvcDbContext context, string normalizedCode)
+        => context.Database.SqlQuery<Guid>($"""
+            WITH RECURSIVE branch AS (
+                SELECT id FROM device_categories WHERE normalized_display_code = {normalizedCode}
+                UNION
+                SELECT child.id FROM device_categories child JOIN branch ON child.parent_id = branch.id
+            )
+            SELECT id AS "Value" FROM branch
+            """);
+
     public async Task<PagedResult<CategoryListItemDto>> ListAsync(CategoryListQuery query, CancellationToken ct)
     {
         var source = _dbSet.AsNoTracking();
@@ -32,8 +42,16 @@ public sealed class DeviceCategoryRepository(CsvcDbContext context, IMapper mapp
             (CategorySortBy.Name, CategorySortDirection.Desc) => source.OrderByDescending(c => c.Name),
             _ => source.OrderBy(c => c.Name)
         };
-        var items = await ordered.ThenBy(c => c.Id).Skip((query.Page - 1) * query.PageSize).Take(query.PageSize)
-            .ProjectTo<CategoryListItemDto>(mapper.ConfigurationProvider).ToListAsync(ct);
+        var page = await ordered.ThenBy(c => c.Id).Skip((query.Page - 1) * query.PageSize).Take(query.PageSize)
+            .ToListAsync(ct);
+        if (page.Count == 0) return new([], total, query.Page, query.PageSize);
+        var categories = (await GetAllAsync(ct)).ToDictionary(category => category.Id);
+        var items = page.Select(category =>
+        {
+            var item = mapper.Map<CategoryListItemDto>(category);
+            CategoryHierarchy.Populate(item, category, categories);
+            return item;
+        }).ToArray();
         return new(items, total, query.Page, query.PageSize);
     }
 

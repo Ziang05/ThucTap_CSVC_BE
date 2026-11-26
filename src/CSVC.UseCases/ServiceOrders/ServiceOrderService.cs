@@ -24,7 +24,7 @@ public sealed partial class ServiceOrderService(
     IRepository<ExportSlipItem> exportItems, IRepository<ExportReturnSlip> returns,
     IRepository<ExportReturnSlipItem> returnItems, IRepository<ExportReturnHistory> returnHistory,
     CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow,
-    IRequestAssignmentPolicy assignment) : IServiceOrderService
+    IRequestAssignmentPolicy assignment, Maintenance.MaintenanceScheduleService maintenance) : IServiceOrderService
 {
     public async Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct)
     {
@@ -87,6 +87,11 @@ public sealed partial class ServiceOrderService(
                     ExecutionMethod = input.ExecutionMethod, WorkDescription = Clean(input.WorkDescription), Notes = Clean(input.Notes),
                     DeviceCodeSnapshot = device.DeviceCode, DeviceNameSnapshot = device.Name, SerialSnapshot = device.SerialNumber
                 };
+                if (order.OrderType == ServiceOrderType.Maintenance)
+                {
+                    item.MaintenancePeriod = await maintenance.ResolveOrderPeriodLockedAsync(device, input.MaintenancePeriodId, token);
+                    item.MaintenancePeriodId = item.MaintenancePeriod?.Id;
+                }
                 if (Clean(input.DamageReportCode) is { } reportCode)
                 {
                     if (order.OrderType != ServiceOrderType.Repair) throw Validation("Only Repair items may reference a damage report.");
@@ -142,6 +147,12 @@ public sealed partial class ServiceOrderService(
             RequireVersion(order.Version, request.Version);
             RequireStatus(order.Status, ServiceWorkflowStatus.PendingApproval);
             await transaction.LockDevicesAsync(order.Items.Select(x => x.DeviceId), token);
+            foreach (var item in order.Items.Where(item => item.MaintenancePeriodId.HasValue))
+            {
+                var device = await unitOfWork.Devices.GetByIdAsync(item.DeviceId, token) ?? throw Missing("DEVICE_NOT_FOUND");
+                await maintenance.AdvanceLockedAsync(device, token);
+                await maintenance.RequireDueLockedAsync(item.MaintenancePeriodId!.Value, device, false, token);
+            }
             var now = clock.GetUtcNow();
             foreach (var item in order.Items)
             {
@@ -175,6 +186,7 @@ public sealed partial class ServiceOrderService(
             }
             RequireVersion(order.Version, request.Version);
             RequireStatus(order.Status, ServiceWorkflowStatus.PendingApproval);
+            await transaction.LockDevicesAsync(order.Items.Where(item => item.MaintenancePeriodId.HasValue).Select(item => item.DeviceId), token);
             order.Status = ServiceWorkflowStatus.Canceled; order.CanceledByAccountId = actor;
             order.CanceledAt = clock.GetUtcNow(); order.CancelRequestId = request.RequestId; order.CancelReason = reason; order.Version++;
             await AuditAsync(order, request.RequestId, actor, "SERVICE_CANCELED", ServiceWorkflowStatus.PendingApproval, null, null, token);
@@ -201,16 +213,31 @@ public sealed partial class ServiceOrderService(
             if (prior.Length > 0)
             {
                 if (prior.Length != request.Items.Count || request.Items.Any(input => !prior.Any(x => x.ItemNo == input.ItemNo
-                    && x.ExecutionStatus == input.Result && x.ResultDescription == Clean(input.Description) && x.ResultRecordedByAccountId == actor)))
+                    && x.ExecutionStatus == input.Result && x.ResultDescription == Clean(input.Description)
+                    && (x.MaintenancePeriodId.HasValue && input.Result == ServiceItemStatus.Completed || x.PerformedOn == input.PerformedOn)
+                    && x.ResultRecordedByAccountId == actor)))
                     throw IdempotencyConflict();
                 return true;
             }
-            RequireVersion(order.Version, request.Version);
+            // Older clients send only the order version. New clients can submit results for independent items.
+            if (request.Items.Any(input => !input.Version.HasValue))
+                RequireVersion(order.Version, request.Version);
+            var selected = request.Items.Select(input =>
+            {
+                var item = order.Items.SingleOrDefault(x => x.ItemNo == input.ItemNo)
+                    ?? throw Validation("The result item does not belong to this order.");
+                RequireVersion(item.Version, input.Version);
+                return item;
+            }).ToArray();
             RequireStatus(order.Status, ServiceWorkflowStatus.InProgress);
-            var selected = request.Items.Select(input => order.Items.SingleOrDefault(x => x.ItemNo == input.ItemNo)
-                ?? throw Validation("The result item does not belong to this order.")).ToArray();
             await transaction.LockDevicesAsync(selected.Select(x => x.DeviceId), token);
+            foreach (var item in selected.Where(item => item.MaintenancePeriodId.HasValue))
+            {
+                var device = await unitOfWork.Devices.GetByIdAsync(item.DeviceId, token) ?? throw Missing("DEVICE_NOT_FOUND");
+                await maintenance.AdvanceLockedAsync(device, token);
+            }
             await materialWorkflow.RequireServiceReconciledAsync(order, selected.Select(x => x.DeviceId).ToArray(), token);
+            var recordedAt = clock.GetUtcNow();
             foreach (var item in selected)
             {
                 if (item.ExecutionStatus != ServiceItemStatus.InProgress) throw InvalidTransition();
@@ -222,12 +249,17 @@ public sealed partial class ServiceOrderService(
                     && !order.ExportSlips.Any(e => e.Items.Any(line => line.ServiceOrderItemId == item.Id && line.Result == ExportResult.Success)))
                     throw Conflict("EXPORT_NOT_SUCCESSFUL", "A successful export is required for external work; select NotExecuted with a reason otherwise.");
                 var input = request.Items.Single(x => x.ItemNo == item.ItemNo);
+                var priorPeriodStatus = await maintenance.RecordResultLockedAsync(item, input.Result, input.PerformedOn, recordedAt, token);
                 item.ExecutionStatus = input.Result; item.ResultDescription = Clean(input.Description);
-                item.ResultRecordedByAccountId = actor; item.ResultRecordedAt = clock.GetUtcNow();
+                item.ResultRecordedByAccountId = actor; item.ResultRecordedAt = recordedAt;
                 item.ResultRequestId = request.RequestId; item.Version++;
                 await ReleaseAsync(order, item, request.RequestId, actor, token);
                 await AuditAsync(order, request.RequestId, actor, "ITEM_" + input.Result.ToString().ToUpperInvariant(),
                     ServiceItemStatus.InProgress, item, null, token);
+                if (priorPeriodStatus is { } before)
+                    await AuditAsync(order, request.RequestId, actor, before == MaintenancePeriodStatus.Missed
+                        ? "MAINTENANCE_PERIOD_COMPLETED_LATE_ENTRY" : "MAINTENANCE_PERIOD_COMPLETED",
+                        new { maintenancePeriodId = item.MaintenancePeriodId, status = before.ToString() }, item, null, token);
             }
             await materialWorkflow.ValidateServiceResultsAsync(order, selected, token);
             order.Version++;
@@ -323,7 +355,8 @@ public sealed partial class ServiceOrderService(
             BeforeData = before is null ? null : JsonSerializer.Serialize(before),
             AfterData = JsonSerializer.Serialize(new { orderCode = order.DisplayCode, itemNo = item?.ItemNo,
                 status = item is null ? order.Status.ToString() : item.ExecutionStatus?.ToString(),
-                deviceCode = item?.DeviceCodeSnapshot, resultDescription = item?.ResultDescription, relatedExportSlipCode = cause?.DisplayCode, cancelReason = order.CancelReason })
+                deviceCode = item?.DeviceCodeSnapshot, resultDescription = item?.ResultDescription, maintenancePeriodId = item?.MaintenancePeriodId, performedOn = item?.PerformedOn,
+                maintenancePeriodStatus = item?.MaintenancePeriod?.Status.ToString(), relatedExportSlipCode = cause?.DisplayCode, cancelReason = order.CancelReason })
         }, ct);
 
     private async Task<ServiceOrder> LoadAsync(string code, bool tracked, CancellationToken ct, bool review = false)
@@ -355,7 +388,10 @@ public sealed partial class ServiceOrderService(
             o.CancelReason, o.CompletedAt, o.Notes, o.Version, o.Items.Count,
             o.Items.OrderBy(i => i.ItemNo).Select(i => new ServiceOrderItemDto(i.ItemNo, i.DeviceCodeSnapshot, i.DeviceNameSnapshot,
                 i.SerialSnapshot, i.ExecutionMethod, i.ExecutionStatus, i.WorkDescription, i.ResultDescription,
-                ActorCode(codes, i.ResultRecordedByAccountId), i.ResultRecordedAt, i.Notes, i.Version) { DamageReportCode = i.RepairDetail?.DamageReport?.ReportCode }).ToArray(),
+                ActorCode(codes, i.ResultRecordedByAccountId), i.ResultRecordedAt, i.Notes, i.Version) {
+                    DamageReportCode = i.RepairDetail?.DamageReport?.ReportCode,
+                    MaintenancePeriodId = i.MaintenancePeriodId, MaintenanceDueOn = i.MaintenancePeriod?.DueOn, PerformedOn = i.PerformedOn
+                }).ToArray(),
             o.ExportSlips.OrderBy(e => e.SequenceNo).Select(e => ToExportDto(e, o, codes)).ToArray()) { SpecializedHandlingReason = o.SpecializedHandlingReason, SourceRequestCode = o.SourceRequestCode,
                 ExecutionStartedAt = o.ExecutionStartedAt, ExecutionStartedByAccountCode = ActorCode(codes, o.ExecutionStartedByAccountId),
                 CanExecute = o.SourceRequestId is null || (o.SourceRequest?.AssigneeAccountId ?? o.CreatedByAccountId) == current.AccountId };
@@ -369,6 +405,8 @@ public sealed partial class ServiceOrderService(
         {
             if (item is null) throw Validation("Items cannot be null.");
             Validate(item);
+            if (item.MaintenancePeriodId is not null && (item.MaintenancePeriodId == Guid.Empty || request.OrderType != ServiceOrderType.Maintenance))
+                throw Validation("Only maintenance items may reference a maintenance period.");
             if (!Regex.IsMatch(Code(item.DeviceCode), BusinessCode.Pattern, RegexOptions.CultureInvariant) || Code(item.DeviceCode).Length > 32)
                 throw Validation("Invalid device code.");
         }
@@ -377,8 +415,14 @@ public sealed partial class ServiceOrderService(
     }
 
     private static string Fingerprint(CreateServiceOrderRequest r)
-        => Clean(r.SpecializedHandlingReason) is null ? BaseFingerprint(r)
-            : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(BaseFingerprint(r) + "|" + Clean(r.SpecializedHandlingReason))));
+    {
+        var hash = BaseFingerprint(r);
+        if (r.Items.Any(item => item.MaintenancePeriodId.HasValue))
+            hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hash + "|" +
+                JsonSerializer.Serialize(r.Items.Select(item => item.MaintenancePeriodId)))));
+        return Clean(r.SpecializedHandlingReason) is { } reason
+            ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hash + "|" + reason))) : hash;
+    }
     private static string BaseFingerprint(CreateServiceOrderRequest r)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Clean(r.SourceRequestCode) is null && r.Items.All(i => Clean(i.SourceLineCode) is null) ? (object)new
         {

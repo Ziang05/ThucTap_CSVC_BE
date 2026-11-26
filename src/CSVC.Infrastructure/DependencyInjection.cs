@@ -104,6 +104,7 @@ public static class DependencyInjection
         services.AddScoped<IDeviceTransferRepository, DeviceTransferRepository>();
         services.AddScoped<IDeviceTransferItemRepository, DeviceTransferItemRepository>();
         services.AddScoped<IDeviceTransferHistoryRepository, DeviceTransferHistoryRepository>();
+        services.AddScoped<CSVC.UseCases.Maintenance.IMaintenanceScheduleRepository, MaintenanceScheduleRepository>();
         services.AddScoped<IServiceOrderRepository, ServiceOrderRepository>();
         services.AddScoped<CSVC.UseCases.ProcurementRequests.IPmmsRequestSource, CSVC.Infrastructure.ProcurementRequests.SimulatedPmmsSource>();
         services.AddScoped<CSVC.UseCases.ProcurementRequests.IProcurementRequestRepository, ProcurementRequestRepository>();

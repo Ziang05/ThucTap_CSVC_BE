@@ -316,15 +316,22 @@ public sealed class ServiceOrderApiTests
     public async Task Partial_returns_are_exactly_once_and_distinguish_actor_receiver_and_times()
     {
         await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode); await f.ApproveExport(e.DisplayCode);
+        const string legacyReceiverCode = "tk_manager";
+        await f.InDb(async db =>
+        {
+            var receiver = await db.Accounts.SingleAsync(a => a.AccountCode == "TK_MANAGER");
+            receiver.AccountCode = legacyReceiverCode;
+            await db.SaveChangesAsync();
+        });
         await f.ExportResults(e.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }, new() { ItemNo = 3, Result = ExportResult.Success, RecipientName = "B" }] });
         var request = f.ReturnRequest(e.DisplayCode, [2]); var first = await f.CreateReturn(request); var retry = await f.CreateReturn(request); Assert.Equal(first.DisplayCode, retry.DisplayCode);
-        Assert.Equal("TK_MANAGER", first.ReceivedByAccountCode); Assert.Equal("TK_STAFF", first.CreatedByAccountCode); Assert.True(first.ReceivedAt < first.CreatedAt);
+        Assert.Equal(legacyReceiverCode, first.ReceivedByAccountCode); Assert.Equal("TK_STAFF", first.CreatedByAccountCode); Assert.True(first.ReceivedAt < first.CreatedAt);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/export-return-slips", f.ReturnRequest(e.DisplayCode, [2]), Json), HttpStatusCode.Conflict);
         var second = await f.CreateReturn(f.ReturnRequest(e.DisplayCode, [3])); Assert.Equal(2, second.SequenceNo);
         Assert.All((await f.GetExport(e.DisplayCode)).Items, i =>
         {
             Assert.True(i.Returned); Assert.NotNull(i.ReturnSlipCode); Assert.NotNull(i.ReceivedAt);
-            Assert.Equal("TK_MANAGER", i.ReceivedByAccountCode); Assert.Equal(DeviceCondition.Damaged, i.ConditionAtReturn); Assert.Null(i.GuardState);
+            Assert.Equal(legacyReceiverCode, i.ReceivedByAccountCode); Assert.Equal(DeviceCondition.Damaged, i.ConditionAtReturn); Assert.Null(i.GuardState);
         });
         await f.InDb(async db => { Assert.Equal(2, await db.Set<ExportReturnSlip>().CountAsync()); Assert.Empty(await db.Set<ExportDeviceGuard>().ToListAsync()); Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync()); Assert.All(await db.ServiceOrderItems.ToListAsync(), i => Assert.Equal(ServiceItemStatus.InProgress, i.ExecutionStatus)); });
         var history = await f.Staff.GetFromJsonAsync<JsonElement>("/api/v1/export-return-slips/" + first.DisplayCode + "/history"); Assert.Equal(2, history.GetProperty("totalCount").GetInt32());
@@ -469,6 +476,101 @@ public sealed class ServiceOrderApiTests
         Assert.True(Assert.Single((await f.GetExport(first.DisplayCode)).Items).Returned);
         Assert.Null(Assert.Single(next.Items).Result);
         await f.InDb(async db => { Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync()); Assert.Single(await db.Set<ExportDeviceGuard>().ToListAsync()); });
+    }
+
+    [PostgreSqlFact]
+    public async Task Maintenance_results_without_versions_only_finalize_a_running_item_once()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var order = await f.CreateOrder();
+        var url = Root + "/" + order.DisplayCode + "/results";
+        var request = new RecordServiceResultsRequest
+        {
+            RequestId = Guid.NewGuid(),
+            Items = [new() { ItemNo = 1, Result = ServiceItemStatus.Completed, Description = "Maintenance done" }]
+        };
+
+        await Expect(await f.Staff.PostAsJsonAsync(url, request, Json), HttpStatusCode.Conflict, "INVALID_WORKFLOW_TRANSITION");
+        await f.Approve(order.DisplayCode);
+        await Expect(await f.Staff.PostAsJsonAsync(url, request, Json), HttpStatusCode.NoContent);
+        await Expect(await f.Staff.PostAsJsonAsync(url, request, Json), HttpStatusCode.NoContent);
+        await Expect(await f.Staff.PostAsJsonAsync(url, new RecordServiceResultsRequest
+        {
+            RequestId = Guid.NewGuid(),
+            Items = [new() { ItemNo = 1, Result = ServiceItemStatus.Failed, Description = "Different result" }]
+        }, Json), HttpStatusCode.Conflict, "INVALID_WORKFLOW_TRANSITION");
+        Assert.Equal(ServiceItemStatus.Completed, (await f.GetOrder(order.DisplayCode)).Items.Single(item => item.ItemNo == 1).ExecutionStatus);
+    }
+
+    [PostgreSqlFact]
+    public async Task Maintenance_result_response_reflects_saved_item_completion_and_releases_device_holds()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var order = await f.CreateOrder();
+        await f.Approve(order.DisplayCode);
+        var url = Root + "/" + order.DisplayCode + "/results?includeOrder=true";
+
+        var partial = await SaveAsync(new ServiceItemResultRequest { ItemNo = 1, Result = ServiceItemStatus.Completed, Description = "Maintenance done" });
+        Assert.Equal(ServiceWorkflowStatus.InProgress, partial.Status);
+        var item = partial.Items.Single(item => item.ItemNo == 1);
+        Assert.Equal(ServiceItemStatus.Completed, item.ExecutionStatus);
+        Assert.NotNull(item.ResultRecordedAt);
+        var device = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Devices.DTOs.DeviceDto>("/api/v1/devices/" + item.DeviceCode, Json);
+        Assert.Equal(CSVC.UseCases.Devices.DTOs.DeviceAvailability.Available, device!.Availability);
+
+        var complete = await SaveAsync(
+            new() { ItemNo = 2, Result = ServiceItemStatus.NotExecuted, Description = "No external work" },
+            new() { ItemNo = 3, Result = ServiceItemStatus.NotExecuted, Description = "No external work" });
+        Assert.Equal(ServiceWorkflowStatus.Completed, complete.Status);
+        Assert.NotNull(complete.CompletedAt);
+        var detail = await f.GetOrder(order.DisplayCode);
+        var orders = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ServiceOrderDto>>(
+            Root + "?orderType=Maintenance&status=Completed&search=" + order.DisplayCode, Json);
+        var listed = Assert.Single(orders!.Items);
+        foreach (var read in new[] { detail, listed })
+        {
+            Assert.Equal(order.DisplayCode, read.DisplayCode);
+            Assert.Equal(ServiceWorkflowStatus.Completed, read.Status);
+            Assert.Equal(complete.Version, read.Version);
+            Assert.Equal(complete.Items.Select(i => i.ExecutionStatus), read.Items.Select(i => i.ExecutionStatus));
+        }
+        await f.InDb(async db => Assert.Empty(await db.Set<ServiceOrderDeviceHold>().ToListAsync()));
+
+        async Task<ServiceOrderDto> SaveAsync(params ServiceItemResultRequest[] items)
+        {
+            using var response = await f.Staff.PostAsJsonAsync(url,
+                new RecordServiceResultsRequest { RequestId = Guid.NewGuid(), Items = [.. items] }, Json);
+            Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+            return (await response.Content.ReadFromJsonAsync<ServiceOrderDto>(Json))!;
+        }
+    }
+
+    [PostgreSqlFact]
+    public async Task Professional_results_accept_current_item_versions_after_another_item_changes_the_order()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var created = await f.CreateOrder();
+        await f.Approve(created.DisplayCode);
+        var approved = await f.GetOrder(created.DisplayCode);
+        var url = Root + "/" + approved.DisplayCode + "/results";
+
+        Task<HttpResponseMessage> RecordAsync(int itemNo, int? itemVersion) => f.Staff.PostAsJsonAsync(url,
+            new RecordServiceResultsRequest
+            {
+                RequestId = Guid.NewGuid(),
+                Version = approved.Version,
+                Items = [new() { ItemNo = itemNo, Version = itemVersion, Result = ServiceItemStatus.NotExecuted, Description = "No work" }]
+            }, Json);
+
+        await Expect(await RecordAsync(2, approved.Items.Single(item => item.ItemNo == 2).Version), HttpStatusCode.NoContent);
+        await Expect(await RecordAsync(1, null), HttpStatusCode.Conflict, "VERSION_CONFLICT");
+        await Expect(await RecordAsync(2, approved.Items.Single(item => item.ItemNo == 2).Version), HttpStatusCode.Conflict, "VERSION_CONFLICT");
+        await Expect(await RecordAsync(1, approved.Items.Single(item => item.ItemNo == 1).Version), HttpStatusCode.NoContent);
+
+        var updated = await f.GetOrder(approved.DisplayCode);
+        Assert.Equal(approved.Version + 2, updated.Version);
+        Assert.Equal(ServiceItemStatus.NotExecuted, updated.Items.Single(item => item.ItemNo == 1).ExecutionStatus);
+        Assert.Equal(ServiceItemStatus.InProgress, updated.Items.Single(item => item.ItemNo == 3).ExecutionStatus);
     }
 
     [PostgreSqlFact]
