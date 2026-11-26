@@ -19,6 +19,12 @@ public sealed class AccountRepository(CsvcDbContext context, IMapper mapper)
         return _dbSet.AnyAsync(a => a.Id != exceptId && EF.Property<string>(a, "NormalizedCode") == key, cancellationToken);
     }
 
+    public Task<Account?> GetActiveByCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        var key = code.Trim().ToLowerInvariant();
+        return FirstOrDefaultAsync(a => !a.IsLock && EF.Property<string>(a, "NormalizedCode") == key, cancellationToken);
+    }
+
     public Task<Account?> GetByNormalizedEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = TextNormalization.Email(email);

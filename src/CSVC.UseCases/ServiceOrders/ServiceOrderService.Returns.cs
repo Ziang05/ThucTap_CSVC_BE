@@ -36,7 +36,8 @@ public sealed partial class ServiceOrderService
             if (request.ReceivedAt > now) throw Validation("receivedAt cannot be in the future.");
             var order = await LoadExportAsync(request.ExportSlipCode, true, token); var export = Export(order, request.ExportSlipCode);
             if (export.Status is not (ServiceWorkflowStatus.InProgress or ServiceWorkflowStatus.Completed)) throw InvalidTransition();
-            var receiver = await unitOfWork.Accounts.FirstOrDefaultAsync(a => a.AccountCode == Code(request.ReceivedByAccountCode) && !a.IsLock, token) ?? throw Validation("Receiver must be an active equipment account.");
+            var receiver = await unitOfWork.Accounts.GetActiveByCodeAsync(request.ReceivedByAccountCode, token)
+                ?? throw Validation("Receiver must be an active equipment account.");
             var role = await unitOfWork.Roles.GetByIdAsync(receiver.RoleId, token);
             if (role?.Code is not (RoleCodes.EquipmentManager or RoleCodes.EquipmentStaff)) throw Validation("Receiver must belong to equipment management.");
             var profile = await unitOfWork.UserProfiles.GetByIdAsync(receiver.UserProfileId, token) ?? throw Validation("Receiver profile is unavailable.");

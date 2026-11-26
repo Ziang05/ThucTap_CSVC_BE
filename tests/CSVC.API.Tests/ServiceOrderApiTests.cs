@@ -316,15 +316,22 @@ public sealed class ServiceOrderApiTests
     public async Task Partial_returns_are_exactly_once_and_distinguish_actor_receiver_and_times()
     {
         await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode); await f.ApproveExport(e.DisplayCode);
+        const string legacyReceiverCode = "tk_manager";
+        await f.InDb(async db =>
+        {
+            var receiver = await db.Accounts.SingleAsync(a => a.AccountCode == "TK_MANAGER");
+            receiver.AccountCode = legacyReceiverCode;
+            await db.SaveChangesAsync();
+        });
         await f.ExportResults(e.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }, new() { ItemNo = 3, Result = ExportResult.Success, RecipientName = "B" }] });
         var request = f.ReturnRequest(e.DisplayCode, [2]); var first = await f.CreateReturn(request); var retry = await f.CreateReturn(request); Assert.Equal(first.DisplayCode, retry.DisplayCode);
-        Assert.Equal("TK_MANAGER", first.ReceivedByAccountCode); Assert.Equal("TK_STAFF", first.CreatedByAccountCode); Assert.True(first.ReceivedAt < first.CreatedAt);
+        Assert.Equal(legacyReceiverCode, first.ReceivedByAccountCode); Assert.Equal("TK_STAFF", first.CreatedByAccountCode); Assert.True(first.ReceivedAt < first.CreatedAt);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/export-return-slips", f.ReturnRequest(e.DisplayCode, [2]), Json), HttpStatusCode.Conflict);
         var second = await f.CreateReturn(f.ReturnRequest(e.DisplayCode, [3])); Assert.Equal(2, second.SequenceNo);
         Assert.All((await f.GetExport(e.DisplayCode)).Items, i =>
         {
             Assert.True(i.Returned); Assert.NotNull(i.ReturnSlipCode); Assert.NotNull(i.ReceivedAt);
-            Assert.Equal("TK_MANAGER", i.ReceivedByAccountCode); Assert.Equal(DeviceCondition.Damaged, i.ConditionAtReturn); Assert.Null(i.GuardState);
+            Assert.Equal(legacyReceiverCode, i.ReceivedByAccountCode); Assert.Equal(DeviceCondition.Damaged, i.ConditionAtReturn); Assert.Null(i.GuardState);
         });
         await f.InDb(async db => { Assert.Equal(2, await db.Set<ExportReturnSlip>().CountAsync()); Assert.Empty(await db.Set<ExportDeviceGuard>().ToListAsync()); Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync()); Assert.All(await db.ServiceOrderItems.ToListAsync(), i => Assert.Equal(ServiceItemStatus.InProgress, i.ExecutionStatus)); });
         var history = await f.Staff.GetFromJsonAsync<JsonElement>("/api/v1/export-return-slips/" + first.DisplayCode + "/history"); Assert.Equal(2, history.GetProperty("totalCount").GetInt32());
