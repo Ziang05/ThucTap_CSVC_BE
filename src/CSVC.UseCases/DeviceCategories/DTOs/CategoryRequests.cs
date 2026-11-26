@@ -9,10 +9,27 @@ namespace CSVC.UseCases.DeviceCategories.DTOs;
 public class CategoryWriteRequest
 {
     private string _name = "";
+    private string? _parentDisplayCode;
+    private int? _maintenanceIntervalMonths;
     [Required, StringLength(200)]
     public string Name { get => _name; init => _name = TextNormalization.Name(value ?? ""); }
     [StringLength(4000)] public string? Description { get; init; }
     [StringLength(4000)] public string? Notes { get; init; }
+    [StringLength(64), RegularExpression(BusinessCode.Pattern)]
+    public string? ParentDisplayCode
+    {
+        get => _parentDisplayCode;
+        init { _parentDisplayCode = BusinessCode.Normalize(value); HasParentChange = true; }
+    }
+    [Range(1, int.MaxValue)]
+    public int? MaintenanceIntervalMonths
+    {
+        get => _maintenanceIntervalMonths;
+        init { _maintenanceIntervalMonths = value; HasMaintenanceIntervalChange = true; }
+    }
+
+    [JsonIgnore] public bool HasParentChange { get; private set; }
+    [JsonIgnore] public bool HasMaintenanceIntervalChange { get; private set; }
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

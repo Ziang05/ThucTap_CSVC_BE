@@ -6,6 +6,7 @@ namespace CSVC.UseCases.Devices.Models;
 public sealed class DeviceReadModel
 {
     public Guid Id { get; init; }
+    public Guid CategoryId { get; init; }
     public required string DeviceCode { get; init; }
     public string? ParentDeviceCode { get; init; }
     public string? ParentDeviceName { get; init; }

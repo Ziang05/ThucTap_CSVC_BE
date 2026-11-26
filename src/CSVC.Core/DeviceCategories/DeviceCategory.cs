@@ -14,5 +14,9 @@ public sealed class DeviceCategory
 
     public string? Notes { get; set; }
 
+    public Guid? ParentId { get; set; }
+
+    public int? MaintenanceIntervalMonths { get; set; }
+
     public EntityStatus Status { get; set; } = EntityStatus.Active;
 }

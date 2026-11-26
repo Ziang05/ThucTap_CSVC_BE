@@ -13,6 +13,8 @@ public sealed class DeviceCategoryConfiguration : IEntityTypeConfiguration<Devic
         {
             table.HasCheckConstraint("ck_device_categories_name", "normalized_name <> ''");
             table.HasCheckConstraint("ck_device_categories_display_code", "btrim(display_code) <> ''");
+            table.HasCheckConstraint("ck_device_categories_parent", "parent_id <> id");
+            table.HasCheckConstraint("ck_device_categories_maintenance_interval", "maintenance_interval_months > 0");
         });
         builder.HasKey(entity => entity.Id);
         builder.Property(entity => entity.Id).HasColumnName("id").HasColumnType("uuid").IsRequired().ValueGeneratedNever();
@@ -27,6 +29,10 @@ public sealed class DeviceCategoryConfiguration : IEntityTypeConfiguration<Devic
         builder.HasIndex("NormalizedName").IsUnique().HasDatabaseName("uq_device_categories_normalized_name");
         builder.Property(entity => entity.Description).HasColumnName("description").HasColumnType("text");
         builder.Property(entity => entity.Notes).HasColumnName("notes").HasColumnType("text");
+        builder.Property(entity => entity.ParentId).HasColumnName("parent_id");
+        builder.HasOne<DeviceCategory>().WithMany().HasForeignKey(entity => entity.ParentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.Property(entity => entity.MaintenanceIntervalMonths).HasColumnName("maintenance_interval_months");
         builder.Property(entity => entity.Status).HasColumnName("status").HasColumnType("entity_status").IsRequired().HasDefaultValue(EntityStatus.Active);
     }
 }

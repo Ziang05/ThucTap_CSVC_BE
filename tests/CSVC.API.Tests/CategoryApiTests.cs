@@ -8,8 +8,11 @@ using AutoMapper;
 using CSVC.Core.Common;
 using CSVC.Core.DeviceCategories;
 using CSVC.Infrastructure.Persistence;
+using CSVC.UseCases.Common;
+using CSVC.UseCases.DeviceCategories;
 using CSVC.UseCases.DeviceCategories.DTOs;
 using CSVC.UseCases.DeviceCategories.Mapping;
+using CSVC.UseCases.Devices.DTOs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -244,6 +247,85 @@ public sealed class CategoryApiTests
     }
 
     [PostgreSqlFact]
+    public async Task Category_tree_filters_only_the_selected_branch_and_applies_the_nearest_interval()
+    {
+        await using var database = await AccountTestDatabase.CreateAsync();
+        await using var factory = new AccountApiTestHost(database.ConnectionString);
+        var seed = await factory.SeedAsync();
+        using var client = Client(factory, seed.ManagerToken);
+        var root = await Create(client, "Electronics", "DM_ROOT", months: 6);
+        var branch = await Create(client, "Computers", "DM_BRANCH", parent: root.DisplayCode);
+        var child = await Create(client, "Laptops", "DM_CHILD", parent: branch.DisplayCode, months: 3);
+        var grandchild = await Create(client, "Ultrabooks", "DM_GRANDCHILD", parent: child.DisplayCode);
+        var sibling = await Create(client, "Printers", "DM_SIBLING", parent: root.DisplayCode);
+        Assert.Equal(6, branch.EffectiveMaintenanceIntervalMonths);
+        Assert.Equal(root.DisplayCode, branch.MaintenanceIntervalSourceCode);
+        Assert.Equal(3, grandchild.EffectiveMaintenanceIntervalMonths);
+        Assert.Equal(child.DisplayCode, grandchild.MaintenanceIntervalSourceCode);
+        Assert.Equal(new[] { root.DisplayCode, branch.DisplayCode, child.DisplayCode, grandchild.DisplayCode },
+            grandchild.Path.Select(node => node.DisplayCode));
+
+        foreach (var category in new[] { root, branch, child, grandchild, sibling })
+        {
+            var response = await client.PostAsJsonAsync("/api/v1/devices", new
+            {
+                deviceCode = "TB_" + category.DisplayCode, category.Name, categoryCode = category.DisplayCode,
+                departmentCode = "PB_TEST"
+            });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        }
+
+        const string devices = "/api/v1/devices?categoryCode=dm_branch";
+        var exact = (await client.GetFromJsonAsync<PagedResult<DeviceDto>>(devices, Json))!;
+        Assert.Equal(branch.DisplayCode, Assert.Single(exact.Items).CategoryCode);
+        var subtree = (await client.GetFromJsonAsync<PagedResult<DeviceDto>>(devices + "&categoryScope=Subtree", Json))!;
+        Assert.Equal(new[] { branch.DisplayCode, child.DisplayCode, grandchild.DisplayCode },
+            subtree.Items.Select(device => device.CategoryCode));
+        var page = (await client.GetFromJsonAsync<PagedResult<DeviceDto>>(devices + "&categoryScope=Subtree&pageSize=1&page=2", Json))!;
+        Assert.Equal(3, page.TotalCount);
+        Assert.Equal(child.DisplayCode, Assert.Single(page.Items).CategoryCode);
+
+        await Code(await client.PutAsJsonAsync($"{Root}/{root.DisplayCode}", new { root.Name, parentDisplayCode = grandchild.DisplayCode }),
+            HttpStatusCode.Conflict, "CATEGORY_CYCLE");
+        var update = await client.PutAsJsonAsync($"{Root}/{child.DisplayCode}", new
+        {
+            child.Name, parentDisplayCode = sibling.DisplayCode, maintenanceIntervalMonths = (int?)null, child.Version
+        });
+        Assert.Equal(HttpStatusCode.NoContent, update.StatusCode);
+        var moved = (await client.GetFromJsonAsync<CategoryDetailDto>($"{Root}/{grandchild.DisplayCode}", Json))!;
+        Assert.Equal(sibling.DisplayCode, moved.Path[1].DisplayCode);
+        Assert.Equal(6, moved.EffectiveMaintenanceIntervalMonths);
+        var afterMove = (await client.GetFromJsonAsync<PagedResult<DeviceDto>>(devices + "&categoryScope=Subtree", Json))!;
+        Assert.Equal(branch.DisplayCode, Assert.Single(afterMove.Items).CategoryCode);
+        var audit = (await client.GetFromJsonAsync<PagedResult<CategoryHistoryListItemDto>>($"{Root}/{child.DisplayCode}/history", Json))!;
+        var change = Assert.Single(audit.Items, item => item.ActionCode == "CATEGORY_UPDATED");
+        var entry = (await client.GetFromJsonAsync<CategoryHistoryDetailDto>($"{Root}/{child.DisplayCode}/history/{change.Id}", Json))!;
+        Assert.Equal(new[] { "parent_display_code", "maintenance_interval_months" }, entry.ChangedFields);
+        Assert.Equal(3, entry.BeforeData!["maintenance_interval_months"].GetInt32());
+    }
+
+    [Fact]
+    public void Category_inherits_the_nearest_configured_interval_and_distinguishes_null_from_omission()
+    {
+        var root = new DeviceCategory { DisplayCode = "ROOT", Name = "Root", MaintenanceIntervalMonths = 6 };
+        var parent = new DeviceCategory { DisplayCode = "PARENT", Name = "Parent", ParentId = root.Id, MaintenanceIntervalMonths = 3 };
+        var child = new DeviceCategory { DisplayCode = "CHILD", Name = "Child", ParentId = parent.Id };
+        var index = new Dictionary<Guid, DeviceCategory> { [root.Id] = root, [parent.Id] = parent };
+        var result = new CategoryListItemDto();
+        CategoryHierarchy.Populate(result, child, index);
+        Assert.Equal(3, result.EffectiveMaintenanceIntervalMonths);
+        Assert.Equal("PARENT", result.MaintenanceIntervalSourceCode);
+        Assert.Equal(new[] { "ROOT", "PARENT", "CHILD" }, result.Path.Select(node => node.DisplayCode));
+
+        var omitted = JsonSerializer.Deserialize<UpdateCategoryRequest>("""{"name":"Child"}""", Json)!;
+        Assert.False(omitted.HasParentChange);
+        Assert.False(omitted.HasMaintenanceIntervalChange);
+        var cleared = JsonSerializer.Deserialize<UpdateCategoryRequest>("""{"name":"Child","parentDisplayCode":null,"maintenanceIntervalMonths":null}""", Json)!;
+        Assert.True(cleared.HasParentChange);
+        Assert.True(cleared.HasMaintenanceIntervalChange);
+    }
+
+    [PostgreSqlFact]
     public async Task Renaming_rejects_active_and_locked_duplicates_and_unlock_is_idempotent()
     {
         await using var database = await AccountTestDatabase.CreateAsync();
@@ -438,9 +520,10 @@ public sealed class CategoryApiTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
-    private static async Task<CategoryDetailDto> Create(HttpClient client, string name, string? displayCode = null, string? notes = null)
+    private static async Task<CategoryDetailDto> Create(HttpClient client, string name, string? displayCode = null,
+        string? notes = null, string? parent = null, int? months = null)
     {
-        var response = await client.PostAsJsonAsync(Root, new { name, displayCode, notes });
+        var response = await client.PostAsJsonAsync(Root, new { name, displayCode, notes, parentDisplayCode = parent, maintenanceIntervalMonths = months });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return await Read<CategoryDetailDto>(response);
     }

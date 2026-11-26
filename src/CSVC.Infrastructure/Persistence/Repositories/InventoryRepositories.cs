@@ -46,7 +46,7 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
                ParentDeviceCode = parent == null || parent.DepartmentId != device.DepartmentId ? null : parent.DeviceCode,
                ParentDeviceName = parent == null || parent.DepartmentId != device.DepartmentId ? null : parent.Name,
                HasParent = device.ParentDeviceId != null,
-               CategoryCode = category.DisplayCode, CategoryName = category.Name,
+               CategoryId = device.CategoryId, CategoryCode = category.DisplayCode, CategoryName = category.Name,
                DepartmentCode = department.Code, DepartmentName = department.Name, AreaCode = area == null ? null : area.Code,
                Condition = device.Condition, Quantity = device.Quantity, UseState = device.UseState,
                ResponsibleAccountCode = account == null ? null : account.AccountCode,
@@ -155,7 +155,16 @@ public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<
             source = source.Where(x => x.Name.ToLower().Contains(search) || x.DeviceCode.ToLower().Contains(search)
                 || (x.SerialNumber != null && x.SerialNumber.ToLower().Contains(search)));
         }
-        if (!string.IsNullOrWhiteSpace(query.CategoryCode)) source = source.Where(x => x.CategoryCode.ToLower() == query.CategoryCode.Trim().ToLower());
+        if (!string.IsNullOrWhiteSpace(query.CategoryCode))
+        {
+            var code = query.CategoryCode.Trim().ToLowerInvariant();
+            if (query.CategoryScope == DeviceCategoryScope.Subtree)
+            {
+                var branch = DeviceCategoryRepository.SubtreeIds(_context, code);
+                source = source.Where(device => branch.Contains(device.CategoryId));
+            }
+            else source = source.Where(device => device.CategoryCode.ToLower() == code);
+        }
         if (query.Condition is { } condition) source = source.Where(x => x.Condition == condition);
         if (!string.IsNullOrWhiteSpace(query.DepartmentCode)) source = source.Where(x => x.DepartmentCode.ToLower() == query.DepartmentCode.Trim().ToLower());
         if (!string.IsNullOrWhiteSpace(query.AreaCode)) source = source.Where(x => x.AreaCode != null && x.AreaCode.ToLower() == query.AreaCode.Trim().ToLower());

@@ -1198,6 +1198,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(64)")
                         .HasColumnName("display_code");
 
+                    b.Property<int?>("MaintenanceIntervalMonths")
+                        .HasColumnType("integer")
+                        .HasColumnName("maintenance_interval_months");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -1222,6 +1226,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("notes");
 
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
                     b.Property<EntityStatus>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("entity_status")
@@ -1241,11 +1249,17 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("uq_device_categories_normalized_name");
 
+                    b.HasIndex("ParentId");
+
                     b.ToTable("device_categories", null, t =>
                         {
                             t.HasCheckConstraint("ck_device_categories_display_code", "btrim(display_code) <> ''");
 
+                            t.HasCheckConstraint("ck_device_categories_maintenance_interval", "maintenance_interval_months > 0");
+
                             t.HasCheckConstraint("ck_device_categories_name", "normalized_name <> ''");
+
+                            t.HasCheckConstraint("ck_device_categories_parent", "parent_id <> id");
                         });
                 });
 
@@ -6149,6 +6163,14 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DeviceCategories.DeviceCategory", b =>
+                {
+                    b.HasOne("CSVC.Core.DeviceCategories.DeviceCategory", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

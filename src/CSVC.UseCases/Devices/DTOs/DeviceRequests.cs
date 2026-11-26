@@ -57,6 +57,8 @@ public enum DeviceSortBy { DeviceCode, Name, Category, Department }
 public enum DeviceSortDirection { Asc, Desc }
 public enum DeviceWorkflowEligibility { Loan, Transfer, Recovery }
 
+public enum DeviceCategoryScope { Exact, Subtree }
+
 public sealed class DeviceListQuery
 {
     [EnumDataType(typeof(DeviceUseState))] public DeviceUseState? UseState { get; init; }
@@ -64,6 +66,7 @@ public sealed class DeviceListQuery
     [StringLength(32)] public string? ParentDeviceCode { get; set; }
     [StringLength(200)] public string? Search { get; init; }
     [StringLength(64)] public string? CategoryCode { get; init; }
+    [EnumDataType(typeof(DeviceCategoryScope))] public DeviceCategoryScope CategoryScope { get; init; }
     [EnumDataType(typeof(DeviceCondition))] public DeviceCondition? Condition { get; init; }
     [StringLength(32)] public string? DepartmentCode { get; init; }
     [StringLength(32)] public string? AreaCode { get; init; }

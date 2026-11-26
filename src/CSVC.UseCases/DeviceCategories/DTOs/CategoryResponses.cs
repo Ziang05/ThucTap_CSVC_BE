@@ -4,22 +4,24 @@ using CSVC.Core.Common;
 
 namespace CSVC.UseCases.DeviceCategories.DTOs;
 
-public sealed class CategoryListItemDto
+public record CategoryPathItemDto(string DisplayCode, string Name);
+
+public class CategoryListItemDto
 {
     public string DisplayCode { get; init; } = "";
     public string Name { get; init; } = "";
     public string? Description { get; init; }
     public EntityStatus Status { get; init; }
+    public string? ParentDisplayCode { get; set; }
+    public IReadOnlyList<CategoryPathItemDto> Path { get; set; } = [];
+    public int? MaintenanceIntervalMonths { get; init; }
+    public int? EffectiveMaintenanceIntervalMonths { get; set; }
+    public string? MaintenanceIntervalSourceCode { get; set; }
     public int? DeviceCount => null;
 }
 
-public sealed class CategoryDetailDto
+public sealed class CategoryDetailDto : CategoryListItemDto
 {
-    public string DisplayCode { get; init; } = "";
-    public string Name { get; init; } = "";
-    public string? Description { get; init; }
-    public EntityStatus Status { get; init; }
-    public int? DeviceCount => null;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Notes { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Version { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public CategoryManagementDto? Management { get; set; }
