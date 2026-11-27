@@ -25,6 +25,17 @@ public sealed class CreateDamageReportRequest
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class CreateDamageReportBatchRequest
+{
+    public Guid RequestId { get; set; }
+    [Required, MinLength(2), MaxLength(100)] public List<string> DeviceCodes { get; set; } = [];
+    [Required, RegularExpression("^(DAMAGE|ABNORMAL)$")] public string IncidentType { get; set; } = "";
+    [Required, StringLength(10000)] public string IncidentDescription { get; set; } = "";
+    public DateTimeOffset? DetectedAt { get; set; }
+    [StringLength(4000)] public string? Notes { get; set; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class UpdateDamageReportRequest
 {
     public Guid RequestId { get; set; }
@@ -98,7 +109,7 @@ public sealed record DamageReportDto(string ReportCode, string DeviceCode, strin
     public string? VerifiedByAccountCode { get; init; }
     public string? VerificationReason { get; init; }
 }
-public sealed record ReportDeviceOptionDto(string DeviceCode, string Name, bool CanReport);
+public sealed record ReportDeviceOptionDto(string DeviceCode, string Name, bool CanReport, string? DepartmentName);
 public sealed record EvidenceDownload(byte[] Content, string ContentType);
 public sealed record ValidatedReportImage(string Filename, string ContentType, byte[] Bytes, string Sha256);
 
@@ -107,6 +118,7 @@ public interface IDamageReportService
     Task<PagedResult<DamageReportSummaryDto>> ListAsync(DamageReportListQuery query, CancellationToken ct);
     Task<DamageReportDto> GetAsync(string code, CancellationToken ct);
     Task<DamageReportDto> CreateAsync(CreateDamageReportRequest request, CancellationToken ct);
+    Task<IReadOnlyList<DamageReportDto>> CreateBatchAsync(CreateDamageReportBatchRequest request, CancellationToken ct);
     Task<DamageReportDto> UpdateAsync(string code, UpdateDamageReportRequest request, CancellationToken ct);
     Task<DamageReportDto> ReceiveAsync(string code, ReceiveDamageReportRequest request, CancellationToken ct);
     Task<DamageReportDto> VerifyAsync(string code, VerifyDamageReportRequest request, CancellationToken ct);

@@ -71,7 +71,9 @@ public sealed class DamageReportRepository(CsvcDbContext db) : GenericRepository
         if (!string.IsNullOrWhiteSpace(search)) q = q.Where(x => x.DeviceCode.Contains(search) || x.Name.Contains(search));
         var count = await q.CountAsync(ct);
         var items = await q.OrderBy(x => x.DeviceCode).Skip((page - 1) * size).Take(size)
-            .Select(x => new ReportDeviceOptionDto(x.DeviceCode, x.Name, !_context.Set<DamageReportPendingDevice>().Any(p => p.DeviceId == x.Id))).ToListAsync(ct);
+            .Select(x => new ReportDeviceOptionDto(x.DeviceCode, x.Name, !_context.Set<DamageReportPendingDevice>().Any(p => p.DeviceId == x.Id),
+                _context.Departments.Where(department => department.Id == x.DepartmentId).Select(department => department.Name).FirstOrDefault()))
+            .ToListAsync(ct);
         return new(items, count, page, size);
     }
     public async Task<PagedResult<ReportHistoryDto>> HistoryAsync(Guid id, int page, int size, CancellationToken ct)

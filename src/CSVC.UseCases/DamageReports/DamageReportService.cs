@@ -47,42 +47,77 @@ public sealed partial class DamageReportService(IUnitOfWork uow, IDamageReportTr
         {
             var actor = await ActorAsync(token);
             Validate(request);
-            Key(request.RequestId);
-            var images = Images(request.Images);
-            var deviceCode = Code(request.DeviceCode);
-            var description = Description(request.IncidentDescription);
-            var type = Type(request.IncidentType);
-            var hash = Hash(new { deviceCode, type, description, detectedAt = request.DetectedAt?.ToUniversalTime(), notes = Clean(request.Notes), images = Fingerprints(images) });
-            if (await Reports.RequestAsync(request.RequestId, token) is { } prior)
-            {
-                var result = Replay(prior, actor, "CREATE", hash, null);
-                await ReportAsync(result.ReportCode, actor, false, token);
-                return result;
-            }
-            var now = clock.GetUtcNow();
-            var detected = request.DetectedAt?.ToUniversalTime() ?? now;
-            if (detected > now) throw Invalid("Detection cannot be later than report creation.");
-            var device = await DeviceAsync(deviceCode, actor, token);
-            if (await Reports.HasPendingAsync(device.Id, token)) throw Conflict("DEVICE_REPORT_PENDING", "This device already has a report awaiting reception.");
-            var report = new DamageReport
-            {
-                ReportCode = await codeGenerator.NextAsync(BusinessCodeKind.DamageReport, token), DeviceId = device.Id,
-                ReportingDepartmentId = actor.DepartmentId, ReporterAccountId = actor.Id,
-                IncidentType = type, IncidentDescription = description, Notes = Clean(request.Notes),
-                DetectedAt = detected, ReportedAt = now, CreateRequestId = request.RequestId, CreateRequestHash = hash,
-                Context = new() { ReporterNameSnapshot = actor.Name, ReportingDepartmentNameSnapshot = actor.DepartmentName,
-                    DeviceCodeSnapshot = "", DeviceNameSnapshot = "", DeviceDepartmentNameSnapshot = "" }
-            };
-            await CaptureAsync(report.Context, device, now, token);
-            report.Pending = new() { DeviceId = device.Id, DamageReportId = report.Id };
-            foreach (var image in images) await AddImageAsync(report, image, actor.Id, now, staged, token);
-            await Reports.AddAsync(report, token);
-            await AuditAsync(report, actor.Id, request.RequestId, "DAMAGE_REPORT_CREATED", ["report"], null, Snapshot(report), token);
-            if (images.Count > 0) await AuditAsync(report, actor.Id, request.RequestId, "EVIDENCE_ADDED", ["evidence"], null, EvidenceSnapshot(report.Evidence), token);
-            var dto = await DtoAsync(report, token);
-            await SaveRequestAsync(request.RequestId, report.Id, actor.Id, "CREATE", hash, dto, token);
-            return dto;
+            return await CreateLockedAsync(request, actor, clock.GetUtcNow(), staged, token);
         }, ct);
+
+    public Task<IReadOnlyList<DamageReportDto>> CreateBatchAsync(CreateDamageReportBatchRequest request, CancellationToken ct)
+        => WriteAsync<IReadOnlyList<DamageReportDto>>(async (staged, token) =>
+        {
+            var actor = await ActorAsync(token);
+            Validate(request);
+            Key(request.RequestId);
+            var deviceCodes = request.DeviceCodes.Select(Code).Order(StringComparer.Ordinal).ToArray();
+            if (deviceCodes.Distinct(StringComparer.Ordinal).Count() != deviceCodes.Length)
+                throw Invalid("Select each device only once.");
+            var batchHash = Hash(new { deviceCodes, type = Type(request.IncidentType), description = Description(request.IncidentDescription),
+                detectedAt = request.DetectedAt?.ToUniversalTime(), notes = Clean(request.Notes) });
+            var now = clock.GetUtcNow();
+            var results = new List<DamageReportDto>(deviceCodes.Length);
+            foreach (var (code, index) in deviceCodes.Select((code, index) => (code, index)))
+            {
+                // The first report reserves the batch key. The rest use deterministic keys for safe retries.
+                var reportKey = index == 0 ? request.RequestId
+                    : new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"damage-report-batch:{request.RequestId:N}:{index}")).AsSpan(0, 16));
+                results.Add(await CreateLockedAsync(new()
+                {
+                    RequestId = reportKey, DeviceCode = code, IncidentType = request.IncidentType,
+                    IncidentDescription = request.IncidentDescription, DetectedAt = request.DetectedAt, Notes = request.Notes
+                }, actor, now, staged, token, batchHash));
+            }
+            return results;
+        }, ct);
+
+    private async Task<DamageReportDto> CreateLockedAsync(CreateDamageReportRequest request, Actor actor, DateTimeOffset now,
+        List<string> staged, CancellationToken token, string? batchHash = null)
+    {
+        Key(request.RequestId);
+        var images = Images(request.Images);
+        var deviceCode = Code(request.DeviceCode);
+        var description = Description(request.IncidentDescription);
+        var type = Type(request.IncidentType);
+        var contentHash = Hash(new { deviceCode, type, description, detectedAt = request.DetectedAt?.ToUniversalTime(), notes = Clean(request.Notes), images = Fingerprints(images) });
+        var hash = batchHash is null ? contentHash : Hash(new { contentHash, batchHash });
+        if (await Reports.RequestAsync(request.RequestId, token) is { } prior)
+        {
+            var result = Replay(prior, actor, "CREATE", hash, null);
+            await ReportAsync(result.ReportCode, actor, false, token);
+            return result;
+        }
+        var detected = request.DetectedAt?.ToUniversalTime() ?? now;
+        if (detected > now) throw Invalid("Detection cannot be later than report creation.");
+        var device = await DeviceAsync(deviceCode, actor, token);
+        if (await Reports.HasPendingAsync(device.Id, token))
+            throw Conflict("DEVICE_REPORT_PENDING", batchHash is null ? "This device already has a report awaiting reception."
+                : $"Thiết bị {deviceCode} đã có phiếu báo sự cố đang chờ xử lý.");
+        var report = new DamageReport
+        {
+            ReportCode = await codeGenerator.NextAsync(BusinessCodeKind.DamageReport, token), DeviceId = device.Id,
+            ReportingDepartmentId = actor.DepartmentId, ReporterAccountId = actor.Id,
+            IncidentType = type, IncidentDescription = description, Notes = Clean(request.Notes),
+            DetectedAt = detected, ReportedAt = now, CreateRequestId = request.RequestId, CreateRequestHash = hash,
+            Context = new() { ReporterNameSnapshot = actor.Name, ReportingDepartmentNameSnapshot = actor.DepartmentName,
+                DeviceCodeSnapshot = "", DeviceNameSnapshot = "", DeviceDepartmentNameSnapshot = "" }
+        };
+        await CaptureAsync(report.Context, device, now, token);
+        report.Pending = new() { DeviceId = device.Id, DamageReportId = report.Id };
+        foreach (var image in images) await AddImageAsync(report, image, actor.Id, now, staged, token);
+        await Reports.AddAsync(report, token);
+        await AuditAsync(report, actor.Id, request.RequestId, "DAMAGE_REPORT_CREATED", ["report"], null, Snapshot(report), token);
+        if (images.Count > 0) await AuditAsync(report, actor.Id, request.RequestId, "EVIDENCE_ADDED", ["evidence"], null, EvidenceSnapshot(report.Evidence), token);
+        var dto = await DtoAsync(report, token);
+        await SaveRequestAsync(request.RequestId, report.Id, actor.Id, "CREATE", hash, dto, token);
+        return dto;
+    }
 
     public Task<DamageReportDto> ReceiveAsync(string code, ReceiveDamageReportRequest request, CancellationToken ct)
         => WriteAsync(async (_, token) =>
@@ -212,7 +247,7 @@ public sealed partial class DamageReportService(IUnitOfWork uow, IDamageReportTr
         return new(bytes, evidence.ContentType);
     }
 
-    private async Task<DamageReportDto> WriteAsync(Func<List<string>, CancellationToken, Task<DamageReportDto>> action, CancellationToken ct)
+    private async Task<T> WriteAsync<T>(Func<List<string>, CancellationToken, Task<T>> action, CancellationToken ct)
     {
         var staged = new List<string>();
         try { return await transaction.ExecuteAsync(token => action(staged, token), ct); }

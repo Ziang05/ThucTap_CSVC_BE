@@ -32,6 +32,12 @@ public sealed class DamageReportsController(IDamageReportService reports) : Auth
         return CreatedAtAction(nameof(Get), new { reportCode = result.ReportCode }, result);
     }
 
+    [HttpPost("batch")]
+    [RequestSizeLimit(128 * 1024)]
+    [ProducesResponseType<IReadOnlyList<DamageReportDto>>(StatusCodes.Status201Created)]
+    public async Task<ActionResult<IReadOnlyList<DamageReportDto>>> CreateBatch(CreateDamageReportBatchRequest request, CancellationToken ct)
+        => StatusCode(StatusCodes.Status201Created, await reports.CreateBatchAsync(request, ct));
+
     [HttpPut("{reportCode}")]
     [RequestSizeLimit(40 * 1024 * 1024)]
     [ProducesResponseType<DamageReportDto>(StatusCodes.Status200OK)]

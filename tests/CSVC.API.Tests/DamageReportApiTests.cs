@@ -58,6 +58,61 @@ public sealed class DamageReportApiTests
     }
 
     [PostgreSqlFact]
+    public async Task Batch_creates_separate_reports_and_replays_when_device_order_changes()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var requestId = Guid.NewGuid();
+        const string path = Url + "/batch";
+        object Body(params string[] codes) => new { requestId, deviceCodes = codes, incidentType = "DAMAGE", incidentDescription = "Shared incident" };
+        var created = await Json(await f.Employee.PostAsJsonAsync(path, Body("TB-B", "TB-A")), HttpStatusCode.Created);
+        var reports = created.EnumerateArray().ToArray();
+        Assert.Equal(new[] { "TB-A", "TB-B" }, reports.Select(report => report.GetProperty("deviceCode").GetString()));
+        Assert.Equal(2, reports.Select(report => report.GetProperty("reportCode").GetString()).Distinct().Count());
+        Assert.All(reports, report =>
+        {
+            Assert.Equal("Pending", report.GetProperty("verificationStatus").GetString());
+            Assert.Equal("Department A", report.GetProperty("deviceDepartment").GetString());
+            Assert.Equal(reports[0].GetProperty("reportedAt").GetString(), report.GetProperty("reportedAt").GetString());
+        });
+        var retry = await Json(await f.Employee.PostAsJsonAsync(path, Body("tb-a", "TB-B")), HttpStatusCode.Created);
+        Assert.Equal(created.GetRawText(), retry.GetRawText());
+        await Expect(await f.Employee.PostAsJsonAsync(path, Body("TB-B", "TB-C")), HttpStatusCode.Conflict);
+        await Expect(await f.Peer.PostAsJsonAsync(path, Body("TB-A", "TB-B")), HttpStatusCode.Conflict);
+
+        var devices = await Get(f.Employee, Url + "/devices");
+        Assert.All(devices.GetProperty("items").EnumerateArray(), device => Assert.Equal("Department A", device.GetProperty("departmentName").GetString()));
+        await f.Db(async db =>
+        {
+            Assert.Equal(2, await db.DamageReports.CountAsync());
+            Assert.Equal(2, await db.Set<DamageReportPendingDevice>().CountAsync());
+            Assert.Equal(2, await db.Set<DamageReportHistory>().CountAsync());
+            Assert.Empty(await db.ServiceOrders.ToListAsync());
+            Assert.All(await db.Devices.ToListAsync(), device => Assert.Equal(DeviceCondition.Good, device.Condition));
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task Batch_rolls_back_if_a_device_is_pending_or_outside_scope_and_keeps_missing_single()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.Create(f.Employee, f.CreateBody("TB-B"));
+        await f.Db(async db =>
+        {
+            var other = await db.Departments.SingleAsync(d => d.Code == "PB_OTHER");
+            (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-C")).DepartmentId = other.Id;
+            await db.SaveChangesAsync();
+        });
+        object Body(string incident, params string[] codes) => new
+        { requestId = Guid.NewGuid(), deviceCodes = codes, incidentType = incident, incidentDescription = "Shared incident" };
+        const string path = Url + "/batch";
+        await Expect(await f.Employee.PostAsJsonAsync(path, Body("DAMAGE", "TB-A", "TB-B")), HttpStatusCode.Conflict);
+        await Expect(await f.Employee.PostAsJsonAsync(path, Body("DAMAGE", "TB-A", "TB-C")), HttpStatusCode.NotFound);
+        await Expect(await f.Employee.PostAsJsonAsync(path, Body("DAMAGE", "TB-A", " tb-a ")), HttpStatusCode.BadRequest);
+        await Expect(await f.Employee.PostAsJsonAsync(path, Body("MISSING", "TB-A", "TB-B")), HttpStatusCode.BadRequest);
+        await f.Db(async db => Assert.Equal("TB-B", (await db.DamageReports.Include(x => x.Context).SingleAsync()).Context.DeviceCodeSnapshot));
+    }
+
+    [PostgreSqlFact]
     public async Task Department_scope_uses_reporting_department_and_current_profile_in_every_read()
     {
         await using var f = await Fixture.CreateAsync();
