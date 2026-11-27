@@ -65,6 +65,7 @@ public static class DependencyInjection
         services.AddScoped<IAreaTransaction, AreaTransaction>();
         services.AddScoped<IDamageReportTransaction, DamageReportTransaction>();
         services.AddScoped<IDamageReportRepository, DamageReportRepository>();
+        services.AddScoped<IDamageSessionRepository, DamageSessionRepository>();
         services.AddSingleton<IReportEvidenceStore, LocalReportEvidenceStore>();
         services.AddScoped<CSVC.UseCases.Inventories.IEquipmentInventoryRepository, EquipmentInventoryRepository>();
         services.AddScoped<IInventoryTransaction, InventoryTransaction>();

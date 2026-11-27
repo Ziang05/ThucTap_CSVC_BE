@@ -51,6 +51,7 @@ public sealed class DamageReportConfiguration : IEntityTypeConfiguration<DamageR
         b.HasOne(x => x.Context).WithOne().HasForeignKey<DamageReportContext>(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Pending).WithOne().HasForeignKey<DamageReportPendingDevice>(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Reception).WithOne().HasForeignKey<DamageReportReception>(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.Decision).WithOne().HasForeignKey<DamageReportDecision>(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
         b.HasMany(x => x.Evidence).WithOne().HasForeignKey(x => x.DamageReportId).OnDelete(DeleteBehavior.Restrict);
         ReportMapping.Columns(b);
     }

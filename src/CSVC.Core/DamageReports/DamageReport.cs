@@ -24,6 +24,7 @@ public sealed class DamageReport
     public DamageReportContext Context { get; set; } = null!;
     public DamageReportPendingDevice? Pending { get; set; }
     public DamageReportReception? Reception { get; set; }
+    public DamageReportDecision? Decision { get; set; }
     public ICollection<DamageReportEvidence> Evidence { get; set; } = new List<DamageReportEvidence>();
 }
 

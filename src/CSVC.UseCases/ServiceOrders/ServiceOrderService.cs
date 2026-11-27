@@ -7,6 +7,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using CSVC.Core.Accounts;
 using CSVC.Core.Common;
+using CSVC.Core.DamageReports;
+using CSVC.UseCases.DamageReports;
 using CSVC.Core.Devices;
 using CSVC.Core.ServiceOrders;
 using CSVC.UseCases.Abstractions.Persistence;
@@ -24,7 +26,8 @@ public sealed partial class ServiceOrderService(
     IRepository<ExportSlipItem> exportItems, IRepository<ExportReturnSlip> returns,
     IRepository<ExportReturnSlipItem> returnItems, IRepository<ExportReturnHistory> returnHistory,
     CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipment, IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow,
-    IRequestAssignmentPolicy assignment, Maintenance.MaintenanceScheduleService maintenance) : IServiceOrderService
+    IRequestAssignmentPolicy assignment, Maintenance.MaintenanceScheduleService maintenance,
+    IDamageSessionRepository damageSessions, IRepository<DamageReportDecision> damageDecisions) : IServiceOrderService
 {
     public async Task<PagedResult<ServiceOrderDto>> ListAsync(ServiceOrderListQuery query, CancellationToken ct)
     {
@@ -61,8 +64,8 @@ public sealed partial class ServiceOrderService(
                 if (existing.CreatedByAccountId != actor || existing.CreateRequestHash != hash) throw IdempotencyConflict();
                 return ToDto(existing, await AccountCodesAsync([existing], token));
             }
-            if (request.OrderType == ServiceOrderType.Repair && sourceRequestId is null)
-                throw Conflict("REPAIR_SOURCE_REQUIRED", "Repair requests originate in PMMS. Start handling the inherited request instead of creating another repair request.");
+            if (request.OrderType == ServiceOrderType.Repair && sourceRequestId is null && Clean(request.SourceRequestCode) is not null)
+                throw Conflict("REPAIR_SOURCE_REQUIRED", "Start repairs with a PMMS source through its assigned request.");
             var now = clock.GetUtcNow();
             var codeKind = request.OrderType == ServiceOrderType.Maintenance ? BusinessCodeKind.MaintenanceOrder : BusinessCodeKind.RepairOrder;
             var order = new ServiceOrder
@@ -100,6 +103,9 @@ public sealed partial class ServiceOrderService(
                     item.RepairDetail = new() { ServiceOrderItemId = item.Id, DamageReportId = report.Id, DamageReport = report };
                 }
                 else if (order.OrderType == ServiceOrderType.Repair) item.RepairDetail = new() { ServiceOrderItemId = item.Id };
+                if (order.OrderType == ServiceOrderType.Repair)
+                    item.DamageSessionId = await ResolveDamageSessionLockedAsync(device.Id, item.RepairDetail?.DamageReportId,
+                        input, linkOpenByDefault: sourceRequestId is null, token);
                 order.Items.Add(item);
             }
             await orders.AddAsync(order, token);
@@ -158,6 +164,8 @@ public sealed partial class ServiceOrderService(
             {
                 var device = await unitOfWork.Devices.GetByIdAsync(item.DeviceId, token) ?? throw Missing("DEVICE_NOT_FOUND");
                 await ValidateDeviceAsync(device, order.OrderType, token);
+                if (item.DamageSessionId is { } sessionId)
+                    await RequireOpenDamageSessionAsync(device.Id, sessionId, token);
                 if (await guards.ExistsAsync(x => x.DeviceId == device.Id, token)) throw Busy();
                 await holds.AddAsync(new ServiceOrderDeviceHold { DeviceId = device.Id, ServiceOrderId = order.Id,
                     ServiceOrderItemId = item.Id, HeldByAccountId = actor, HeldAt = now }, token);
@@ -244,16 +252,23 @@ public sealed partial class ServiceOrderService(
                 var guard = await guards.FirstOrDefaultAsync(g => g.DeviceId == item.DeviceId, token);
                 if (guard?.GuardState == ExportGuardState.HeldForExport)
                     throw Conflict("EXPORT_RESULT_PENDING", "Record the pending export result before the professional outcome.");
-                var inputResult = request.Items.Single(x => x.ItemNo == item.ItemNo).Result;
-                if (item.ExecutionMethod == ExecutionMethod.External && inputResult != ServiceItemStatus.NotExecuted
-                    && !order.ExportSlips.Any(e => e.Items.Any(line => line.ServiceOrderItemId == item.Id && line.Result == ExportResult.Success)))
-                    throw Conflict("EXPORT_NOT_SUCCESSFUL", "A successful export is required for external work; select NotExecuted with a reason otherwise.");
+                if (guard?.GuardState == ExportGuardState.AwaitingReturn)
+                    throw Conflict("EXPORT_RETURN_PENDING", "Record return of the device before recording a maintenance or repair result.");
                 var input = request.Items.Single(x => x.ItemNo == item.ItemNo);
+                var receivedAt = item.ExecutionMethod == ExecutionMethod.External
+                    ? order.ExportSlips.SelectMany(slip => slip.Items)
+                        .Where(line => line.ServiceOrderItemId == item.Id && line.Result == ExportResult.Success)
+                        .Select(line => line.ReturnItem?.ReturnSlip?.ReceivedAt).Max()
+                    : null;
+                if (item.ExecutionMethod == ExecutionMethod.External && input.Result != ServiceItemStatus.NotExecuted && receivedAt is null)
+                    throw Conflict("EXPORT_NOT_SUCCESSFUL", "External work requires a recorded export and return; use NotExecuted if the work did not take place.");
                 var priorPeriodStatus = await maintenance.RecordResultLockedAsync(item, input.Result, input.PerformedOn, recordedAt, token);
                 item.ExecutionStatus = input.Result; item.ResultDescription = Clean(input.Description);
                 item.ResultRecordedByAccountId = actor; item.ResultRecordedAt = recordedAt;
                 item.ResultRequestId = request.RequestId; item.Version++;
                 await ReleaseAsync(order, item, request.RequestId, actor, token);
+                if (item.DamageSessionId.HasValue && input.Result == ServiceItemStatus.Completed)
+                    await ApplyDamageRepairResultLockedAsync(order, item, receivedAt, token);
                 await AuditAsync(order, request.RequestId, actor, "ITEM_" + input.Result.ToString().ToUpperInvariant(),
                     ServiceItemStatus.InProgress, item, null, token);
                 if (priorPeriodStatus is { } before)
@@ -389,12 +404,43 @@ public sealed partial class ServiceOrderService(
             o.Items.OrderBy(i => i.ItemNo).Select(i => new ServiceOrderItemDto(i.ItemNo, i.DeviceCodeSnapshot, i.DeviceNameSnapshot,
                 i.SerialSnapshot, i.ExecutionMethod, i.ExecutionStatus, i.WorkDescription, i.ResultDescription,
                 ActorCode(codes, i.ResultRecordedByAccountId), i.ResultRecordedAt, i.Notes, i.Version) {
-                    DamageReportCode = i.RepairDetail?.DamageReport?.ReportCode,
+                    DamageReportCode = i.RepairDetail?.DamageReport?.ReportCode, DamageSessionId = i.DamageSessionId,
                     MaintenancePeriodId = i.MaintenancePeriodId, MaintenanceDueOn = i.MaintenancePeriod?.DueOn, PerformedOn = i.PerformedOn
                 }).ToArray(),
             o.ExportSlips.OrderBy(e => e.SequenceNo).Select(e => ToExportDto(e, o, codes)).ToArray()) { SpecializedHandlingReason = o.SpecializedHandlingReason, SourceRequestCode = o.SourceRequestCode,
                 ExecutionStartedAt = o.ExecutionStartedAt, ExecutionStartedByAccountCode = ActorCode(codes, o.ExecutionStartedByAccountId),
                 CanExecute = o.SourceRequestId is null || (o.SourceRequest?.AssigneeAccountId ?? o.CreatedByAccountId) == current.AccountId };
+
+    private async Task<Guid?> ResolveDamageSessionLockedAsync(Guid deviceId, Guid? reportId, ServiceItemRequest input,
+        bool linkOpenByDefault, CancellationToken ct)
+    {
+        var decision = reportId is { } id ? await damageDecisions.GetByIdAsync(id, ct) : null;
+        var required = decision?.DamageSessionId;
+        if (required.HasValue && (input.OutsideDamageSession || input.DamageSessionId is { } requested && requested != required))
+            throw Conflict("DAMAGE_SESSION_REPORT_MISMATCH", "Use the damage session linked to the selected report.");
+
+        var selected = required ?? input.DamageSessionId;
+        var confirmedNotDamaged = decision?.Outcome == DamageVerificationStatus.ConfirmedNotDamaged;
+        if (selected.HasValue && confirmedNotDamaged)
+            throw Conflict("DAMAGE_SESSION_REPORT_MISMATCH", "The selected report was confirmed not damaged.");
+        if (!selected.HasValue && (!linkOpenByDefault || input.OutsideDamageSession || confirmedNotDamaged))
+            return null;
+
+        var sessionId = selected.HasValue
+            ? (await RequireOpenDamageSessionAsync(deviceId, selected.Value, ct)).Id
+            : (await damageSessions.FindOpenAsync(deviceId, ct))?.Id;
+        if (sessionId is { } openId && await damageSessions.HasActiveRepairAsync(openId, ct))
+            throw Conflict("DAMAGE_SESSION_ACTIVE_REPAIR", "An active repair already covers this damage session.");
+        return sessionId;
+    }
+
+    private async Task<DeviceDamageSession> RequireOpenDamageSessionAsync(Guid deviceId, Guid sessionId, CancellationToken ct)
+    {
+        var open = await damageSessions.FindOpenAsync(deviceId, ct);
+        if (open?.Id != sessionId)
+            throw Conflict("DAMAGE_SESSION_NOT_OPEN", "Select an open damage session for this device.");
+        return open;
+    }
 
     private static void ValidateCreate(CreateServiceOrderRequest request)
     {
@@ -407,6 +453,9 @@ public sealed partial class ServiceOrderService(
             Validate(item);
             if (item.MaintenancePeriodId is not null && (item.MaintenancePeriodId == Guid.Empty || request.OrderType != ServiceOrderType.Maintenance))
                 throw Validation("Only maintenance items may reference a maintenance period.");
+            if ((item.DamageSessionId.HasValue || item.OutsideDamageSession) && (request.OrderType != ServiceOrderType.Repair ||
+                item.DamageSessionId == Guid.Empty || item.DamageSessionId.HasValue && item.OutsideDamageSession))
+                throw Validation("Select a damage session or repair outside a session.");
             if (!Regex.IsMatch(Code(item.DeviceCode), BusinessCode.Pattern, RegexOptions.CultureInvariant) || Code(item.DeviceCode).Length > 32)
                 throw Validation("Invalid device code.");
         }
@@ -420,6 +469,9 @@ public sealed partial class ServiceOrderService(
         if (r.Items.Any(item => item.MaintenancePeriodId.HasValue))
             hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hash + "|" +
                 JsonSerializer.Serialize(r.Items.Select(item => item.MaintenancePeriodId)))));
+        if (r.Items.Any(item => item.DamageSessionId.HasValue || item.OutsideDamageSession))
+            hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hash + "|" +
+                JsonSerializer.Serialize(r.Items.Select(item => new { item.DamageSessionId, item.OutsideDamageSession })))));
         return Clean(r.SpecializedHandlingReason) is { } reason
             ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hash + "|" + reason))) : hash;
     }

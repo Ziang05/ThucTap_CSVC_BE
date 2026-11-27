@@ -13,9 +13,10 @@ using CSVC.UseCases.Settings;
 
 namespace CSVC.UseCases.DamageReports;
 
-public sealed class DamageReportService(IUnitOfWork uow, IDamageReportTransaction transaction,
+public sealed partial class DamageReportService(IUnitOfWork uow, IDamageReportTransaction transaction,
     ICurrentAccount current, TimeProvider clock, IEquipmentDepartmentPolicy equipmentPolicy,
-    IReportEvidenceStore files, IBusinessCodeGenerator codeGenerator) : IDamageReportService
+    IReportEvidenceStore files, IBusinessCodeGenerator codeGenerator, IInventoryTransaction inventoryTransaction,
+    IDamageSessionRepository damageSessions, IRepository<DeviceDamageSession> sessionRows) : IDamageReportService
 {
     private IDamageReportRepository Reports => uow.DamageReports;
 
@@ -93,6 +94,8 @@ public sealed class DamageReportService(IUnitOfWork uow, IDamageReportTransactio
             var hash = Hash(new { report.ReportCode, request.ExpectedVersion });
             if (await Reports.RequestAsync(request.RequestId, token) is { } prior)
                 return Replay(prior, actor, "RECEIVE", hash, report.Id);
+            if (report.IncidentType == DamageReportIncidentType.Damage)
+                throw Conflict("REPORT_VERIFICATION_REQUIRED", "Verify this damage report with a conclusion.");
             Version(report, request.ExpectedVersion);
             if (report.Reception is not null) throw Conflict("REPORT_ALREADY_RECEIVED", "The report has already been received.");
             var before = new { status = "NOT_RECEIVED", report.RowVersion };
@@ -129,6 +132,12 @@ public sealed class DamageReportService(IUnitOfWork uow, IDamageReportTransactio
             if (await Reports.RequestAsync(request.RequestId, token) is { } prior)
                 return Replay(prior, actor, "UPDATE", hash, report.Id);
             Version(report, request.ExpectedVersion);
+            if (report.Decision is not null &&
+                (deviceCode is not null && deviceCode != report.Context.DeviceCodeSnapshot ||
+                 type is not null && type != report.IncidentType ||
+                 description is not null && description != report.IncidentDescription ||
+                 request.DetectedAt is { } verifiedDetection && verifiedDetection != report.DetectedAt))
+                throw Conflict("REPORT_VERIFIED_CONTENT_FIXED", "Only notes and evidence can change after verification.");
             var before = Snapshot(report);
             var changed = new List<string>();
             var now = Max(clock.GetUtcNow(), report.ReportedAt);
@@ -280,7 +289,14 @@ public sealed class DamageReportService(IUnitOfWork uow, IDamageReportTransactio
             r.ReportedAt, r.LastUpdatedAt, await AccountCode(r.LastUpdatedByAccountId), r.RowVersion,
             r.Reception is null ? "NOT_RECEIVED" : "RECEIVED", await AccountCode(r.Reception?.ReceivedByAccountId), r.Reception?.ReceivedAt,
             r.Evidence.Where(x => x.RemovedAt is null).OrderBy(x => x.SequenceNo).Select(x => new ReportEvidenceDto(x.SequenceNo,
-                x.OriginalFilename, x.ContentType, x.SizeBytes, $"/api/v1/damage-reports/{Uri.EscapeDataString(r.ReportCode)}/evidence/{x.SequenceNo}")).ToArray());
+                x.OriginalFilename, x.ContentType, x.SizeBytes, $"/api/v1/damage-reports/{Uri.EscapeDataString(r.ReportCode)}/evidence/{x.SequenceNo}")).ToArray())
+        {
+            VerificationStatus = r.IncidentType == DamageReportIncidentType.Damage ? r.Decision?.Outcome ?? DamageVerificationStatus.Pending : null,
+            DamageSessionId = r.Decision?.DamageSessionId,
+            VerifiedAt = r.Decision?.DecidedAt,
+            VerifiedByAccountCode = await AccountCode(r.Decision?.DecidedByAccountId),
+            VerificationReason = r.Decision?.Reason
+        };
     }
 
     private Task SaveRequestAsync(Guid request, Guid report, Guid actor, string operation, string hash, DamageReportDto dto, CancellationToken ct)

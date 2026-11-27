@@ -88,6 +88,9 @@ public sealed class ServiceOrderItemConfiguration : IEntityTypeConfiguration<Ser
             .HasPrincipalKey(x => new { x.Id, x.DeviceId }).HasConstraintName("fk_service_item_maintenance_period")
             .OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => x.DamageSessionId);
+        b.HasOne(x => x.DamageSession).WithMany().HasForeignKey(x => new { x.DamageSessionId, x.DeviceId })
+            .HasPrincipalKey(x => new { x.Id, x.DeviceId }).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.RepairDetail).WithOne().HasForeignKey<RepairItemDetail>(x => x.ServiceOrderItemId).OnDelete(DeleteBehavior.Restrict);
         ServiceMapping.Account(b, nameof(ServiceOrderItem.ResultRecordedByAccountId));
         ServiceMapping.Columns(b);
@@ -115,8 +118,7 @@ public sealed class ExportSlipConfiguration : IEntityTypeConfiguration<ExportSli
         {
             t.HasCheckConstraint("ck_export_slips_sequence", "sequence_no > 0");
             t.HasCheckConstraint("ck_export_slips_facility", "btrim(facility_name_snapshot) <> ''");
-            t.HasCheckConstraint("ck_export_slips_status", "status IN ('PendingApproval','InProgress','Completed','Canceled')");
-            t.HasCheckConstraint("ck_export_slips_approval", "status NOT IN ('InProgress','Completed') OR (approved_by_account_id IS NOT NULL AND approved_at IS NOT NULL AND approval_request_id IS NOT NULL)");
+            t.HasCheckConstraint("ck_export_slips_status", "status IN ('InProgress','Completed','Canceled')");
             t.HasCheckConstraint("ck_export_slips_cancel", "status <> 'Canceled' OR (canceled_by_account_id IS NOT NULL AND canceled_at IS NOT NULL AND cancel_request_id IS NOT NULL AND COALESCE(btrim(cancel_reason),'') <> '')");
             t.HasCheckConstraint("ck_export_slips_completed", "(status = 'Completed') = (completed_at IS NOT NULL)");
         });

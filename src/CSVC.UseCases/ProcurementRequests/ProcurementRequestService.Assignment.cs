@@ -106,7 +106,9 @@ public sealed partial class ProcurementRequestService
                 Notes = request.Notes, Items = equipmentLines.OrderBy(l => l.SourceLineCode).Select(l => new ServiceItemRequest
                 {
                     SourceLineCode = l.SourceLineCode, DeviceCode = l.DeviceCode!, DamageReportCode = l.DamageReportCode,
-                    ExecutionMethod = plan[l.SourceLineCode].ExecutionMethod, WorkDescription = l.Description
+                    ExecutionMethod = plan[l.SourceLineCode].ExecutionMethod, WorkDescription = l.Description,
+                    DamageSessionId = plan[l.SourceLineCode].DamageSessionId,
+                    OutsideDamageSession = plan[l.SourceLineCode].OutsideDamageSession
                 }).ToList()
             }, request.Id, token);
             await CommandEventAsync(request, input.RequestId, actor.Id, hash, "REPAIR_EXECUTION_STARTED", "InProgress", new StartedExecution(execution.DisplayCode), token);

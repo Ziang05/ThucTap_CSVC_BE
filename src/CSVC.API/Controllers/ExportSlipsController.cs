@@ -26,10 +26,6 @@ public sealed class ExportSlipsController(IServiceOrderService service) : Authen
         return CreatedAtAction(nameof(Get), new { code = slip.DisplayCode }, slip);
     }
 
-    [HttpPost("{code}/approve")]
-    public async Task<IActionResult> Approve(string code, ServiceTransitionRequest request, CancellationToken ct)
-    { await service.ApproveExportAsync(code, request, ct); return NoContent(); }
-
     [HttpPut("{code}")]
     public async Task<IActionResult> Edit(string code, EditExportSlipRequest request, CancellationToken ct)
     { await service.EditExportAsync(code, request, ct); return NoContent(); }

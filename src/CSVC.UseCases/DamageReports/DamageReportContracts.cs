@@ -62,6 +62,8 @@ public sealed class DamageReportListQuery
     [StringLength(200)] public string? Search { get; set; }
     [RegularExpression("^(DAMAGE|ABNORMAL|MISSING)$")] public string? IncidentType { get; set; }
     [RegularExpression("^(NOT_RECEIVED|RECEIVED)$")] public string? ReceptionStatus { get; set; }
+    [EnumDataType(typeof(DamageVerificationStatus))] public DamageVerificationStatus? VerificationStatus { get; set; }
+    public bool LegacyReceptionOnly { get; set; }
     [StringLength(32)] public string? DepartmentCode { get; set; }
     [StringLength(32)] public string? DeviceCode { get; set; }
     [StringLength(32)] public string? ReporterAccountCode { get; set; }
@@ -77,14 +79,25 @@ public sealed class DamageReportListQuery
 public sealed record ReportEvidenceDto(int SequenceNo, string Filename, string ContentType, long SizeBytes, string ContentUrl);
 public sealed record ReportHistoryDto(string ActionCode, string ActorAccountCode, DateTimeOffset OccurredAt, string? ChangedFields, string? BeforeData, string? AfterData);
 public sealed record DamageReportSummaryDto(string ReportCode, string DeviceCode, string DeviceName, string IncidentType,
-    string ReportingDepartment, string ReporterName, DateTimeOffset ReportedAt, string ReceptionStatus, int RowVersion);
+    string ReportingDepartment, string ReporterName, DateTimeOffset ReportedAt, string ReceptionStatus, int RowVersion)
+{
+    public DamageVerificationStatus? VerificationStatus { get; init; }
+    public Guid? DamageSessionId { get; init; }
+}
 public sealed record DamageReportDto(string ReportCode, string DeviceCode, string DeviceName, string? DeviceSerial,
     string DeviceDepartment, string? DeviceAreaPath, DateTimeOffset DeviceContextCapturedAt,
     string ReportingDepartment, string ReporterName, string ReporterAccountCode,
     string IncidentType, string IncidentDescription, DateTimeOffset DetectedAt, string? Notes,
     DateTimeOffset ReportedAt, DateTimeOffset? LastUpdatedAt, string? LastUpdatedByAccountCode, int RowVersion,
     string ReceptionStatus, string? ReceivedByAccountCode, DateTimeOffset? ReceivedAt,
-    IReadOnlyList<ReportEvidenceDto> Evidence);
+    IReadOnlyList<ReportEvidenceDto> Evidence)
+{
+    public DamageVerificationStatus? VerificationStatus { get; init; }
+    public Guid? DamageSessionId { get; init; }
+    public DateTimeOffset? VerifiedAt { get; init; }
+    public string? VerifiedByAccountCode { get; init; }
+    public string? VerificationReason { get; init; }
+}
 public sealed record ReportDeviceOptionDto(string DeviceCode, string Name, bool CanReport);
 public sealed record EvidenceDownload(byte[] Content, string ContentType);
 public sealed record ValidatedReportImage(string Filename, string ContentType, byte[] Bytes, string Sha256);
@@ -96,6 +109,10 @@ public interface IDamageReportService
     Task<DamageReportDto> CreateAsync(CreateDamageReportRequest request, CancellationToken ct);
     Task<DamageReportDto> UpdateAsync(string code, UpdateDamageReportRequest request, CancellationToken ct);
     Task<DamageReportDto> ReceiveAsync(string code, ReceiveDamageReportRequest request, CancellationToken ct);
+    Task<DamageReportDto> VerifyAsync(string code, VerifyDamageReportRequest request, CancellationToken ct);
+    Task<PagedResult<DamageSessionDto>> SessionsAsync(DamageSessionQuery query, CancellationToken ct);
+    Task<DamageSessionDto> SessionAsync(Guid sessionId, CancellationToken ct);
+    Task<IReadOnlyList<DamageSessionOptionDto>> RepairOptionsAsync(string[] deviceCodes, CancellationToken ct);
     Task<PagedResult<ReportHistoryDto>> HistoryAsync(string code, int page, int pageSize, CancellationToken ct);
     Task<EvidenceDownload> EvidenceAsync(string code, int sequence, CancellationToken ct);
     Task<PagedResult<ReportDeviceOptionDto>> DevicesAsync(int page, int pageSize, string? search, CancellationToken ct);

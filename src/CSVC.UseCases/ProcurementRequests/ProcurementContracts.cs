@@ -112,6 +112,8 @@ public sealed class SourceRepairPlan
 {
     [Required, StringLength(64)] public string SourceLineCode { get; init; } = "";
     [EnumDataType(typeof(CSVC.Core.ServiceOrders.ExecutionMethod))] public CSVC.Core.ServiceOrders.ExecutionMethod ExecutionMethod { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public Guid? DamageSessionId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool OutsideDamageSession { get; init; }
 }
 public sealed record RequestWorkloadDto(string? AccountCode, string FullName, int Open, int Waiting, int Completed, int Cancelled);
 public sealed record RepairResultDto(string DeviceCode, string? Outcome, string? Description, DateTimeOffset? RecordedAt);

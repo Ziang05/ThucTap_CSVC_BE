@@ -15,7 +15,6 @@ public interface IServiceOrderService
     Task<PagedResult<ExportSlipDto>> ListExportsAsync(ExportSlipListQuery query, CancellationToken ct);
     Task<ExportSlipDto> GetExportAsync(string code, CancellationToken ct);
     Task<ExportSlipDto> CreateExportAsync(CreateExportSlipRequest request, CancellationToken ct);
-    Task ApproveExportAsync(string code, ServiceTransitionRequest request, CancellationToken ct);
     Task EditExportAsync(string code, EditExportSlipRequest request, CancellationToken ct);
     Task CancelExportAsync(string code, CancelServiceOrderRequest request, CancellationToken ct);
     Task<int> ReconcileHoldsAsync(string code, ServiceTransitionRequest request, CancellationToken ct);

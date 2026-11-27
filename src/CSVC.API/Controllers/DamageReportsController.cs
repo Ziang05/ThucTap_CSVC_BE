@@ -43,6 +43,11 @@ public sealed class DamageReportsController(IDamageReportService reports) : Auth
     public async Task<ActionResult<DamageReportDto>> Receive(string reportCode, ReceiveDamageReportRequest request, CancellationToken ct)
         => Ok(await reports.ReceiveAsync(reportCode, request, ct));
 
+    [HttpPost("{reportCode}/verify")]
+    [ProducesResponseType<DamageReportDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<DamageReportDto>> Verify(string reportCode, VerifyDamageReportRequest request, CancellationToken ct)
+        => Ok(await reports.VerifyAsync(reportCode, request, ct));
+
     [HttpGet("{reportCode}/history")]
     [ProducesResponseType<PagedResult<ReportHistoryDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ReportHistoryDto>>> History(string reportCode, [FromQuery] int page = 1,

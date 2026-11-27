@@ -127,13 +127,13 @@ public sealed class DamageReportApiTests
     public async Task Reception_is_atomic_immutable_idempotent_and_does_not_release_a_new_reports_pending()
     {
         await using var f = await Fixture.CreateAsync();
-        var first = await f.Create(f.Employee, f.CreateBody("TB-A"));
+        var first = await f.Create(f.Employee, f.CreateBody("TB-A", incident: "MISSING"));
         var request = new { requestId = Guid.NewGuid(), expectedVersion = 1 };
         await Expect(await f.Employee.PostAsJsonAsync(Route(first) + "/receive", request), HttpStatusCode.Forbidden);
         var received = await Json(await f.Staff.PostAsJsonAsync(Route(first) + "/receive", request), HttpStatusCode.OK);
         Assert.Equal("TK_STAFF", received.GetProperty("receivedByAccountCode").GetString());
         Assert.Equal("RECEIVED", received.GetProperty("receptionStatus").GetString());
-        var second = await f.Create(f.Employee, f.CreateBody("TB-A"));
+        var second = await f.Create(f.Employee, f.CreateBody("TB-A", incident: "MISSING"));
         var retry = await Json(await f.Staff.PostAsJsonAsync(Route(first) + "/receive", request), HttpStatusCode.OK);
         Assert.Equal(received.GetRawText(), retry.GetRawText());
         await Expect(await f.Manager.PostAsJsonAsync(Route(first) + "/receive", new { requestId = Guid.NewGuid(), expectedVersion = 2 }), HttpStatusCode.Conflict);
@@ -176,12 +176,12 @@ public sealed class DamageReportApiTests
     public async Task Device_change_refreshes_only_device_context_and_is_blocked_after_reception()
     {
         await using var f = await Fixture.CreateAsync();
-        var r = await f.Create(f.Employee, f.CreateBody("TB-A")); var route = Route(r);
+        var r = await f.Create(f.Employee, f.CreateBody("TB-A", incident: "MISSING")); var route = Route(r);
         var updated = await Json(await f.Employee.PutAsJsonAsync(route, new { requestId = Guid.NewGuid(), expectedVersion = 1, deviceCode = "TB-B" }), HttpStatusCode.OK);
         Assert.Equal("TB-B", updated.GetProperty("deviceCode").GetString());
         Assert.Equal(r.GetProperty("reporterName").GetString(), updated.GetProperty("reporterName").GetString());
         Assert.Equal(r.GetProperty("reportedAt").GetString(), updated.GetProperty("reportedAt").GetString());
-        await f.Create(f.Employee, f.CreateBody("TB-A"));
+        await f.Create(f.Employee, f.CreateBody("TB-A", incident: "MISSING"));
         await Expect(await f.Staff.PostAsJsonAsync(route + "/receive", new { requestId = Guid.NewGuid(), expectedVersion = 2 }), HttpStatusCode.OK);
         await Expect(await f.Employee.PutAsJsonAsync(route, new { requestId = Guid.NewGuid(), expectedVersion = 3, deviceCode = "TB-C" }), HttpStatusCode.Conflict);
         var content = await Json(await f.Employee.PutAsJsonAsync(route, new { requestId = Guid.NewGuid(), expectedVersion = 3, incidentDescription = "After reception", incidentType = "ABNORMAL" }), HttpStatusCode.OK);
@@ -194,7 +194,7 @@ public sealed class DamageReportApiTests
     public async Task Competing_device_changes_preserve_losers_pending_and_reception_race_has_one_winner()
     {
         await using var f = await Fixture.CreateAsync();
-        var a = await f.Create(f.Employee, f.CreateBody("TB-A")); var b = await f.Create(f.Employee, f.CreateBody("TB-B"));
+        var a = await f.Create(f.Employee, f.CreateBody("TB-A", incident: "MISSING")); var b = await f.Create(f.Employee, f.CreateBody("TB-B", incident: "MISSING"));
         var results = await Task.WhenAll(new[] { a, b }.Select(r => f.Employee.PutAsJsonAsync(Route(r), new { requestId = Guid.NewGuid(), expectedVersion = 1, deviceCode = "TB-C" })));
         Assert.Single(results, x => x.StatusCode == HttpStatusCode.OK); Assert.Single(results, x => x.StatusCode == HttpStatusCode.Conflict);
         await f.Db(async db => Assert.Equal(2, await db.Set<DamageReportPendingDevice>().CountAsync()));
@@ -208,7 +208,7 @@ public sealed class DamageReportApiTests
     public async Task Evidence_can_add_replace_remove_after_reception_with_private_authorized_reads()
     {
         await using var f = await Fixture.CreateAsync();
-        var r = await f.Create(f.Employee, new { requestId = Guid.NewGuid(), deviceCode = "TB-A", incidentType = "DAMAGE", incidentDescription = "With image", images = new[] { Image() } });
+        var r = await f.Create(f.Employee, new { requestId = Guid.NewGuid(), deviceCode = "TB-A", incidentType = "ABNORMAL", incidentDescription = "With image", images = new[] { Image() } });
         var detected = Uri.EscapeDataString(r.GetProperty("detectedAt").GetDateTimeOffset().ToOffset(TimeSpan.FromHours(7)).ToString("O"));
         var evidenceFilter = Url + $"?reporterAccountCode=tk_employee&detectedFrom={detected}&detectedTo={detected}";
         Assert.Equal(1, (await Get(f.Employee, evidenceFilter + "&hasEvidence=true")).GetProperty("totalCount").GetInt32());
@@ -248,12 +248,12 @@ public sealed class DamageReportApiTests
         await using var f = await Fixture.CreateAsync();
         if (action == "DAMAGE_REPORT_CREATED")
         {
-            var body = f.CreateBody("TB-A"); f.Failures.Action = action;
+            var body = f.CreateBody("TB-A", incident: "MISSING"); f.Failures.Action = action;
             await Expect(await f.Employee.PostAsJsonAsync(Url, body), HttpStatusCode.ServiceUnavailable);
             await f.Db(async db => { Assert.Empty(await db.DamageReports.ToListAsync()); Assert.Empty(await db.Set<DamageReportRequest>().ToListAsync()); });
             await f.Create(f.Employee, body); return;
         }
-        var r = await f.Create(f.Employee, f.CreateBody("TB-A")); var route = Route(r);
+        var r = await f.Create(f.Employee, f.CreateBody("TB-A", incident: "MISSING")); var route = Route(r);
         f.Failures.Action = action;
         Func<Task<HttpResponseMessage>> operation = action switch
         {
@@ -341,7 +341,7 @@ public sealed class DamageReportApiTests
     [PostgreSqlFact]
     public async Task Concurrent_receptions_keep_the_first_receiver_and_only_one_history_event()
     {
-        await using var f = await Fixture.CreateAsync(); var r = await f.Create(f.Employee, f.CreateBody("TB-A"));
+        await using var f = await Fixture.CreateAsync(); var r = await f.Create(f.Employee, f.CreateBody("TB-A", incident: "MISSING"));
         var results = await Task.WhenAll(f.Manager.PostAsJsonAsync(Route(r) + "/receive", new { requestId = Guid.NewGuid(), expectedVersion = 1 }),
             f.Staff.PostAsJsonAsync(Route(r) + "/receive", new { requestId = Guid.NewGuid(), expectedVersion = 1 }));
         Assert.Single(results, x => x.StatusCode == HttpStatusCode.OK); Assert.Single(results, x => x.StatusCode == HttpStatusCode.Conflict);
@@ -365,6 +365,96 @@ public sealed class DamageReportApiTests
             Assert.Equal(3, await db.Devices.CountAsync());
         });
         await f.Create(f.Employee, f.CreateBody("TB-A"));
+    }
+
+    [PostgreSqlFact]
+    public async Task Damage_verification_is_role_checked_atomic_and_reuses_the_open_session()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var report = await f.Create(f.Employee, f.CreateBody("TB-A"));
+        Assert.Equal("Pending", report.GetProperty("verificationStatus").GetString());
+        var route = Route(report);
+        var confirm = new { requestId = Guid.NewGuid(), expectedVersion = 1, outcome = "ConfirmedDamaged", reason = "Power supply failed" };
+        await Expect(await f.Employee.PostAsJsonAsync(route + "/verify", confirm), HttpStatusCode.Forbidden);
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/receive", new { requestId = Guid.NewGuid(), expectedVersion = 1 }), HttpStatusCode.Conflict);
+        f.Failures.Action = "DAMAGE_REPORT_VERIFIED";
+        await Expect(await f.Staff.PostAsJsonAsync(route + "/verify", confirm), HttpStatusCode.ServiceUnavailable);
+        await f.Db(async db =>
+        {
+            Assert.Equal(DeviceCondition.Good, (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-A")).Condition);
+            Assert.Empty(await db.Set<DeviceDamageSession>().ToListAsync());
+            Assert.Single(await db.Set<DamageReportPendingDevice>().ToListAsync());
+        });
+
+        var verified = await Json(await f.Staff.PostAsJsonAsync(route + "/verify", confirm), HttpStatusCode.OK);
+        Assert.Equal("ConfirmedDamaged", verified.GetProperty("verificationStatus").GetString());
+        var sessionId = verified.GetProperty("damageSessionId").GetGuid();
+        var retry = await Json(await f.Staff.PostAsJsonAsync(route + "/verify", confirm), HttpStatusCode.OK);
+        Assert.Equal(verified.GetRawText(), retry.GetRawText());
+
+        var second = await f.Create(f.Employee, f.CreateBody("TB-A"));
+        var secondVerified = await Json(await f.Manager.PostAsJsonAsync(Route(second) + "/verify",
+            new { requestId = Guid.NewGuid(), expectedVersion = 1, outcome = "ConfirmedDamaged", reason = "Same incident" }), HttpStatusCode.OK);
+        Assert.Equal(sessionId, secondVerified.GetProperty("damageSessionId").GetGuid());
+        var rejected = await f.Create(f.Employee, f.CreateBody("TB-B"));
+        var noDamage = await Json(await f.Manager.PostAsJsonAsync(Route(rejected) + "/verify",
+            new { requestId = Guid.NewGuid(), expectedVersion = 1, outcome = "ConfirmedNotDamaged", reason = "Device operates normally" }), HttpStatusCode.OK);
+        Assert.Equal("ConfirmedNotDamaged", noDamage.GetProperty("verificationStatus").GetString());
+        Assert.Equal(JsonValueKind.Null, noDamage.GetProperty("damageSessionId").ValueKind);
+        var filtered = await Get(f.Manager, Url + "?verificationStatus=ConfirmedDamaged");
+        Assert.Equal(2, filtered.GetProperty("totalCount").GetInt32());
+
+        var options = await Get(f.Staff, "/api/v1/damage-sessions/repair-options?deviceCodes=TB-A&deviceCodes=TB-B");
+        Assert.Equal(2, Assert.Single(options.EnumerateArray()).GetProperty("reportCodes").GetArrayLength());
+        var board = await Get(f.Staff, "/api/v1/damage-sessions?status=Open&search=TB-A");
+        Assert.Equal(1, board.GetProperty("totalCount").GetInt32());
+        await Expect(await f.Employee.GetAsync("/api/v1/damage-sessions"), HttpStatusCode.Forbidden);
+        var departmentView = await Get(f.Employee, "/api/v1/damage-sessions?deviceCode=TB-A");
+        var visible = Assert.Single(departmentView.GetProperty("items").EnumerateArray());
+        Assert.Empty(visible.GetProperty("reportCodes").EnumerateArray());
+        Assert.Empty(visible.GetProperty("attempts").EnumerateArray());
+        await Expect(await f.Outsider.GetAsync($"/api/v1/damage-sessions/{sessionId}"), HttpStatusCode.NotFound);
+
+        await f.Db(async db =>
+        {
+            Assert.Equal(DeviceCondition.Damaged, (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-A")).Condition);
+            Assert.Equal(DeviceCondition.Good, (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-B")).Condition);
+            Assert.Single(await db.Set<DeviceDamageSession>().ToListAsync());
+            Assert.Single(await db.Set<DeviceHistory>().Where(h => h.ActionCode == "DEVICE_DAMAGE_CONFIRMED").ToListAsync());
+        });
+    }
+
+    [PostgreSqlFact]
+    public async Task Damage_session_migration_keeps_legacy_reception_without_assuming_an_outcome()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var report = await f.Create(f.Employee, f.CreateBody("TB-A"));
+        var previous = f.Host.Clock.GetUtcNow();
+        await f.Db(async db =>
+        {
+            var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(db);
+            await migrator.MigrateAsync("20261126101649_DeviceMaintenanceSchedules");
+            await using (var transaction = await db.Database.BeginTransactionAsync())
+            {
+                var old = await db.DamageReports.SingleAsync();
+                db.Remove(await db.Set<DamageReportPendingDevice>().SingleAsync());
+                db.Add(new DamageReportReception { DamageReportId = old.Id, ReceivedByAccountId = f.ManagerId,
+                    ReceivedAt = previous, RequestId = Guid.NewGuid() });
+                old.RowVersion++;
+                await db.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            await migrator.MigrateAsync();
+            Assert.Empty(await db.Set<DeviceDamageSession>().ToListAsync());
+        });
+        var legacy = await Get(f.Manager, Route(report));
+        Assert.Equal("Pending", legacy.GetProperty("verificationStatus").GetString());
+        Assert.Equal(previous, legacy.GetProperty("receivedAt").GetDateTimeOffset());
+        var verified = await Json(await f.Staff.PostAsJsonAsync(Route(report) + "/verify",
+            new { requestId = Guid.NewGuid(), expectedVersion = 2, outcome = "ConfirmedDamaged", reason = "Confirmed after checking" }), HttpStatusCode.OK);
+        Assert.Equal(previous, verified.GetProperty("receivedAt").GetDateTimeOffset());
+        Assert.Equal("TK_MANAGER", verified.GetProperty("receivedByAccountCode").GetString());
+        Assert.Equal("TK_STAFF", verified.GetProperty("verifiedByAccountCode").GetString());
     }
 
     private static string Route(JsonElement report) => Url + "/" + report.GetProperty("reportCode").GetString();
