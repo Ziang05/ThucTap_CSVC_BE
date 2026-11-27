@@ -229,6 +229,7 @@ public sealed class DeviceReceiptService(
             await ReceiptAuditAsync(receipt, actor.AccountId, "RECEIPT_COMPLETED", ["status", "completedAt", "items"], before,
                 JsonSerializer.Serialize(new { receipt.ReceiptCode, status = receipt.Status.ToString(), receipt.CompletedAt, deviceCodes = created.Select(x => x.DeviceCode) }), token);
             await unitOfWork.CommitAsync(token);
+            await procurement.RefreshPurchaseForDocumentAsync(RequestDocumentKind.Receipt, receipt.ReceiptCode, actor.AccountId, token);
             return true;
         }, ct);
 
@@ -246,6 +247,7 @@ public sealed class DeviceReceiptService(
             unitOfWork.DeviceReceipts.Update(receipt);
             await ReceiptAuditAsync(receipt, actor.AccountId, "RECEIPT_CANCELLED", ["status"], before, SnapshotDecision(receipt), token);
             await unitOfWork.CommitAsync(token);
+            await procurement.RefreshPurchaseForDocumentAsync(RequestDocumentKind.Receipt, receipt.ReceiptCode, actor.AccountId, token);
             return true;
         }, ct);
 

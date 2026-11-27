@@ -70,7 +70,7 @@ public sealed partial class ProcurementRequestService
             var name = account is null ? "Chưa phân công" : (await uow.UserProfiles.GetByIdAsync(account.UserProfileId, ct))!.FullName;
             result.Add(new(account?.AccountCode, name,
                 group.Count(r => r.Status is not (ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled)),
-                group.Count(r => r.Status is ProcurementRequestStatus.WaitingForGoods or ProcurementRequestStatus.WaitingForExternal or ProcurementRequestStatus.AwaitingHandover),
+                group.Count(r => r.Status is ProcurementRequestStatus.WaitingForGoods or ProcurementRequestStatus.WaitingForExternal or ProcurementRequestStatus.AwaitingHandover or ProcurementRequestStatus.TrackingPurchase or ProcurementRequestStatus.AwaitingReceipt),
                 group.Count(r => r.Status == ProcurementRequestStatus.Completed), group.Count(r => r.Status == ProcurementRequestStatus.Cancelled)));
         }
         return result.OrderBy(r => r.FullName).ToArray();

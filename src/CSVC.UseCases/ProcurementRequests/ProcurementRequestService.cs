@@ -20,7 +20,8 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
     IEquipmentDepartmentPolicy equipment, IServiceOrderRepository services, IRepository<ServiceOrderDeviceHold> serviceHolds,
     IRepository<CSVC.Core.DamageReports.DamageReport> damageReports, TimeProvider clock,
     CSVC.UseCases.Materials.IMaterialWorkflow materialWorkflow, IRequestAssignmentPolicy assignment,
-    CSVC.UseCases.ServiceOrders.IServiceOrderService repairExecution) : IProcurementRequestService
+    CSVC.UseCases.ServiceOrders.IServiceOrderService repairExecution,
+    CSVC.UseCases.DeviceTransfers.IDeviceTransferService purchaseDelivery) : IProcurementRequestService
 {
     public Task<PmmsEventResult> SimulateAsync(PmmsSimulatedEvent input, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
@@ -165,6 +166,10 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
             CanExecute = actor.Role == RoleCodes.EquipmentStaff && request.AssigneeAccountId == actor.Id && request.Status is not (ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled),
             RequiresResultAcceptance = NeedsAcceptance(request),
             CanAcceptResults = IsReceiver(request, actor),
+            CanConfirmReceipt = IsReceiver(request, actor) && request.RequestType == ProcurementRequestType.Purchase
+                && request.Status == ProcurementRequestStatus.AwaitingReceipt
+                && !request.RequiresReview && request.MappingIssue is null
+                && !request.Lines.Any(line => line.Kind == ProcurementLineKind.Material),
             RepairResults = repairResults,
             ServiceEvidence = request.ServiceEvidenceJson is null ? null : new(ProcurementJson.Read<ServiceEvidenceLine[]>(request.ServiceEvidenceJson),
                 (await uow.Accounts.GetByIdAsync(request.ServiceRecordedByAccountId!.Value, ct))!.AccountCode, request.ServiceRecordedAt!.Value),
@@ -187,6 +192,8 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
             var request = await EditableAsync(code, input.Version, token);
             await assignment.RequireAsync(code, actor, token);
             if (request.RequiresReview) throw Conflict("SOURCE_REQUEST_NOT_READY", "Resolve mapping or source changes first.");
+            if (request.RequestType == ProcurementRequestType.Purchase && request.Lines.Any(line => line.Kind == ProcurementLineKind.Equipment))
+                throw Conflict("PURCHASE_STATUS_AUTOMATIC", "Purchase progress follows receipts, allocation and physical delivery confirmation.");
             if (input.Status is not (ProcurementRequestStatus.InProgress or ProcurementRequestStatus.WaitingForGoods or ProcurementRequestStatus.WaitingForExternal or ProcurementRequestStatus.AwaitingHandover)) throw Invalid("Use the completion or source cancellation operation to close a request.");
             request.Status = input.Status; request.Version++;
             await AuditAsync(request, actor, "STATUS_CHANGED", input.Status.ToString(), input.Reason, token);
@@ -202,12 +209,22 @@ public sealed partial class ProcurementRequestService(IProcurementRequestReposit
             if (!request.RequiresReview || request.PendingSourcePayload is null || request.MappingIssue is not null || string.IsNullOrWhiteSpace(input.Reason)) throw Invalid("Review requires a pending source update and a reason for keeping the current scope. Correct unresolved references through a new source event.");
             request.RequiresReview = false; request.PendingSourcePayload = null; request.Version++;
             await AuditAsync(request, actor, "SOURCE_SCOPE_REVIEWED", "ExistingScopeRetained", input.Reason, token);
+            await workflow.RefreshPurchaseAsync(request.Id, actor, token);
             return true;
         }, ct);
     public Task CompleteAsync(string code, ProcurementClose input, CancellationToken ct)
         => transaction.ExecuteAsync(async token =>
         {
             var actor = await ActorAsync(true, token); Validate(input);
+            var completed = await requests.GetAsync(code, false, token) ?? throw Missing();
+            if (completed.Status == ProcurementRequestStatus.Completed && completed.RequestType == ProcurementRequestType.Purchase
+                && completed.Result == "Success" && completed.Lines.Any(line => line.Kind == ProcurementLineKind.Equipment)
+                && !completed.Lines.Any(line => line.Kind == ProcurementLineKind.Service) && string.IsNullOrWhiteSpace(input.FailureReason))
+            {
+                await assignment.RequireIdAsync(completed.Id, actor, token, allowClosed: true);
+                if (completed.Version != input.Version) throw Conflict("VERSION_CONFLICT", "Reload the request before saving.");
+                return true;
+            }
             var request = await EditableAsync(code, input.Version, token);
             var closingActor = await ReadActorAsync(token);
             if (!(closingActor.Role == RoleCodes.EquipmentManager && request.AcceptanceDecision == "Rejected" && !string.IsNullOrWhiteSpace(input.FailureReason)))

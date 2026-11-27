@@ -16,6 +16,7 @@ namespace CSVC.UseCases.Abstractions.Persistence;
 
 public interface IDeviceRepository : IRepository<Device>
 {
+    Task<IReadOnlyDictionary<string, int>> AvailableStockByCategoryAsync(Guid departmentId, CancellationToken cancellationToken = default);
     Task<PagedResult<BorrowedDeviceDto>> BorrowedAsync(BorrowedDeviceListQuery query, Guid borrowerDepartmentId, DateTimeOffset now, CancellationToken cancellationToken = default);
     Task<PagedResult<LoanDeviceOptionDto>> LoanOptionsAsync(LoanDeviceOptionsQuery query, Guid borrowerDepartmentId, CancellationToken cancellationToken = default);
     Task<PagedResult<DeviceReadModel>> ListAsync(DeviceListQuery query, Guid? departmentScope, CancellationToken cancellationToken = default);

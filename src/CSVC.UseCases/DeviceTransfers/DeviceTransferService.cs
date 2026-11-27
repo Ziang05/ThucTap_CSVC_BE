@@ -67,6 +67,13 @@ public sealed partial class DeviceTransferService(
             await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.Allocation, transfer.TransferCode, target.Id, sourceBindings, actor.AccountId, token);
             await AuditAsync(transfer, actor.AccountId, "TRANSFER_CREATED", ["transferCode", "sourceDepartmentCode", "targetDepartmentCode", "targetResponsibleAccountCode", "reason", "items"],
                 null, Snapshot(transfer, source.Code, target.Code, responsible.AccountCode, devices.Select(x => new { x.DeviceCode, x.Name })), token);
+            if (!string.IsNullOrWhiteSpace(request.SourceRequestCode))
+            {
+                await unitOfWork.CommitAsync(token);
+                await ReserveAsync(transfer, transfer.Items.ToArray(), token);
+                transfer.Status = DeviceTransferStatus.Approved; transfer.Version++;
+                await AuditAsync(transfer, actor.AccountId, "TRANSFER_ALLOCATION_ISSUED", ["status"], null, SnapshotStatus(transfer), token);
+            }
             await unitOfWork.CommitAsync(token);
             var read = await unitOfWork.DeviceTransfers.GetByCodeAsync(transfer.TransferCode, actor.DepartmentId, actor.AccountId, token) ?? throw Missing();
             return await ToDetailAsync(read, token);
@@ -145,6 +152,8 @@ public sealed partial class DeviceTransferService(
             if (actor.RoleCode == RoleCodes.EquipmentStaff) await assignment.RequireDocumentAsync(RequestDocumentKind.Allocation, transfer.TransferCode, actor.AccountId, token);
             RequireSourceInitiation(transfer);
             RequireReceiver(transfer, actor);
+            if (accept && transfer.TransferType == DeviceTransferType.Allocation && transfer.Status == DeviceTransferStatus.Approved
+                && transfer.ReceiverConfirmedAt is null) return true;
             RequireConfirmationPending(transfer);
             var before = SnapshotStatus(transfer);
             if (accept)
@@ -171,6 +180,7 @@ public sealed partial class DeviceTransferService(
                 ["status", "receiverConfirmedAccount", "receiverConfirmedAt", "receiverRejectedAccount", "receiverRejectedAt", "receiverRejectionReason"],
                 before, SnapshotStatus(transfer), token);
             await unitOfWork.CommitAsync(token);
+            await procurement.RefreshPurchaseForDocumentAsync(RequestDocumentKind.Allocation, transfer.TransferCode, actor.AccountId, token);
             return true;
         }, ct);
 
@@ -183,6 +193,7 @@ public sealed partial class DeviceTransferService(
         var target = await unitOfWork.Departments.GetByIdAsync(transfer.TargetDepartmentId, token) ?? throw Conflict("DEPARTMENT_UNAVAILABLE", "The target department no longer exists.");
         if (source.Status != EntityStatus.Active || target.Status != EntityStatus.Active) throw Conflict("DEPARTMENT_UNAVAILABLE", "A transfer department is locked.");
         await transaction.LockDevicesAsync(items.Select(x => x.DeviceId).ToArray(), token);
+        await procurement.RequireAllocationStockAsync(transfer.TransferCode, token);
         var devices = await LoadTransferDevicesAsync(items, token);
         if (devices.Count != items.Count) throw Conflict("DEVICE_NOT_IN_SOURCE_DEPARTMENT", "A transfer device no longer exists.");
         foreach (var device in devices)
@@ -278,12 +289,18 @@ public sealed partial class DeviceTransferService(
                 ? transfer.SourceHandoverConfirmedByAccountId : sourceHandover?.Id;
             transfer.TargetHandoverAccountId = actor.AccountId;
             transfer.CompletedAt = clock.GetUtcNow();
+            if (transfer.TransferType == DeviceTransferType.Allocation && transfer.ReceiverConfirmedAt is null)
+            {
+                transfer.ReceiverConfirmedAccountId = actor.AccountId;
+                transfer.ReceiverConfirmedAt = transfer.CompletedAt;
+            }
             transfer.Status = DeviceTransferStatus.Completed;
             unitOfWork.DeviceTransfers.Update(transfer);
             await AuditAsync(transfer, actor.AccountId, "TRANSFER_COMPLETED", ["status", "sourceHandoverAccount", "targetHandoverAccount", "completedAt", "items"],
                 before, Snapshot(transfer, sourceCode, targetCode, responsibleCode,
                     request.Items.Select(x => new { deviceCode = NormalizeCode(x.DeviceCode), condition = (x.Condition ?? DeviceCondition.Good).ToString(), note = Clean(x.Note) })), token);
             await unitOfWork.CommitAsync(token);
+            await procurement.RefreshPurchaseForDocumentAsync(RequestDocumentKind.Allocation, transfer.TransferCode, actor.AccountId, token);
             return true;
         }, ct);
 
@@ -315,6 +332,7 @@ public sealed partial class DeviceTransferService(
             unitOfWork.DeviceTransfers.Update(transfer);
             await AuditAsync(transfer, actor.AccountId, "TRANSFER_CANCELLED", ["status"], before,
                 JsonSerializer.Serialize(new { state = SnapshotStatus(transfer), reason = Clean(request?.Reason) }), token);
+            await procurement.RefreshPurchaseForDocumentAsync(RequestDocumentKind.Allocation, transfer.TransferCode, actor.AccountId, token);
             return true;
         }, ct);
 

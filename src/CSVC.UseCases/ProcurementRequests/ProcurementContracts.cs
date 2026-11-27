@@ -51,6 +51,7 @@ public sealed class PmmsRequestLine
 public sealed class ProcurementQuery
 {
     [StringLength(200)] public string? Search { get; init; }
+    [StringLength(32)] public string? RequestingDepartmentCode { get; init; }
     [EnumDataType(typeof(ProcurementRequestType))] public ProcurementRequestType? RequestType { get; init; }
     [EnumDataType(typeof(ProcurementRequestStatus))] public ProcurementRequestStatus? Status { get; init; }
     public bool? RequiresReview { get; init; }
@@ -89,6 +90,7 @@ public sealed record ProcurementDetail(ProcurementSummary Summary, bool IsSimula
     public ResultAcceptanceDto? Acceptance { get; init; }
     public bool RequiresResultAcceptance { get; init; }
     public bool CanAcceptResults { get; init; }
+    public bool CanConfirmReceipt { get; init; }
     public IReadOnlyList<RepairResultDto> RepairResults { get; init; } = [];
 }
 public sealed record RequestAssigneeDto(string AccountCode, string FullName);
@@ -114,6 +116,23 @@ public sealed class SourceRepairPlan
     [EnumDataType(typeof(CSVC.Core.ServiceOrders.ExecutionMethod))] public CSVC.Core.ServiceOrders.ExecutionMethod ExecutionMethod { get; init; }
 }
 public sealed record RequestWorkloadDto(string? AccountCode, string FullName, int Open, int Waiting, int Completed, int Cancelled);
+public sealed record ProcurementStockLine(string SourceLineCode, string Description, string? CategoryCode,
+    int RequiredQuantity, int AvailableQuantity, int MissingQuantity);
+public sealed record ProcurementStock(bool CanAllocate, IReadOnlyList<ProcurementStockLine> Lines);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class TrackPurchaseRequest
+{
+    public Guid RequestId { get; init; }
+    [Range(1, int.MaxValue)] public int Version { get; init; }
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class ReceivePurchaseRequest
+{
+    public Guid RequestId { get; init; }
+    [Range(1, int.MaxValue)] public int Version { get; init; }
+    public bool ReceivedInFull { get; init; }
+    [Required, MinLength(1), MaxLength(200)] public List<CSVC.UseCases.DeviceTransfers.DTOs.TransferHandoverItemRequest> Items { get; init; } = [];
+}
 public sealed record RepairResultDto(string DeviceCode, string? Outcome, string? Description, DateTimeOffset? RecordedAt);
 public enum ServiceEvidenceOutcome { Completed, Failed, NotExecuted }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -172,6 +191,9 @@ public interface IProcurementRequestRepository
 }
 public interface IProcurementRequestService
 {
+    Task<ProcurementStock> StockAsync(string code, CancellationToken ct);
+    Task TrackPurchaseAsync(string code, TrackPurchaseRequest request, CancellationToken ct);
+    Task ReceivePurchaseAsync(string code, ReceivePurchaseRequest request, CancellationToken ct);
     Task<PmmsEventResult> SimulateAsync(PmmsSimulatedEvent input, CancellationToken ct);
     Task<PagedResult<ProcurementSummary>> ListAsync(ProcurementQuery query, CancellationToken ct);
     Task<ProcurementDetail> GetAsync(string code, CancellationToken ct);
@@ -194,4 +216,7 @@ public interface IProcurementWorkflow
     Task PreventLinkedEditAsync(RequestDocumentKind kind, string documentCode, CancellationToken ct);
     Task<IReadOnlyList<RequestDocumentDto>> DocumentsAsync(ProcurementRequest request, CancellationToken ct);
     Task RequireCombinedDeliveryAsync(string allocationCode, CancellationToken ct);
+    Task RequireAllocationStockAsync(string allocationCode, CancellationToken ct);
+    Task RefreshPurchaseForDocumentAsync(RequestDocumentKind kind, string documentCode, Guid actorId, CancellationToken ct);
+    Task RefreshPurchaseAsync(Guid requestId, Guid actorId, CancellationToken ct);
 }

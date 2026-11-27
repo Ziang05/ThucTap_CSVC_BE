@@ -1,7 +1,7 @@
 namespace CSVC.Core.ProcurementRequests;
 
 public enum ProcurementRequestType { Purchase, Repair }
-public enum ProcurementRequestStatus { Received, InProgress, WaitingForGoods, WaitingForExternal, AwaitingHandover, Completed, Cancelled }
+public enum ProcurementRequestStatus { Received, InProgress, WaitingForGoods, WaitingForExternal, AwaitingHandover, Completed, Cancelled, TrackingPurchase, AwaitingReceipt }
 public enum ProcurementLineKind { Equipment, Material, Service }
 public enum EquipmentSpecialization { Unclassified, Common, Specialized }
 public enum RequestDocumentKind { Receipt, Allocation, Repair, InternalUse, MaterialReceipt, MaterialIssue, MaterialReturn, ServiceEvidence }

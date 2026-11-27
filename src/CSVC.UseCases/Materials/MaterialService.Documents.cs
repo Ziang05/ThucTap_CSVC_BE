@@ -202,7 +202,9 @@ public sealed partial class MaterialService
             doc.Status = MaterialDocumentStatus.Cancelled;
         }
         else throw MaterialErrors.Invalid("Unknown material action.");
-        doc.Version++; await DocumentAuditAsync(doc, actor, action.ToUpperInvariant(), input.RequestId, hash, before, token, input.Reason); return true;
+        doc.Version++; await DocumentAuditAsync(doc, actor, action.ToUpperInvariant(), input.RequestId, hash, before, token, input.Reason);
+        if (doc.ProcurementRequestId is { } requestId) await procurement.RefreshPurchaseAsync(requestId, actor.Id, token);
+        return true;
     }, ct);
     private async Task PostAsync(MaterialDocument doc, MaterialActor actor, CancellationToken ct)
     {

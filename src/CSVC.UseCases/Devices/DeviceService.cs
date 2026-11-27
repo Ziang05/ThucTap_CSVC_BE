@@ -200,9 +200,11 @@ public sealed partial class DeviceService(
                 var device = (await unitOfWork.Devices.FirstOrDefaultAsync(d => d.DeviceCode == NormalizeCode(item.DeviceCode), token))!;
                 bindings.Add(new(item.SourceLineCode, device.DeviceCode, (await unitOfWork.DeviceCategories.GetByIdAsync(device.CategoryId, token))!.DisplayCode));
             }
-            await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.InternalUse, CSVC.UseCases.Common.FeatureCode.New("SD"),
+            var useCode = CSVC.UseCases.Common.FeatureCode.New("SD");
+            await procurement.AttachAsync(request.SourceRequestCode, RequestDocumentKind.InternalUse, useCode,
                 await equipment.RequireConfiguredAsync(token), bindings, actor.AccountId, token);
             await unitOfWork.CommitAsync(token);
+            await procurement.RefreshPurchaseForDocumentAsync(RequestDocumentKind.InternalUse, useCode, actor.AccountId, token);
             return true;
         }, ct);
 

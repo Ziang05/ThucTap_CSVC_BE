@@ -16,6 +16,11 @@ public sealed class ProcurementRequestRepository(CsvcDbContext db) : IProcuremen
     {
         var source = db.Set<ProcurementRequest>().AsNoTracking();
         if (departmentCode is not null) source = source.Where(x => x.RequestingDepartmentCode == departmentCode);
+        if (!string.IsNullOrWhiteSpace(query.RequestingDepartmentCode))
+        {
+            var requestedDepartment = query.RequestingDepartmentCode.Trim().ToUpperInvariant();
+            source = source.Where(x => x.RequestingDepartmentCode == requestedDepartment);
+        }
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var term = query.Search.Trim().ToLowerInvariant();

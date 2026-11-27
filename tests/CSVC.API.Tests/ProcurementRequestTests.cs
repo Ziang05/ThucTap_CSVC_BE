@@ -30,9 +30,22 @@ public sealed class ProcurementRequestTests
     private static object Cancel(string external, int revision) => new { eventId = Guid.NewGuid(), externalCode = external, sourceVersion = revision, action = "Cancel", reason = "Source cancellation" };
 
     [PostgreSqlFact]
-    public async Task Concurrent_source_delivery_is_idempotent_and_link_audit_failure_rolls_back_document_and_holds()
+    public async Task List_filters_requesting_department_before_paging_and_preserves_department_scope()
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        var target = (await Send(f, Event("PMMS-DEPARTMENT-TARGET", department: "PB_TARGET"))).GetProperty("displayCode").GetString();
+        await Send(f, Event("PMMS-DEPARTMENT-QTTB", department: "PB_TEST"));
+        var filtered = await f.Manager.GetFromJsonAsync<JsonElement>(Root + "?requestingDepartmentCode=%20pb_target%20&page=1&pageSize=1");
+        Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
+        Assert.Equal(target, filtered.GetProperty("items")[0].GetProperty("displayCode").GetString());
+        var outsideScope = await f.Department.GetFromJsonAsync<JsonElement>(Root + "?requestingDepartmentCode=PB_TEST");
+        Assert.Equal(0, outsideScope.GetProperty("totalCount").GetInt32());
+    }
+
+    [PostgreSqlFact]
+    public async Task Concurrent_source_delivery_is_idempotent_and_link_audit_failure_rolls_back_document_and_holds()
+    {
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var body = Event("PMMS-CONCURRENT");
         var concurrent = await Task.WhenAll(Send(f, body), Send(f, body));
         Assert.Equal(concurrent[0].ToString(), concurrent[1].ToString());
@@ -66,7 +79,7 @@ public sealed class ProcurementRequestTests
     [PostgreSqlFact]
     public async Task Source_replay_versions_mapping_and_scope_history_are_preserved()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var body = Event("PMMS-REPLAY", lines: [Line(category: "UNKNOWN")]);
         var first = await Send(f, body);
         Assert.Equal("NeedsMapping", first.GetProperty("outcome").GetString());
@@ -96,7 +109,7 @@ public sealed class ProcurementRequestTests
     [PostgreSqlFact]
     public async Task Existing_stock_requires_whole_allocation_and_actual_handover_before_completion()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var first = await Send(f, Event("PMMS-STOCK", lines: [Line(quantity: 2)]));
         var code = first.GetProperty("displayCode").GetString()!;
         await SourceRequestAssignmentTests.Assign(f, code);
@@ -118,7 +131,7 @@ public sealed class ProcurementRequestTests
         await Expect(await f.Department.PostAsync(route + "/confirm-receipt-intent", null));
         await Close(f, code, HttpStatusCode.Conflict);
         await Expect(await f.Department.PostAsJsonAsync(route + "/handover-complete", new { items = new[] { new { deviceCode = "TB-ROLE-001", condition = "Good" }, new { deviceCode = "TB-ROLE-002", condition = "Good" } } }));
-        Assert.Equal("CancelRejected", (await Send(f, Cancel("PMMS-STOCK", 4))).GetProperty("outcome").GetString());
+        Assert.Equal("IgnoredTerminal", (await Send(f, Cancel("PMMS-STOCK", 4))).GetProperty("outcome").GetString());
         await Close(f, code);
         d = await Detail(f, code);
         Assert.Equal("Completed", d.GetProperty("summary").GetProperty("status").GetString());
@@ -129,10 +142,13 @@ public sealed class ProcurementRequestTests
     [PostgreSqlFact]
     public async Task Receipt_must_enter_QTTB_and_allocation_must_include_all_received_devices()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         await f.InDb(async db => { db.Add(new Supplier { DisplayCode = "SUP_PMMS", Name = "PMMS supplier" }); await db.SaveChangesAsync(); });
         var code = (await Send(f, Event("PMMS-RECEIPT", lines: [Line(quantity: 2)]))).GetProperty("displayCode").GetString()!;
         await SourceRequestAssignmentTests.Assign(f, code);
+        await f.InDb(async db => { (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-ROLE-002")).UseState = DeviceUseState.InUse; await db.SaveChangesAsync(); });
+        await PurchaseTrackingTests.Track(f, code);
+        await f.InDb(async db => { (await db.Devices.SingleAsync(d => d.DeviceCode == "TB-ROLE-002")).UseState = DeviceUseState.InStorage; await db.SaveChangesAsync(); });
         var receipt = await Json(await f.Staff.PostAsJsonAsync("/api/v1/device-receipts", new { sourceRequestCode = code, supplierCode = "SUP_PMMS", requestingDepartmentCode = "PB_TARGET", deliveryDate = "2026-10-21", deliveryBatch = "1", items = new[] { new { sourceLineCode = "L1", deviceCode = "PMMS-NEW", name = "New stock", categoryCode = "CAT_ROLE" } } }), HttpStatusCode.Created);
         var receiptRoute = "/api/v1/device-receipts/" + receipt.GetProperty("receiptCode").GetString();
         await Expect(await f.Manager.PostAsJsonAsync(receiptRoute + "/approve", new { }));
@@ -152,7 +168,7 @@ public sealed class ProcurementRequestTests
     [PostgreSqlFact]
     public async Task Internal_use_is_atomic_and_materials_cannot_be_falsely_completed_as_equipment()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         await f.InDb(async db => { foreach (var device in await db.Devices.Where(d => d.DeviceCode != "TB-ROLE-003").ToListAsync()) device.UseState = DeviceUseState.InStorage; await db.SaveChangesAsync(); });
         var code = (await Send(f, Event("PMMS-INTERNAL", lines: [Line(quantity: 2)], department: "PB_TEST"))).GetProperty("displayCode").GetString()!;
         await SourceRequestAssignmentTests.Assign(f, code);
@@ -173,7 +189,7 @@ public sealed class ProcurementRequestTests
     [InlineData(2)]
     public async Task Repair_scope_is_inherited_and_cannot_cancel_after_execution_starts(int workflowVersion)
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var code = (await Send(f, Event("PMMS-REPAIR", type: "Repair", lines: [Line(device: "TB-ROLE-001")]))).GetProperty("displayCode").GetString()!;
         await SourceRequestAssignmentTests.Assign(f, code);
         if (workflowVersion == 1) await f.InDb(async db => { (await db.Set<ProcurementRequest>().SingleAsync()).WorkflowVersion = 1; await db.SaveChangesAsync(); });
@@ -197,7 +213,7 @@ public sealed class ProcurementRequestTests
     [PostgreSqlFact]
     public async Task Source_request_round_trips_catalog_codes_supported_by_existing_catalog_api()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var category = "DM" + new string('A', 62);
         await Json(await f.Manager.PostAsJsonAsync("/api/v1/device-categories", new { displayCode = category, name = "Long category" }), HttpStatusCode.Created);
         var result = await Send(f, Event("PMMS-LONG-CATEGORY", lines: [Line(category: category.ToLowerInvariant())]));
