@@ -55,9 +55,9 @@ public sealed class MaterialDepartmentStockTests
         await Act(f, Code(receipt), "post");
         var issue = await Json(await f.Staff.PostAsJsonAsync(Root + "/documents", Body("Issue", 3)));
         Assert.Equal(receipt.GetProperty("lines")[0].GetProperty("locationCode").GetString(), issue.GetProperty("lines")[0].GetProperty("locationCode").GetString());
-        await Act(f, Code(issue), "post"); await Act(f, Code(issue), "receive");
+        await Act(f, Code(issue), "post");
         var returned = await Json(await f.Staff.PostAsJsonAsync(Root + "/documents", Body("ReturnUnused", 1, issue.GetProperty("lines")[0].GetProperty("id").GetGuid())));
-        await Act(f, Code(returned), "post");
+        await Act(f, Code(returned), "approve");
         var adjustment = await Json(await f.Staff.PostAsJsonAsync(Root + "/documents", Body("Adjustment", -2)));
         Assert.Equal("PendingApproval", adjustment.GetProperty("summary").GetProperty("status").GetString());
         await Act(f, Code(adjustment), "approve", f.Manager); await Act(f, Code(adjustment), "post");

@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CSVC.Core.Materials;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace CSVC.API.Tests;
 
@@ -110,12 +112,38 @@ public sealed class MaterialInventoryTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         var location = await Catalog(f); await Stock(f, location); var work = await Manual(f);
         var issue = await Doc(f, "Issue", [Line(location, 3)], work); var code = Code(issue);
-        await Act(f, code, "post"); await Act(f, code, "receive");
+        await Act(f, code, "post");
         var balance = await f.Staff.GetFromJsonAsync<JsonElement>(Root + "/balances"); Assert.Equal(17, balance.GetProperty("items")[0].GetProperty("quantity").GetDecimal());
         var report = await f.Staff.GetFromJsonAsync<JsonElement>(Root + "/report"); var row = report.GetProperty("items")[0];
         Assert.Equal(20, row.GetProperty("receipts").GetDecimal()); Assert.Equal(3, row.GetProperty("issues").GetDecimal()); Assert.Equal(17, row.GetProperty("closing").GetDecimal());
         var movements = await f.Staff.GetFromJsonAsync<JsonElement>(Root + "/movements"); Assert.Equal(2, movements.GetProperty("totalCount").GetInt32());
         await f.InDb(async db => { Assert.False(db.Database.HasPendingModelChanges()); Assert.False(await db.Devices.AnyAsync(d => d.Quantity > 1)); });
+    }
+    [PostgreSqlFact]
+    public async Task Internal_and_department_material_issues_complete_on_post_and_never_require_receipt_confirmation()
+    {
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        var location = await Catalog(f); await Stock(f, location);
+        foreach (var target in new string?[] { null, "PB_TARGET" })
+        {
+            var issue = await Doc(f, "Issue", [Line(location, 3)], target: target);
+            var code = Code(issue);
+            var body = new { requestId = Guid.NewGuid(), version = 1 };
+            await Expect(await f.Staff.PostAsJsonAsync(Root + "/documents/" + code + "/post", body));
+            await Expect(await f.Staff.PostAsJsonAsync(Root + "/documents/" + code + "/post", body));
+            var posted = await Get(f, code);
+            Assert.Equal("Completed", posted.GetProperty("summary").GetProperty("status").GetString());
+            Assert.Equal(JsonValueKind.Null, posted.GetProperty("receivedAt").ValueKind);
+            Assert.Equal(JsonValueKind.Null, posted.GetProperty("receivedByAccountCode").ValueKind);
+            await Act(f, code, "receive", target is null ? f.Staff : f.Department, HttpStatusCode.BadRequest);
+            await Json(await (target is null ? f.Staff : f.Department).PostAsJsonAsync(Root + "/uses", new { requestId = Guid.NewGuid(), issueLineId = issue.GetProperty("lines")[0].GetProperty("id").GetGuid(), quantity = 1, reason = "Use immediately after posting" }));
+        }
+        await f.InDb(async db =>
+        {
+            Assert.Equal(14, (await db.Set<MaterialBalance>().SingleAsync()).Quantity);
+            Assert.Equal(3, await db.Set<MaterialLedgerEntry>().CountAsync());
+            Assert.False(await db.Set<MaterialDocumentHistory>().AnyAsync(h => h.Action == "RECEIVE"));
+        });
     }
     [PostgreSqlFact]
     public async Task Employees_record_without_assignment_and_only_adjustment_needs_manager_approval()
@@ -145,10 +173,10 @@ public sealed class MaterialInventoryTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         var location = await Catalog(f); await Stock(f, location); var work = await Manual(f);
         var issue = await Doc(f, "Issue", [Line(location, 3)], work); var code = Code(issue); var line = issue.GetProperty("lines")[0].GetProperty("id").GetGuid();
-        await Act(f, code, "post"); await Act(f, code, "receive");
+        await Act(f, code, "post");
         await Json(await f.Staff.PostAsJsonAsync(Root + "/uses", new { requestId = Guid.NewGuid(),  issueLineId = line, quantity = 2, reason = "Used for preparation" }));
-        var excess = Code(await Doc(f, "ReturnUnused", [Line(location, 2, line)])); await Act(f, excess, "post", expected: HttpStatusCode.Conflict); await Act(f, excess, "cancel");
-        var returned = Code(await Doc(f, "ReturnUnused", [Line(location, 1, line)])); await Act(f, returned, "post");
+        await Expect(await f.Staff.PostAsJsonAsync(Root + "/documents", new { requestId = Guid.NewGuid(), kind = "ReturnUnused", reason = "Too many unused parts", lines = new[] { Line(location, 2, line) } }), HttpStatusCode.Conflict);
+        var returned = Code(await Doc(f, "ReturnUnused", [Line(location, 1, line)])); await Act(f, returned, "approve");
         await f.InDb(async db => Assert.Equal(18, (await db.Set<MaterialBalance>().SingleAsync()).Quantity));
     }
     [PostgreSqlFact]
@@ -157,9 +185,9 @@ public sealed class MaterialInventoryTests
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
         var location = await Catalog(f, "Tool"); await Stock(f, location, 2); var work = await Manual(f);
         var issue = await Doc(f, "Issue", [Line(location, 1)], work); var code = Code(issue); var line = issue.GetProperty("lines")[0].GetProperty("id").GetGuid();
-        await Act(f, code, "post"); await Act(f, code, "receive");
+        await Act(f, code, "post");
         await Json(await f.Staff.PostAsJsonAsync(Root + "/uses", new { requestId = Guid.NewGuid(),  issueLineId = line, quantity = 1, reason = "Tool issued for work" })); var back = await Json(await f.Staff.PostAsJsonAsync(Root + "/documents", new { requestId = Guid.NewGuid(), kind = "ReceiveRecovered", reason = "Tool returned later", lines = new[] { new { materialCode = "VT1", locationCode = location, quantity = 1, originalIssueLineId = line, condition = "Reusable", conditionNote = "Working normally" } } }));
-        await Act(f, Code(back), "post");
+        await Act(f, Code(back), "approve");
         await f.InDb(async db => Assert.Equal(2, (await db.Set<MaterialBalance>().SingleAsync()).Quantity));
     }
     [PostgreSqlFact]
@@ -224,15 +252,45 @@ public sealed class MaterialInventoryTests
         var code = Code(doc); await Act(f, code, "post"); return code;
     }
     [PostgreSqlFact]
-    public async Task Material_source_requires_whole_receipt_and_rejects_late_pmms_cancellation()
+    public async Task Material_source_completes_after_issue_posting_and_rejects_late_pmms_cancellation()
     {
         await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); var location = await Catalog(f); await Stock(f, location); var source = await Source(f); var code = await SourceIssue(f, source, location);
         var detail = await f.Staff.GetFromJsonAsync<JsonElement>("/api/v1/procurement-requests/" + source); Assert.Contains(detail.GetProperty("documents").EnumerateArray(), d => d.GetProperty("kind").GetString() == "MaterialIssue");
-        await Expect(await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/" + source + "/complete", new { version = detail.GetProperty("summary").GetProperty("version").GetInt32() }), HttpStatusCode.Conflict);
+        Assert.Equal("Completed", (await Get(f, code)).GetProperty("summary").GetProperty("status").GetString());
         var cancel = await Json(await f.Manager.PostAsJsonAsync("/api/v1/procurement-requests/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "MATERIAL-SOURCE", sourceVersion = 2, action = "Cancel", reason = "Late cancellation" })); Assert.Equal("CancelRejected", cancel.GetProperty("outcome").GetString());
-        await Act(f, code, "receive", f.Department);
         detail = await f.Staff.GetFromJsonAsync<JsonElement>("/api/v1/procurement-requests/" + source);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/procurement-requests/" + source + "/complete", new { version = detail.GetProperty("summary").GetProperty("version").GetInt32() }));
+    }
+    [PostgreSqlFact]
+    public async Task Legacy_posted_material_issues_complete_on_upgrade_without_reposting_or_completing_mixed_deliveries()
+    {
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        var location = await Catalog(f); await Stock(f, location);
+        var ordinary = Code(await Doc(f, "Issue", [Line(location, 2)], target: "PB_TARGET"));
+        await Act(f, ordinary, "post");
+        var source = await Source(f, mixed: true);
+        var mixed = await SourceIssue(f, source, location);
+        await f.InDb(async db =>
+        {
+            var migrator = db.GetService<IMigrator>();
+            await migrator.MigrateAsync("20261120074818_SourceRequestAssignments");
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                ALTER TABLE material_documents DISABLE TRIGGER immutable_posted_material_document;
+                UPDATE material_documents SET status = 'AwaitingReceipt' WHERE code = {ordinary};
+                ALTER TABLE material_documents ENABLE TRIGGER immutable_posted_material_document;
+                """);
+            await migrator.MigrateAsync();
+            var completed = await db.Set<MaterialDocument>().AsNoTracking().SingleAsync(d => d.Code == ordinary);
+            Assert.Equal(MaterialDocumentStatus.Completed, completed.Status);
+            Assert.Equal(3, completed.Version);
+            Assert.Null(completed.ReceivedAt);
+            Assert.Null(completed.ReceivedByAccountId);
+            Assert.Equal(MaterialDocumentStatus.AwaitingReceipt, (await db.Set<MaterialDocument>().AsNoTracking().SingleAsync(d => d.Code == mixed)).Status);
+            Assert.Equal(15, (await db.Set<MaterialBalance>().SingleAsync()).Quantity);
+            Assert.Equal(3, await db.Set<MaterialLedgerEntry>().CountAsync());
+            Assert.Single(await db.Set<MaterialDocumentHistory>().Where(h => h.DocumentId == completed.Id && h.Action == "RECEIPT_STEP_REMOVED").ToListAsync());
+            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE material_documents SET reason = 'Changed' WHERE code = {ordinary}"));
+        });
     }
     [PostgreSqlFact]
     public async Task Mixed_equipment_and_material_delivery_cannot_be_completed_separately()
@@ -258,7 +316,7 @@ public sealed class MaterialInventoryTests
         var code = order.GetProperty("displayCode").GetString()!; await Expect(await f.Manager.PostAsJsonAsync("/api/v1/service-orders/" + code + "/approve", new { requestId = Guid.NewGuid(), version = order.GetProperty("version").GetInt32() }));
         order = await f.Staff.GetFromJsonAsync<JsonElement>("/api/v1/service-orders/" + code);
         var doc = await Json(await f.Staff.PostAsJsonAsync(Root + "/documents", new { requestId = Guid.NewGuid(), kind = "Issue", reason = "Service materials", serviceOrderCode = code, lines = new[] { Line(location, 2, device: "TB-ROLE-001") } }));
-        await Act(f, Code(doc), "post"); await Act(f, Code(doc), "receive");
+        await Act(f, Code(doc), "post");
         var result = new { requestId = Guid.NewGuid(), version = order.GetProperty("version").GetInt32(), items = new[] { new { itemNo = 1, result = "Completed", description = "Equipment repaired and checked" } } };
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/service-orders/" + code + "/results", result), HttpStatusCode.Conflict);
         await Json(await f.Staff.PostAsJsonAsync(Root + "/changes", new { requestId = Guid.NewGuid(),  deviceCode = "TB-ROLE-001", serviceOrderCode = code, kind = "Replace", target = "Generic replacement assembly", beforeValue = "Old assembly", afterValue = "New assembly", reason = "Replacement", uses = new[] { new { source = "Warehouse", issueLineId = doc.GetProperty("lines")[0].GetProperty("id").GetGuid(), quantity = 2 } } }));

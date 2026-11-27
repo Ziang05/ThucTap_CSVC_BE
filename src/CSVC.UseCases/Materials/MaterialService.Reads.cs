@@ -11,7 +11,7 @@ public sealed partial class MaterialService
     public async Task<MaterialDocumentDetail> GetDocumentAsync(string code, CancellationToken ct)
     {
         var actor = await access.RequireAsync(ct, allowDepartment: true);
-        return await DetailAsync(await ReadDocumentAsync(code, actor, false, ct), ct);
+        return await DetailAsync(await ReadDocumentAsync(code, actor, false, ct), actor, ct);
     }
     private async Task<MaterialDocument> ReadDocumentAsync(string code, MaterialActor actor, bool tracked, CancellationToken ct)
     {
@@ -25,7 +25,7 @@ public sealed partial class MaterialService
         if (page < 1 || page > 1000000 || pageSize < 1 || pageSize > 100) throw MaterialErrors.Invalid("Invalid paging.");
         return await store.HistoryAsync(doc.Id, page, pageSize, ct);
     }
-    private async Task<MaterialDocumentDetail> DetailAsync(MaterialDocument doc, CancellationToken ct)
+    private async Task<MaterialDocumentDetail> DetailAsync(MaterialDocument doc, MaterialActor actor, CancellationToken ct)
     {
         var actorIds = new[] { doc.ApprovedByAccountId, doc.ReceivedByAccountId, doc.TargetResponsibleAccountId }.Where(x => x is not null).Select(x => x!.Value).ToArray();
         var accounts = (await uow.Accounts.FindAsync(a => actorIds.Contains(a.Id), ct)).ToDictionary(a => a.Id, a => a.AccountCode);
@@ -55,7 +55,9 @@ public sealed partial class MaterialService
                 line.ToLocationId is { } to ? locationMap[to].Code : null, line.Quantity, line.Condition, line.ConditionNote,
                 line.DeviceId is { } device ? deviceMap.GetValueOrDefault(device) : null,
                 line.OriginalIssueLineId, line.RemovedMaterialId, line.SourceLineCode, line.LotOrSerial, used, returned,
-                item.Kind == MaterialKind.Tool ? Math.Max(0, used - recovered) : 0));
+                item.Kind == MaterialKind.Tool ? Math.Max(0, used - recovered) : 0,
+                doc.Kind == MaterialDocumentKind.Issue ? await PendingReturnAsync(line.Id, MaterialDocumentKind.ReturnUnused, null, ct) : 0,
+                doc.Kind == MaterialDocumentKind.Issue ? await PendingReturnAsync(line.Id, MaterialDocumentKind.ReceiveRecovered, null, ct) : 0));
         }
         string? transferCode = null; var internalUse = false; var requirements = new List<MaterialDeliveryRequirement>();
         if (doc.Kind == MaterialDocumentKind.Issue && doc.ProcurementRequestId is { } requestId)
@@ -76,7 +78,13 @@ public sealed partial class MaterialService
         }
         return new(await store.SummaryAsync(doc.Id, ct), doc.ReferenceDate, doc.Reference, doc.Notes, supplier?.DisplayCode, supplier?.Name,
             Account(doc.ApprovedByAccountId), doc.ApprovedAt, Account(doc.ReceivedByAccountId), doc.ReceivedAt,
-            Account(doc.TargetResponsibleAccountId), service?.DisplayCode, transferCode, internalUse, requirements, lines);
+            Account(doc.TargetResponsibleAccountId), service?.DisplayCode, transferCode, internalUse, requirements, lines,
+            doc.Kind == MaterialDocumentKind.Issue && doc.Status == MaterialDocumentStatus.Completed && doc.PostedAt != null
+                && doc.TargetDepartmentId == actor.DepartmentId && (actor.Staff || actor.Department),
+            doc.Kind == MaterialDocumentKind.Issue && doc.Status == MaterialDocumentStatus.Completed && doc.PostedAt != null
+                && doc.TargetDepartmentId == actor.DepartmentId && (actor.Staff || actor.Department),
+            doc.Kind is MaterialDocumentKind.ReturnUnused or MaterialDocumentKind.ReceiveRecovered
+                && doc.Status == MaterialDocumentStatus.PendingApproval && (actor.Staff || actor.Manager));
     }
     private async Task<EquipmentChangeDto> ChangeDtoAsync(EquipmentChange change, CancellationToken ct)
     {
@@ -100,6 +108,7 @@ public sealed partial class MaterialService
         }
         return new(change.Code, device.DeviceCode, device.Name, service?.DisplayCode, previous?.Code, replacement?.Code,
             change.Kind, change.Target, change.BeforeValue, change.AfterValue, change.Reason, change.Notes,
-            actor.AccountCode, profile.FullName, change.Executor, change.PerformedAt, change.RecordedAt, useItems, removedItems);
+            actor.AccountCode, profile.FullName, change.Executor, change.PerformedAt, change.RecordedAt, useItems, removedItems,
+            change.IssueDocumentId is { } issueId ? (await documents.GetByIdAsync(issueId, ct))?.Code : null);
     }
 }

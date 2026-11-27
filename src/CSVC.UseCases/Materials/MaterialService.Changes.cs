@@ -82,13 +82,22 @@ public sealed partial class MaterialService
                 ReplacesId = replaced?.Id, RequestId = input.RequestId, Fingerprint = hash, Kind = input.Kind, Target = Name(input.Target),
                 BeforeValue = Clean(input.BeforeValue), AfterValue = Clean(input.AfterValue), Reason = Name(input.Reason), Notes = Clean(input.Notes),
                 RecordedByAccountId = actor.Id, Executor = Clean(input.Executor) ?? actor.FullName, PerformedAt = performed, RecordedAt = now };
+            change.IssueDocumentId = replaced?.IssueDocumentId;
+            if (input.Issue is not null)
+            {
+                if (replaced is not null || input.Uses.Count > 0) throw MaterialErrors.Invalid("A new material issue cannot be combined with a correction or existing consumption.");
+                change.IssueDocumentId = (await CreateInterventionIssueAsync(input.Issue, device.DeviceCode, service?.DisplayCode,
+                    input.RequestId, actor, token)).Id;
+            }
             var grouped = input.Uses.Where(u => u.Source == MaterialUseSource.Warehouse).GroupBy(u => u.IssueLineId).ToArray();
             foreach (var group in grouped)
             {
                 if (group.Key is not { } lineId) throw MaterialErrors.Invalid("Warehouse materials need an issue line.");
                 var stock = await IssueForUseAsync(lineId, service?.Id, device.Id, token);
                 Quantity(group.Sum(u => u.Quantity), stock.Unit.DecimalPlaces);
-                if (group.Sum(u => u.Quantity) + await store.UsedAsync(lineId, replaced?.Id, token) + await store.ReturnedAsync(lineId, MaterialDocumentKind.ReturnUnused, token) > stock.Line.Quantity)
+                RequireRecipient(stock.Document, actor);
+                if (group.Sum(u => u.Quantity) + await store.UsedAsync(lineId, replaced?.Id, token) + await store.ReturnedAsync(lineId, MaterialDocumentKind.ReturnUnused, token)
+                    + await PendingReturnAsync(lineId, MaterialDocumentKind.ReturnUnused, null, token) > stock.Line.Quantity)
                     throw MaterialErrors.Conflict("MATERIAL_USE_EXCEEDS_ISSUE", "Used quantity exceeds issued quantity after returns.");
             }
             foreach (var used in input.Uses)
@@ -129,24 +138,24 @@ public sealed partial class MaterialService
     {
         var id = await transaction.ExecuteAsync(async token =>
         {
-            var actor = await access.RequireAsync(token); Validate(input); RequestId(input.RequestId); var hash = Hash(input);
+            var actor = await access.RequireAsync(token, allowDepartment: true); Validate(input); RequestId(input.RequestId); var hash = Hash(input);
             var prior = await workUses.FirstOrDefaultAsync(u => u.RequestId == input.RequestId, token);
             if (prior is not null) { if (prior.ActorAccountId != actor.Id || prior.Fingerprint != hash) throw MaterialErrors.Conflict("IDEMPOTENCY_CONFLICT", "requestId already used."); return prior.Id; }
-            RequireRecorder(actor);
             var sourceDoc = await store.IssueOfAsync(input.IssueLineId, token) ?? throw MaterialErrors.Missing();
-            await assignment.RequireMaterialAsync(sourceDoc, actor.Id, token);
-            if (sourceDoc.DepartmentId != actor.DepartmentId) throw MaterialErrors.Missing();
-            var stock = await IssueForUseAsync(input.IssueLineId, sourceDoc.ServiceOrderId, null, token);
+            RequireRecipient(sourceDoc, actor);
+            var stock = await IssueForUseAsync(input.IssueLineId, sourceDoc.ServiceOrderId, sourceDoc.Lines.Single(l => l.Id == input.IssueLineId).DeviceId, token);
             if (sourceDoc.ServiceOrderId is { } serviceId && (await services.GetByIdAsync(serviceId, token))?.Status != ServiceWorkflowStatus.InProgress) throw MaterialErrors.Invalid("The service order is closed.");
             Quantity(input.Quantity, stock.Unit.DecimalPlaces);
             MaterialWorkUse? previous = null;
             if (Clean(input.ReplacesCode) is not null)
             {
                 previous = await workUses.FirstOrDefaultAsync(u => u.Code == Code(input.ReplacesCode), token) ?? throw MaterialErrors.Missing();
+                if (previous.ActorAccountId != actor.Id) throw MaterialErrors.Forbidden("Only the original recorder may correct consumption.");
                 if (previous.IssueLineId != input.IssueLineId || await workUses.ExistsAsync(u => u.ReplacesId == previous.Id, token)) throw MaterialErrors.Invalid("Only the latest consumption of this work and issue line can be corrected.");
                 if (await store.ReturnedAsync(input.IssueLineId, MaterialDocumentKind.ReceiveRecovered, token) > 0) throw MaterialErrors.Invalid("Consumption already linked to a recovered tool return cannot be corrected.");
             }
-            if (input.Quantity + await store.UsedAsync(input.IssueLineId, null, token) - (previous?.Quantity ?? 0) + await store.ReturnedAsync(input.IssueLineId, MaterialDocumentKind.ReturnUnused, token) > stock.Line.Quantity)
+            if (input.Quantity + await store.UsedAsync(input.IssueLineId, null, token) - (previous?.Quantity ?? 0) + await store.ReturnedAsync(input.IssueLineId, MaterialDocumentKind.ReturnUnused, token)
+                + await PendingReturnAsync(input.IssueLineId, MaterialDocumentKind.ReturnUnused, null, token) > stock.Line.Quantity)
                 throw MaterialErrors.Conflict("MATERIAL_USE_EXCEEDS_ISSUE", "Used quantity exceeds outstanding issue.");
             var entity = new MaterialWorkUse { Code = CSVC.UseCases.Common.FeatureCode.New("SD"), IssueLineId = input.IssueLineId,
                 ReplacesId = previous?.Id, RequestId = input.RequestId, Fingerprint = hash, Quantity = input.Quantity, Reason = Name(input.Reason), ActorAccountId = actor.Id, OccurredAt = clock.GetUtcNow() };
@@ -164,9 +173,9 @@ public sealed partial class MaterialService
     }
     public async Task<PagedResult<MaterialWorkUseDto>> WorkUsesAsync(MaterialQuery q, CancellationToken ct)
     {
-        await access.RequireAsync(ct); Query(q);
+        var actor = await access.RequireAsync(ct, allowDepartment: true); Query(q);
         if (Clean(q.DocumentCode) is null) throw MaterialErrors.Invalid("Select an issue document to view consumption.");
-        var doc = await store.DocumentAsync(Code(q.DocumentCode), false, ct) ?? throw MaterialErrors.Missing();
+        var doc = await ReadDocumentAsync(Code(q.DocumentCode), actor, false, ct);
         var lineIds = doc.Lines.Select(l => l.Id).ToArray();
         var rows = (await workUses.FindAsync(u => lineIds.Contains(u.IssueLineId), ct)).OrderByDescending(u => u.OccurredAt).ThenBy(u => u.Code).ToArray();
         var results = new List<MaterialWorkUseDto>(); foreach (var row in rows.Skip((q.Page - 1) * q.PageSize).Take(q.PageSize)) results.Add(await WorkUseDtoAsync(row, ct));
