@@ -20,6 +20,18 @@ namespace CSVC.Infrastructure.Persistence.Repositories;
 
 public sealed class DeviceRepository(CsvcDbContext context) : GenericRepository<Device>(context), IDeviceRepository
 {
+    public async Task<IReadOnlyDictionary<string, int>> AvailableStockByCategoryAsync(Guid departmentId, CancellationToken ct = default)
+    {
+        var unavailable = Unavailable(false, true);
+        return await (from device in _context.Devices.AsNoTracking()
+                      join category in _context.DeviceCategories.AsNoTracking() on device.CategoryId equals category.Id
+                      where device.DepartmentId == departmentId && device.UseState == DeviceUseState.InStorage
+                          && !unavailable.Contains(device.Id)
+                      group device by category.DisplayCode into stock
+                      select new { CategoryCode = stock.Key, Quantity = stock.Count() })
+            .ToDictionaryAsync(stock => stock.CategoryCode, stock => stock.Quantity, ct);
+    }
+
     private IQueryable<DeviceReadModel> ReadModels()
         => from device in _context.Devices.AsNoTracking()
            join category in _context.DeviceCategories.AsNoTracking() on device.CategoryId equals category.Id

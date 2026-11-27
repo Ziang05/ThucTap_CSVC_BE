@@ -10,6 +10,14 @@ public sealed class ProcurementRequestsController(IProcurementRequestService ser
     public async Task<IActionResult> List([FromQuery] ProcurementQuery query, CancellationToken ct) => Ok(await service.ListAsync(query, ct));
     [HttpGet("{code}")]
     public async Task<IActionResult> Get(string code, CancellationToken ct) => Ok(await service.GetAsync(code, ct));
+    [HttpGet("{code}/stock")]
+    public async Task<IActionResult> Stock(string code, CancellationToken ct) => Ok(await service.StockAsync(code, ct));
+    [HttpPost("{code}/track-purchase")]
+    public async Task<IActionResult> TrackPurchase(string code, TrackPurchaseRequest input, CancellationToken ct)
+    { await service.TrackPurchaseAsync(code, input, ct); return NoContent(); }
+    [HttpPost("{code}/receive")]
+    public async Task<IActionResult> ReceivePurchase(string code, ReceivePurchaseRequest input, CancellationToken ct)
+    { await service.ReceivePurchaseAsync(code, input, ct); return NoContent(); }
     [HttpGet("assignees")]
     public async Task<IActionResult> Assignees(CancellationToken ct) => Ok(await service.AssigneesAsync(ct));
     [HttpGet("workload")]

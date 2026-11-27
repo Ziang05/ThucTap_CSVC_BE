@@ -421,7 +421,7 @@ public sealed class EquipmentStaffWorkflowTests
         public HttpClient Staff { get; } = staff;
         public HttpClient Department { get; } = department;
         public HttpClient ForeignStaff { get; } = foreignStaff;
-        public static async Task<Fixture> CreateAsync()
+        public static async Task<Fixture> CreateAsync(bool stockInStorage = false)
         {
             var database = await AccountTestDatabase.CreateAsync();
             var host = new AccountApiTestHost(database.ConnectionString);
@@ -452,7 +452,8 @@ public sealed class EquipmentStaffWorkflowTests
                     var barcode = "BC" + new string((char)('D' + number), 30);
                     db.Add(new DeviceIdentity { DeviceCode = code, Barcode = barcode, ReservedAt = host.Clock.GetUtcNow() });
                     db.Add(new Device { DeviceCode = code, Barcode = barcode, Name = "Device " + number, CategoryId = category.Id,
-                        DepartmentId = number == 3 ? target.Id : seed.Department, ResponsibleAccountId = number == 3 ? account.Id : seed.Staff, Quantity = 1 });
+                        DepartmentId = number == 3 ? target.Id : seed.Department, ResponsibleAccountId = number == 3 ? account.Id : seed.Staff,
+                        UseState = stockInStorage && number != 3 ? DeviceUseState.InStorage : DeviceUseState.Unspecified, Quantity = 1 });
                 }
                 await db.SaveChangesAsync();
                 HttpClient Client(string token)

@@ -2,6 +2,28 @@
 
 Yêu cầu mua sắm/sửa chữa được lập tại PMMS. PMQTTB kế thừa yêu cầu để theo dõi và giao nhân viên QTTB xử lý. Hiện nguồn PMMS vẫn là giả lập, chưa có API thật.
 
+## Cấp phát từ kho hoặc theo dõi mua sắm thiết bị
+
+Sau khi được phân công, nhân viên xử lý yêu cầu mua sắm thiết bị theo hai lựa chọn:
+
+1. **Cấp phát từ kho:** hệ thống kiểm tra toàn bộ số lượng theo từng dòng. Các dòng cùng danh mục dùng chung số tồn, không tính một thiết bị nhiều lần. Chỉ tính thiết bị đã tiếp nhận, tình trạng tốt, đang lưu kho tại QTTB và không bị giữ chỗ. Chỉ mở tạo cấp phát khi đủ toàn bộ; chứng từ vẫn bắt buộc chọn đủ mọi dòng và backend kiểm tra lại thiết bị khi lưu.
+2. **Theo dõi yêu cầu mua sắm:** dùng khi thiếu tồn. Bấm nút sẽ hỏi “Đưa phiếu yêu cầu mua sắm này vào danh sách theo dõi?”. Hủy hộp xác nhận không thay đổi dữ liệu; xác nhận mới lưu trạng thái `TrackingPurchase` (**Đang theo dõi**) và lịch sử. Không tạo phiếu nhập hoặc biến động kho ở bước này.
+
+Việc mua hàng thực hiện bên ngoài PMQTTB. Khi hàng được giao tới, bấm **Lập phiếu nhập** trong yêu cầu đang theo dõi để mở cùng form đầy đủ của trang Phiếu nhập: nhà cung cấp, đơn vị vận chuyển, mã yêu cầu, ngày/đợt giao, hóa đơn, thiết bị và ghi chú. Phiếu nhập liên kết yêu cầu chỉ được tạo sau khi đã xác nhận theo dõi. Phiếu nhập hiện có tiếp tục được duyệt và hoàn tất theo luồng của trang Phiếu nhập.
+
+Yêu cầu mua sắm thiết bị có sáu trạng thái hiển thị: **Mới tiếp nhận**, **Đang theo dõi**, **Chờ bàn giao**, **Chờ xác nhận thực nhận**, **Hoàn tất**, **Đã hủy**. Trạng thái được cập nhật từ chứng từ, không đổi thủ công.
+
+- **Đủ tồn:** Mới tiếp nhận → lưu phiếu cấp phát đầy đủ → Chờ xác nhận thực nhận → đơn vị yêu cầu xác nhận thiết bị đã đến phòng → Hoàn tất.
+- **Thiếu tồn:** Mới tiếp nhận → xác nhận theo dõi → Đang theo dõi → hoàn tất tiếp nhận hàng vào kho QTTB → Chờ bàn giao → lập phiếu cấp phát đầy đủ → Chờ xác nhận thực nhận → đơn vị xác nhận đã nhận đủ tại phòng → Hoàn tất.
+
+Nút **Lập phiếu cấp phát** mở chính form đầy đủ của trang Điều chuyển, điền sẵn bên giao là QTTB, bên nhận là đơn vị đề xuất, lý do và ghi chú. Người dùng chọn người chịu trách nhiệm tại bên nhận và đủ thiết bị cho từng dòng; không được đổi hai đơn vị hoặc cấp phát một phần. Phiếu cấp phát từ yêu cầu giữ chỗ toàn bộ thiết bị ngay khi lưu, không thay đổi đơn vị đang giữ cho tới khi bên nhận xác nhận thực nhận. Luồng này không yêu cầu một bước đồng ý tiếp nhận trước khi thiết bị được giao.
+
+Đơn vị yêu cầu dùng **Xác nhận thực nhận**, kiểm tra tình trạng từng thiết bị và đánh dấu đã nhận đủ tại phòng. Backend kiểm tra quyền đơn vị nhận và toàn bộ các dòng. Xác nhận đồng thời hoàn tất phiếu cấp phát và yêu cầu trong một giao dịch; không có bước QTTB bấm hoàn tất yêu cầu sau đó. Chứng từ sửa chữa/dịch vụ và việc bàn giao hỗn hợp thiết bị–vật tư tiếp tục dùng các kiểm tra riêng tương ứng.
+
+API bổ sung: `GET /api/v1/procurement-requests/{code}/stock` trả khả năng cấp phát và số cần/có/thiếu cho từng dòng; `POST /api/v1/procurement-requests/{code}/track-purchase` nhận `requestId`, `version`, chỉ cho nhân viên đang được giao xác nhận. `POST /api/v1/procurement-requests/{code}/receive` dành cho đơn vị nhận, có `requestId`, `version`, `receivedInFull` và đầy đủ `items` (mã thiết bị, tình trạng, ghi chú).
+
+Migration dữ liệu `20261127020000_PurchaseRequestLifecycle` chuyển các yêu cầu mua sắm thiết bị chưa đóng sang trạng thái đúng theo phiếu nhập/cấp phát thực tế. Không thêm cột, không đổi quyền giữ thiết bị và không mở lại các yêu cầu đã hoàn tất hoặc hủy. Lịch sử chuyển trạng thái được lưu lại.
+
 ## Cách giao nhân viên
 
 1. Đăng nhập bằng tài khoản **Trưởng phòng QTTB** (`QTTB_MANAGER`).
@@ -24,7 +46,7 @@ Màn yêu cầu chỉ hiển thị thông tin nghiệp vụ chính. Danh sách �
 - Chỉ nhân viên hiện được giao thực hiện yêu cầu và các chứng từ liên quan: nhập, cấp phát, sử dụng tại QTTB, vật tư, sửa chữa, xuất/nhận lại và can thiệp. Đổi phân công không đổi người đã thực hiện trong lịch sử.
 - Quyền duyệt của quản lý và quyền xác nhận thực nhận/nghiệm thu của đơn vị được giữ riêng.
 - Nhập hàng về QTTB trước, sau đó cấp phát riêng; chỉ người được giao đóng yêu cầu khi đủ toàn bộ kết quả.
-- **Lập phiếu nhập phần thiếu** mở ngay form Phiếu nhập dùng chung trong màn yêu cầu. Mã yêu cầu, đơn vị đề xuất và các dòng thiết bị được kế thừa; có thể chọn thiết bị đã khai báo hoặc thêm thiết bị mới, ghi vận chuyển/hóa đơn và in mã vạch sau khi lưu. Mỗi dòng giữ liên kết nguồn riêng, kể cả khi cùng loại thiết bị; số nhập không vượt số lượng yêu cầu. Lưu phiếu chưa làm tăng tồn, vẫn cần duyệt và hoàn tất tiếp nhận.
+- **Lập phiếu nhập** sau khi xác nhận theo dõi mở ngay form Phiếu nhập dùng chung trong màn yêu cầu. Mã yêu cầu, đơn vị đề xuất và các dòng thiết bị được kế thừa; có thể chọn thiết bị đã khai báo hoặc thêm thiết bị mới, ghi vận chuyển/hóa đơn và in mã vạch sau khi lưu. Mỗi dòng giữ liên kết nguồn riêng, kể cả khi cùng loại thiết bị; số nhập không vượt số lượng yêu cầu. Lưu phiếu chưa làm tăng tồn, vẫn cần duyệt và hoàn tất tiếp nhận.
 - Sửa chữa bắt đầu bằng **Bắt đầu xử lý sửa chữa** ngay trên yêu cầu nguồn. Thiết bị, nội dung và báo hỏng được kế thừa; tạo bản ghi thực hiện đang xử lý, không lập/duyệt thêm yêu cầu sửa chữa cục bộ. Giữ nguyên các phiếu và lịch sử cũ.
 - Chuyên dụng là phân loại chuyên môn/phối hợp. Chọn tại chỗ hoặc đưa thiết bị ra ngoài theo thực tế; không ép chuyên dụng thành xuất ngoài hoặc bắt lý do ngoại lệ chỉ vì xử lý tại chỗ.
 - Tổng hợp tại trang yêu cầu thống kê theo người phụ trách hiện tại: chưa kết thúc, đang chờ, hoàn tất, đã hủy. Nhóm đang chờ nằm trong nhóm chưa kết thúc.

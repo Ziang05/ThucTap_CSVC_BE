@@ -18,15 +18,15 @@ public sealed class SourceRequestAssignmentTests
         => (await f.Manager.GetFromJsonAsync<JsonElement>(Root + "/" + code)).GetProperty("summary").GetProperty("version").GetInt32();
     internal static async Task Assign(EquipmentStaffWorkflowTests.Fixture f, string code, string employee = "TK_STAFF")
         => await Expect(await f.Manager.PostAsJsonAsync(Root + "/" + code + "/assignment", new { requestId = Guid.NewGuid(), version = await Version(f, code), assigneeAccountCode = employee, reason = "Responsible employee updated" }));
-    internal static async Task<string> Create(EquipmentStaffWorkflowTests.Fixture f, bool repair = false, bool specialized = false, string department = "PB_TARGET")
-        => (await Read(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "TEST-" + Guid.NewGuid().ToString("N"), sourceVersion = 1, action = "Create", request = new { requestType = repair ? "Repair" : "Purchase", title = "Inherited work", requestingDepartmentCode = department, sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:01:00Z", lines = new[] { new { sourceLineCode = "L1", kind = "Equipment", description = "Requested work", quantity = 1, unit = "Cai", categoryCode = "CAT_ROLE", deviceCode = repair ? "TB-ROLE-001" : null, specialization = specialized ? "Specialized" : "Common" } } } }))).GetProperty("displayCode").GetString()!;
+    internal static async Task<string> Create(EquipmentStaffWorkflowTests.Fixture f, bool repair = false, bool specialized = false, string department = "PB_TARGET", int quantity = 1)
+        => (await Read(await f.Manager.PostAsJsonAsync(Root + "/simulated-events", new { eventId = Guid.NewGuid(), externalCode = "TEST-" + Guid.NewGuid().ToString("N"), sourceVersion = 1, action = "Create", request = new { requestType = repair ? "Repair" : "Purchase", title = "Inherited work", requestingDepartmentCode = department, sourceStatus = "Submitted", createdAt = "2026-10-21T08:00:00Z", updatedAt = "2026-10-21T08:01:00Z", lines = new[] { new { sourceLineCode = "L1", kind = "Equipment", description = "Requested work", quantity, unit = "Cai", categoryCode = "CAT_ROLE", deviceCode = repair ? "TB-ROLE-001" : null, specialization = specialized ? "Specialized" : "Common" } } } }))).GetProperty("displayCode").GetString()!;
     private static async Task MoveSecondEmployee(EquipmentStaffWorkflowTests.Fixture f)
         => await f.InDb(async db => { var a = await db.Accounts.SingleAsync(a => a.AccountCode == "TK_FOREIGN"); (await db.UserProfiles.SingleAsync(p => p.Id == a.UserProfileId)).DepartmentId = (await db.Departments.SingleAsync(d => d.Code == "PB_TEST")).Id; await db.SaveChangesAsync(); });
 
     [PostgreSqlFact]
     public async Task Staff_see_only_current_assignments_in_lists_search_paging_details_and_history()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); await MoveSecondEmployee(f);
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); await MoveSecondEmployee(f);
         var unassigned = await Create(f); var mine = await Create(f); var other = await Create(f, department: "PB_TEST");
         await Assign(f, mine); await Assign(f, other, "TK_FOREIGN");
         foreach (var suffix in new[] { "", "?assignedToMe=false", "?search=Inherited", "?pageSize=1" })
@@ -60,7 +60,7 @@ public sealed class SourceRequestAssignmentTests
     [PostgreSqlFact]
     public async Task Inherited_requests_are_unassigned_and_manager_assignment_is_versioned_audited_and_idempotent()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); var code = await Create(f); var route = Root + "/" + code;
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); var code = await Create(f); var route = Root + "/" + code;
         var d = await f.Manager.GetFromJsonAsync<JsonElement>(route); Assert.Equal(JsonValueKind.Null, d.GetProperty("assignment").ValueKind); Assert.False(d.GetProperty("canExecute").GetBoolean());
         await Expect(await f.Staff.PostAsJsonAsync(route + "/status", new { version = await Version(f, code), status = "InProgress" }), HttpStatusCode.Conflict);
         var command = new { requestId = Guid.NewGuid(), version = await Version(f, code), assigneeAccountCode = "TK_STAFF" };
@@ -79,13 +79,13 @@ public sealed class SourceRequestAssignmentTests
     [PostgreSqlFact]
     public async Task Reassignment_revokes_previous_staff_and_preserves_manager_approval_and_department_handover()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); await MoveSecondEmployee(f); var code = await Create(f); await Assign(f, code);
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); await MoveSecondEmployee(f); var code = await Create(f); await Assign(f, code);
         var transfer = await Read(await f.Staff.PostAsJsonAsync("/api/v1/device-transfers", new { sourceRequestCode = code, sourceDepartmentCode = "PB_TEST", targetDepartmentCode = "PB_TARGET", targetResponsibleAccountCode = "TK_DEPARTMENT", reason = "Whole allocation", items = new[] { new { sourceLineCode = "L1", deviceCode = "TB-ROLE-001" } } }), HttpStatusCode.Created);
         var route = "/api/v1/device-transfers/" + transfer.GetProperty("transferCode").GetString();
         await Assign(f, code, "TK_FOREIGN");
         await Expect(await f.Staff.PostAsJsonAsync(route + "/cancel", new { }), HttpStatusCode.Forbidden);
         await Expect(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/status", new { version = await Version(f, code), status = "InProgress" }), HttpStatusCode.Forbidden);
-        await Expect(await f.ForeignStaff.PostAsJsonAsync(Root + "/" + code + "/status", new { version = await Version(f, code), status = "InProgress" }));
+        await Expect(await f.ForeignStaff.PostAsJsonAsync(Root + "/" + code + "/status", new { version = await Version(f, code), status = "InProgress" }), HttpStatusCode.Conflict);
         await Expect(await f.Department.PostAsync(route + "/confirm-receipt-intent", null));
         await Expect(await f.Department.PostAsJsonAsync(route + "/handover-complete", new { items = new[] { new { deviceCode = "TB-ROLE-001", condition = "Good" } } }));
         await Expect(await f.ForeignStaff.PostAsJsonAsync(Root + "/" + code + "/complete", new { version = await Version(f, code) }));
@@ -95,7 +95,7 @@ public sealed class SourceRequestAssignmentTests
     [PostgreSqlFact]
     public async Task Source_repair_start_is_atomic_keeps_real_starter_and_new_owner_can_record_results()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); await MoveSecondEmployee(f); var code = await Create(f, repair: true); await Assign(f, code);
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); await MoveSecondEmployee(f); var code = await Create(f, repair: true); await Assign(f, code);
         var command = new { requestId = Guid.NewGuid(), version = await Version(f, code), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } };
         await f.InDb(async db => await db.Database.ExecuteSqlRawAsync("CREATE FUNCTION fail_start_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='REPAIR_EXECUTION_STARTED' THEN RAISE EXCEPTION 'Test'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_start_audit BEFORE INSERT ON procurement_request_events FOR EACH ROW EXECUTE FUNCTION fail_start_audit();"));
         await Expect(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/start-repair", command), HttpStatusCode.ServiceUnavailable);
@@ -116,7 +116,8 @@ public sealed class SourceRequestAssignmentTests
     [PostgreSqlFact]
     public async Task Reassigned_receipt_keeps_manager_approval_and_only_new_owner_receives_into_qttb()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); await MoveSecondEmployee(f); var code = await Create(f); await Assign(f, code);
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); await MoveSecondEmployee(f); var code = await Create(f, quantity: 3); await Assign(f, code);
+        await PurchaseTrackingTests.Track(f, code);
         await Read(await f.Manager.PostAsJsonAsync("/api/v1/suppliers", new { displayCode = "NCC_ASSIGN", name = "Supplier" }), HttpStatusCode.Created);
         var receipt = await Read(await f.Staff.PostAsJsonAsync("/api/v1/device-receipts", new { sourceRequestCode = code, supplierCode = "NCC_ASSIGN", requestingDepartmentCode = "PB_TARGET", deliveryDate = "2026-10-21", deliveryBatch = "1", items = new[] { new { sourceLineCode = "L1", categoryCode = "CAT_ROLE", name = "New equipment" } } }), HttpStatusCode.Created);
         var route = "/api/v1/device-receipts/" + receipt.GetProperty("receiptCode").GetString();
@@ -130,7 +131,7 @@ public sealed class SourceRequestAssignmentTests
     [PostgreSqlFact]
     public async Task Repair_issue_posting_follows_assignee_but_receiving_department_submits_returns_for_QTTB_review()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); await MoveSecondEmployee(f); var code = await Create(f, repair: true); await Assign(f, code);
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); await MoveSecondEmployee(f); var code = await Create(f, repair: true); await Assign(f, code);
         var order = await Read(await f.Staff.PostAsJsonAsync(Root + "/" + code + "/start-repair", new { requestId = Guid.NewGuid(), version = await Version(f, code), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } }));
         const string materials = "/api/v1/materials";
         await Read(await f.Staff.PostAsJsonAsync(materials + "/units", new { code = "CAI", name = "Piece", decimalPlaces = 0 }));
@@ -155,7 +156,7 @@ public sealed class SourceRequestAssignmentTests
     [PostgreSqlFact]
     public async Task A_new_repair_requires_the_source_start_endpoint_and_inactive_staff_cannot_be_assigned()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); var code = await Create(f, repair: true); var version = await Version(f, code);
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); var code = await Create(f, repair: true); var version = await Version(f, code);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/service-orders", new { requestId = Guid.NewGuid(), orderType = "Repair", items = new[] { new { deviceCode = "TB-ROLE-001", executionMethod = "OnSite" } } }), HttpStatusCode.Conflict);
         await f.InDb(async db => { (await db.Accounts.SingleAsync(a => a.AccountCode == "TK_STAFF")).IsLock = true; await db.SaveChangesAsync(); });
         await Expect(await f.Manager.PostAsJsonAsync(Root + "/" + code + "/assignment", new { requestId = Guid.NewGuid(), version, assigneeAccountCode = "TK_STAFF" }), HttpStatusCode.BadRequest);

@@ -30,7 +30,7 @@ public sealed class ProcurementFulfillmentTests
     [InlineData("Failed", "CompletedWithIssues")]
     public async Task All_service_lines_require_evidence_receiver_acceptance_and_idempotent_commands(string outcome, string result)
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var code = await Create(f, "SERVICE-FULL"); var route = Root + "/" + code;
         var d = await Detail(f, code);
         await Expect(await f.Staff.PostAsJsonAsync(route + "/complete", new { version = Version(d) }), HttpStatusCode.Conflict);
@@ -59,7 +59,7 @@ public sealed class ProcurementFulfillmentTests
     [PostgreSqlFact]
     public async Task Evidence_audit_failure_rolls_back_results_version_and_command_identity_before_retry()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var code = await Create(f, "SERVICE-ROLLBACK"); var route = Root + "/" + code;
         var before = await Detail(f, code); var command = Evidence(Version(before));
         await f.InDb(async db => await db.Database.ExecuteSqlRawAsync("""
@@ -76,7 +76,7 @@ public sealed class ProcurementFulfillmentTests
     [PostgreSqlFact]
     public async Task Rejected_service_evidence_can_be_corrected_without_overwriting_history()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var code = await Create(f, "SERVICE-CORRECT"); var route = Root + "/" + code;
         var id = Guid.NewGuid();
         await Expect(await f.Staff.PostAsJsonAsync(route + "/service-evidence", Evidence(Version(await Detail(f, code)), id, "Failed")));
@@ -95,7 +95,7 @@ public sealed class ProcurementFulfillmentTests
     [PostgreSqlFact]
     public async Task Only_manager_can_close_rejected_results_as_failed_and_departments_see_only_their_own_requests()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var code = await Create(f, "SERVICE-REJECT"); var route = Root + "/" + code;
         await Create(f, "OTHER-DEPARTMENT", department: "PB_TEST");
         var page = await f.Department.GetFromJsonAsync<JsonElement>(Root);
@@ -111,7 +111,7 @@ public sealed class ProcurementFulfillmentTests
     [PostgreSqlFact]
     public async Task Mixed_equipment_and_services_cannot_be_accepted_until_actual_whole_handover()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var code = await Create(f, "SERVICE-MIXED", [Line("E1", "Equipment"), Line("S1")]); var route = Root + "/" + code;
         await Expect(await f.Staff.PostAsJsonAsync(route + "/service-evidence", Evidence(Version(await Detail(f, code)), codes: ["S1"])));
         await Expect(await f.Department.PostAsJsonAsync(route + "/accept-results", new { requestId = Guid.NewGuid(), version = Version(await Detail(f, code)), accepted = true }), HttpStatusCode.Conflict);
@@ -127,7 +127,7 @@ public sealed class ProcurementFulfillmentTests
     [PostgreSqlFact]
     public async Task Specialized_on_site_repair_starts_from_source_without_a_second_request_or_exception_reason()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync();
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true);
         var code = await SourceRequestAssignmentTests.Create(f, repair: true, specialized: true);
         await SourceRequestAssignmentTests.Assign(f, code);
         var body = new { requestId = Guid.NewGuid(), version = Version(await Detail(f, code)), items = new[] { new { sourceLineCode = "L1", executionMethod = "OnSite" } } };

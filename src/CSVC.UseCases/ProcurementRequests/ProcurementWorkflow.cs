@@ -39,9 +39,14 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
         if (!await uow.Departments.ExistsAsync(d => (kind == RequestDocumentKind.Repair || d.Id == departmentId) && d.Code == request.RequestingDepartmentCode && d.Status == EntityStatus.Active, ct))
             throw Invalid("The document must serve the source requesting department.");
         if ((kind == RequestDocumentKind.Repair) != (request.RequestType == ProcurementRequestType.Repair)) throw Invalid("Document type does not match the source request.");
+        if (kind == RequestDocumentKind.Receipt && request.Status != ProcurementRequestStatus.TrackingPurchase)
+            throw Conflict("PURCHASE_TRACKING_REQUIRED", "Confirm purchase tracking before creating a receipt for this request.");
         if (kind == RequestDocumentKind.InternalUse && request.Lines.Any(l => l.Kind == ProcurementLineKind.Material) && deliveryScope.RequestId != request.Id)
             throw Conflict("COMBINED_DELIVERY_REQUIRED", "Confirm mixed equipment and materials from the material issue receipt operation.");
         var documents = await DocumentsAsync(request, ct);
+        if (request.Status == ProcurementRequestStatus.TrackingPurchase && kind is RequestDocumentKind.Allocation or RequestDocumentKind.InternalUse
+            && !documents.Any(document => document.Kind == RequestDocumentKind.Receipt && document.Status == "Completed"))
+            throw Conflict("SOURCE_RECEIPT_NOT_COMPLETED", "Finish receiving the tracked purchase into QTTB before allocation.");
         if (documents.Any(d => d.Kind == kind && (d.Open || d.Executed))) throw Conflict("SOURCE_DOCUMENT_ALREADY_EXISTS", "Finish the existing document or cancel its draft before creating a replacement.");
         var bindings = inputs.Select(i => i with { SourceLineCode = BusinessCode.Normalize(i.SourceLineCode) ?? "", DeviceCode = BusinessCode.Normalize(i.DeviceCode) ?? "", CategoryCode = BusinessCode.Normalize(i.CategoryCode), DamageReportCode = BusinessCode.Normalize(i.DamageReportCode) }).ToArray();
         if (bindings.Length == 0 || bindings.Select(b => b.DeviceCode).Distinct().Count() != bindings.Length) throw Invalid("Each device must be linked exactly once.");
@@ -72,12 +77,20 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
             var equipmentId = await equipment.RequireConfiguredAsync(ct);
             var codes = bindings.Select(b => b.DeviceCode).ToArray();
             var selected = await uow.Devices.FindAsync(d => codes.Contains(d.DeviceCode), ct);
-            if (selected.Count != codes.Length || selected.Any(d => d.DepartmentId != equipmentId || d.Quantity != 1)) throw Invalid("Allocate only received devices currently held by QTTB.");
+            if (selected.Count != codes.Length || selected.Any(d => d.DepartmentId != equipmentId || d.Quantity != 1 || d.UseState != CSVC.Core.Devices.DeviceUseState.InStorage))
+                throw Invalid("Allocate only received devices currently in QTTB storage.");
         }
         await links.AddAsync(new ProcurementDocumentLink { RequestId = request.Id, Kind = kind, DocumentCode = documentCode,
             BindingsJson = ProcurementJson.Write(bindings), LinkedByAccountId = actorId, LinkedAt = clock.GetUtcNow() }, ct);
+        var previousStatus = request.Status;
         request.Version++;
-        if (request.Status == ProcurementRequestStatus.Received) request.Status = ProcurementRequestStatus.InProgress;
+        if (request.RequestType == ProcurementRequestType.Purchase && kind is RequestDocumentKind.Allocation or RequestDocumentKind.InternalUse)
+            request.Status = ProcurementRequestStatus.AwaitingReceipt;
+        else if (request.RequestType == ProcurementRequestType.Repair && request.Status == ProcurementRequestStatus.Received)
+            request.Status = ProcurementRequestStatus.InProgress;
+        if (request.RequestType == ProcurementRequestType.Purchase && previousStatus != request.Status)
+            await events.AddAsync(new ProcurementRequestEvent { RequestId = request.Id, Action = "PURCHASE_STATUS_CHANGED", Outcome = request.Status.ToString(),
+                ActorAccountId = actorId, OccurredAt = clock.GetUtcNow() }, ct);
         await events.AddAsync(new ProcurementRequestEvent { RequestId = request.Id, Action = "DOCUMENT_LINKED", Outcome = kind.ToString(),
             Reason = documentCode, ActorAccountId = actorId, OccurredAt = clock.GetUtcNow() }, ct);
     }
@@ -123,6 +136,64 @@ public sealed class ProcurementWorkflow(IProcurementRequestRepository requests, 
         result.AddRange(await materialWorkflow.RequestDocumentsAsync(request, ct));
         return result;
     }
+    public async Task RefreshPurchaseForDocumentAsync(RequestDocumentKind kind, string documentCode, Guid actorId, CancellationToken ct)
+    {
+        var link = await links.FirstOrDefaultAsync(link => link.Kind == kind && link.DocumentCode == documentCode, ct);
+        if (link is not null) await RefreshPurchaseAsync(link.RequestId, actorId, ct);
+    }
+
+    public async Task RefreshPurchaseAsync(Guid requestId, Guid actorId, CancellationToken ct)
+    {
+        // Flush document changes inside the caller's transaction before deriving the request's progress.
+        await uow.CommitAsync(ct);
+        var record = await requestRecords.GetByIdAsync(requestId, ct);
+        if (record is null || record.RequestType != ProcurementRequestType.Purchase
+            || record.Status is ProcurementRequestStatus.Completed or ProcurementRequestStatus.Cancelled) return;
+        var request = (await requests.GetAsync(record.DisplayCode, true, ct))!;
+        if (!request.Lines.Any(line => line.Kind == ProcurementLineKind.Equipment)) return;
+        var documents = await DocumentsAsync(request, ct);
+        var allocation = documents.SingleOrDefault(document => document.Kind is RequestDocumentKind.Allocation or RequestDocumentKind.InternalUse
+            && (document.Open || document.Executed));
+        var equipmentReceived = allocation is { Status: "Completed" };
+        var materialReceived = !request.Lines.Any(line => line.Kind == ProcurementLineKind.Material)
+            || documents.Any(document => document.Kind == RequestDocumentKind.MaterialIssue && document.Status == "Completed");
+        var complete = equipmentReceived && materialReceived && !request.Lines.Any(line => line.Kind == ProcurementLineKind.Service)
+            && !documents.Any(document => document.Open) && !request.RequiresReview && request.MappingIssue is null;
+        ProcurementRequestStatus next;
+        if (complete) next = ProcurementRequestStatus.Completed;
+        else if (allocation is not null) next = ProcurementRequestStatus.AwaitingReceipt;
+        else if (documents.Any(document => document.Kind == RequestDocumentKind.Receipt && document.Status == "Completed"))
+            next = ProcurementRequestStatus.AwaitingHandover;
+        else if (request.Status == ProcurementRequestStatus.TrackingPurchase
+            || documents.Any(document => document.Kind == RequestDocumentKind.Receipt && document.Open)
+            || await events.ExistsAsync(entry => entry.RequestId == request.Id && entry.Action == "PURCHASE_TRACKING_STARTED", ct))
+            next = ProcurementRequestStatus.TrackingPurchase;
+        else next = ProcurementRequestStatus.Received;
+        if (request.Status == next) return;
+        request.Status = next; request.Version++;
+        if (complete)
+        {
+            await materialWorkflow.RequireRequestReadyAsync(request, ct);
+            request.Result = "Success"; request.ClosedAt = clock.GetUtcNow();
+        }
+        await events.AddAsync(new ProcurementRequestEvent { RequestId = request.Id,
+            Action = complete ? "REQUEST_COMPLETED" : "PURCHASE_STATUS_CHANGED", Outcome = complete ? "Success" : next.ToString(),
+            ActorAccountId = actorId, OccurredAt = clock.GetUtcNow() }, ct);
+    }
+
+    public async Task RequireAllocationStockAsync(string allocationCode, CancellationToken ct)
+    {
+        var link = await links.FirstOrDefaultAsync(l => l.Kind == RequestDocumentKind.Allocation && l.DocumentCode == allocationCode, ct);
+        if (link is null) return;
+        var bindings = ProcurementJson.Read<RequestDeviceBinding[]>(link.BindingsJson);
+        var codes = bindings.Select(binding => binding.DeviceCode).ToArray();
+        var departmentId = await equipment.RequireConfiguredAsync(ct);
+        var devices = await uow.Devices.FindAsync(device => codes.Contains(device.DeviceCode), ct);
+        if (devices.Count != codes.Length || devices.Any(device => device.DepartmentId != departmentId
+            || device.Quantity != 1 || device.UseState != CSVC.Core.Devices.DeviceUseState.InStorage))
+            throw Conflict("SOURCE_STOCK_CHANGED", "Some requested equipment is no longer in QTTB storage. Allocate the complete request from available stock.");
+    }
+
     public async Task RequireCombinedDeliveryAsync(string allocationCode, CancellationToken ct)
     {
         var link = await links.FirstOrDefaultAsync(l => l.Kind == RequestDocumentKind.Allocation && l.DocumentCode == allocationCode, ct);

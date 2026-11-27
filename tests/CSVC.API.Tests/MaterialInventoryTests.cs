@@ -295,7 +295,7 @@ public sealed class MaterialInventoryTests
     [PostgreSqlFact]
     public async Task Mixed_equipment_and_material_delivery_cannot_be_completed_separately()
     {
-        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(); var location = await Catalog(f); await Stock(f, location); var source = await Source(f, mixed: true); var material = await SourceIssue(f, source, location);
+        await using var f = await EquipmentStaffWorkflowTests.Fixture.CreateAsync(stockInStorage: true); var location = await Catalog(f); await Stock(f, location); var source = await Source(f, mixed: true); var material = await SourceIssue(f, source, location);
         var transfer = await Json(await f.Staff.PostAsJsonAsync("/api/v1/device-transfers", new { sourceRequestCode = source, sourceDepartmentCode = "PB_TEST", targetDepartmentCode = "PB_TARGET", targetResponsibleAccountCode = "TK_DEPARTMENT", reason = "Whole equipment allocation", items = new[] { new { deviceCode = "TB-ROLE-001", sourceLineCode = "E1" } } }), HttpStatusCode.Created);
         var code = transfer.GetProperty("transferCode").GetString()!; await Expect(await f.Department.PostAsJsonAsync("/api/v1/device-transfers/" + code + "/confirm-receipt-intent", new { }));
         await Expect(await f.Department.PostAsJsonAsync("/api/v1/device-transfers/" + code + "/handover-complete", new { items = new[] { new { deviceCode = "TB-ROLE-001", condition = "Good" } } }), HttpStatusCode.Conflict);
