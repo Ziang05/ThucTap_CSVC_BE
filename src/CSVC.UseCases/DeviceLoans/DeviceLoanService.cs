@@ -1,3 +1,4 @@
+using CSVC.UseCases.DamageReports;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using CSVC.Core.Accounts;
@@ -17,7 +18,7 @@ namespace CSVC.UseCases.DeviceLoans;
 
 public sealed partial class DeviceLoanService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IRepository<CSVC.Core.Settings.EquipmentSettings> settings, IBusinessCodeGenerator codeGenerator) : IDeviceLoanService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IRepository<CSVC.Core.Settings.EquipmentSettings> settings, IBusinessCodeGenerator codeGenerator, IDamageSessionRepository damageSessions) : IDeviceLoanService
 {
     public async Task<PagedResult<DeviceLoanDto>> ListAsync(DeviceLoanListQuery query, CancellationToken ct)
     {
@@ -158,7 +159,7 @@ public sealed partial class DeviceLoanService(
                 var input = conditions[device.DeviceCode];
                 item.ConditionAtHandover = input.Condition;
                 item.HandoverNote = Clean(input.Note);
-                device.Condition = input.Condition;
+                device.Condition = await damageSessions.PreserveOpenDamageAsync(device.Id, input.Condition, token);
                 unitOfWork.DeviceLoanItems.Update(item);
                 unitOfWork.Devices.Update(device);
             }

@@ -19,6 +19,7 @@ public sealed record ServiceOrderItemDto(int ItemNo, string DeviceCode, string D
     string? ResultDescription, string? ResultRecordedByAccountCode, DateTimeOffset? ResultRecordedAt, string? Notes, int Version)
 {
     public string? DamageReportCode { get; init; }
+    public Guid? DamageSessionId { get; init; }
     public Guid? MaintenancePeriodId { get; init; }
     public DateOnly? MaintenanceDueOn { get; init; }
     public DateOnly? PerformedOn { get; init; }

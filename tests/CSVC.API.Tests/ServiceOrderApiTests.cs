@@ -101,20 +101,60 @@ public sealed class ServiceOrderApiTests
         Assert.Equal(ServiceWorkflowStatus.Canceled, (await f.GetOrder(order.DisplayCode)).Status);
     }
 
-    [PostgreSqlFact]
-    public async Task Export_selection_requires_external_matching_hold_and_current_equipment_department()
+    [PostgreSqlTheory]
+    [InlineData(ServiceOrderType.Maintenance)]
+    [InlineData(ServiceOrderType.Repair)]
+    public async Task Export_requires_authorized_external_source_and_records_direct_department_handover(ServiceOrderType type)
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode);
-        await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(o.DisplayCode, [1]), Json), HttpStatusCode.Conflict);
-        await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(o.DisplayCode, [2, 2]), Json), HttpStatusCode.BadRequest);
-        await f.InDb(async db => { var other = new CSVC.Core.Departments.Department { Code = "PB_OTHER_V9", Name = "Other" }; db.Add(other); var d = await db.Devices.SingleAsync(d => d.DeviceCode == "TB_SERVICE_2"); d.DepartmentId = other.Id; await db.SaveChangesAsync(); });
-        await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(o.DisplayCode, [2]), Json), HttpStatusCode.Conflict, "DEVICE_NOT_EXPORTABLE");
+        await using var f = await Fixture.CreateAsync();
+        var order = await f.CreateOrder(f.Request(type));
+        await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(order.DisplayCode, [2]), Json),
+            HttpStatusCode.Conflict, "EXPORT_SOURCE_NOT_APPROVED");
+        await f.Approve(order.DisplayCode);
+        await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(order.DisplayCode, [1]), Json), HttpStatusCode.Conflict);
+        await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(order.DisplayCode, [2, 2]), Json), HttpStatusCode.BadRequest);
+
+        var other = new CSVC.Core.Departments.Department { Code = "PB_OTHER_V9", Name = "Other" };
+        await f.InDb(async db =>
+        {
+            db.Add(other);
+            var device = await db.Devices.SingleAsync(d => d.DeviceCode == "TB_SERVICE_2");
+            device.DepartmentId = other.Id;
+            await db.SaveChangesAsync();
+        });
+        var export = await f.CreateExport(order.DisplayCode, [2, 3]);
+        Assert.Equal(ServiceWorkflowStatus.Completed, export.Status);
+        Assert.Null(export.ApprovedAt);
+        Assert.Null(export.ApprovedByAccountCode);
+
+        Assert.Equal(export.CreatedAt, export.CompletedAt);
+        Assert.Equal(export.CreatedAt, export.PlannedExportAt);
+        Assert.Equal(2, export.Items.Count);
+        Assert.All(export.Items, item =>
+        {
+            Assert.Equal(ExportResult.Success, item.Result);
+            Assert.Equal(ExportGuardState.AwaitingReturn, item.GuardState);
+            Assert.Equal(export.CreatedAt, item.ResultRecordedAt);
+            Assert.Equal("TK_STAFF", item.ResultRecordedByAccountCode);
+            Assert.Equal(export.FacilityName, item.RecipientName);
+        });
+        var createdAt = Uri.EscapeDataString(export.CreatedAt.ToString("O"));
+        var matches = await f.Staff.GetFromJsonAsync<CSVC.UseCases.Common.PagedResult<ExportSlipDto>>(
+            Exports + $"?createdFrom={createdAt}&createdTo={createdAt}", Json);
+        Assert.Equal(export.DisplayCode, Assert.Single(matches!.Items).DisplayCode);
+        await f.InDb(async db =>
+        {
+            Assert.Equal(other.Id, (await db.Devices.SingleAsync(d => d.DeviceCode == "TB_SERVICE_2")).DepartmentId);
+            Assert.Equal(2, await db.Set<ExportDeviceGuard>().CountAsync());
+            Assert.All(await db.ExportHistories.ToListAsync(), audit => Assert.Equal(export.CreatedAt, audit.OccurredAt));
+            Assert.False(await db.ExportHistories.AnyAsync(h => h.ActionCode == "APPROVE"));
+        });
     }
 
     [PostgreSqlFact]
     public async Task Export_edit_diffs_guards_preserves_survivors_and_retries_historical_keys()
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode, [2]);
+        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.SeedPendingExport(o.DisplayCode, [2]);
         Guid retained = Guid.Empty; await f.InDb(async db => retained = (await db.Set<ExportDeviceGuard>().SingleAsync()).ExportSlipItemId);
         var edit = new EditExportSlipRequest { RequestId = Guid.NewGuid(), Version = e.Version, FacilityCode = "NCC_WORKSHOP_B", ItemNos = [2, 3], Notes = "Changed" };
         await Expect(await f.Staff.PutAsJsonAsync(Exports + "/" + e.DisplayCode, edit, Json), HttpStatusCode.NoContent);
@@ -158,7 +198,7 @@ public sealed class ServiceOrderApiTests
             supplier.Name = "Renamed workshop"; supplier.Address = "New catalogue address"; supplier.Status = EntityStatus.Locked;
             await db.SaveChangesAsync();
             var error = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE export_slips SET facility_id={Guid.NewGuid()} WHERE display_code={export.DisplayCode}"));
-            Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
+            Assert.Equal("ck_v9_export_pending", error.ConstraintName);
             var deleteError = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM suppliers WHERE id={supplier.Id}"));
             Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, deleteError.SqlState);
             Assert.Equal("FK_export_slips_suppliers_facility_id", deleteError.ConstraintName);
@@ -169,9 +209,8 @@ public sealed class ServiceOrderApiTests
         Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
         Assert.Equal(export.DisplayCode, (await retry.Content.ReadFromJsonAsync<ExportSlipDto>(Json))!.DisplayCode);
         await Expect(await f.Staff.PutAsJsonAsync(Exports + "/" + export.DisplayCode, new EditExportSlipRequest
-        { RequestId = Guid.NewGuid(), Version = export.Version, FacilityCode = "NCC_WORKSHOP_C", ItemNos = [2] }, Json), HttpStatusCode.Conflict, "SUPPLIER_UNAVAILABLE");
+        { RequestId = Guid.NewGuid(), Version = export.Version, FacilityCode = "NCC_WORKSHOP_C", ItemNos = [2] }, Json), HttpStatusCode.Conflict);
         await f.InDb(async db => { Assert.Single(await db.ExportSlips.ToListAsync()); Assert.Single(await db.Set<ExportDeviceGuard>().ToListAsync()); Assert.Empty(await db.ExportHistories.Where(x => x.ActionCode == "EDIT").ToListAsync()); });
-        await f.ApproveExport(export.DisplayCode); // Locking a supplier preserves existing document links.
     }
 
     [PostgreSqlTheory]
@@ -181,7 +220,7 @@ public sealed class ServiceOrderApiTests
     public async Task Export_edit_records_complete_before_after_details_and_preserves_historical_snapshots(string change)
     {
         await using var f = await Fixture.CreateAsync();
-        var order = await f.CreateOrder(); await f.Approve(order.DisplayCode); var export = await f.CreateExport(order.DisplayCode, [2]);
+        var order = await f.CreateOrder(); await f.Approve(order.DisplayCode); var export = await f.SeedPendingExport(order.DisplayCode, [2]);
         await f.InDb(async db =>
         {
             var supplier = await db.Suppliers.SingleAsync(x => x.DisplayCode == "NCC_WORKSHOP_A");
@@ -226,7 +265,7 @@ public sealed class ServiceOrderApiTests
     public async Task Supplier_link_migration_preserves_existing_unlinked_export_documents()
     {
         await using var f = await Fixture.CreateAsync();
-        var order = await f.CreateOrder(); await f.Approve(order.DisplayCode); var export = await f.CreateExport(order.DisplayCode, [2]);
+        var order = await f.CreateOrder(); await f.Approve(order.DisplayCode); var export = await f.SeedPendingExport(order.DisplayCode, [2]);
         await f.InDb(async db =>
         {
             var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(db);
@@ -239,40 +278,45 @@ public sealed class ServiceOrderApiTests
             Assert.Equal(3, await db.Suppliers.CountAsync()); Assert.Equal(3, await db.Devices.CountAsync());
             Assert.Single(await db.Set<ExportDeviceGuard>().ToListAsync());
         });
-        Assert.Null((await f.GetExport(export.DisplayCode)).FacilityCode);
+        var migrated = await f.GetExport(export.DisplayCode);
+        Assert.Null(migrated.FacilityCode);
+        Assert.Null(migrated.ApprovedAt);
+        Assert.Equal(ServiceWorkflowStatus.InProgress, migrated.Status);
+        Assert.Equal(export.Version + 1, migrated.Version);
         await Expect(await f.Staff.PutAsJsonAsync(Exports + "/" + export.DisplayCode, new EditExportSlipRequest
-        { RequestId = Guid.NewGuid(), Version = export.Version, FacilityCode = "NCC_WORKSHOP_A", ItemNos = [2] }, Json), HttpStatusCode.NoContent);
+        { RequestId = Guid.NewGuid(), Version = migrated.Version, FacilityCode = "NCC_WORKSHOP_A", ItemNos = [2] }, Json), HttpStatusCode.NoContent);
         Assert.Equal("NCC_WORKSHOP_A", (await f.GetExport(export.DisplayCode)).FacilityCode);
     }
 
     [PostgreSqlFact]
-    public async Task Competing_exports_and_stale_edits_cannot_share_a_device()
+    public async Task Competing_exports_and_post_recording_changes_cannot_claim_the_same_device()
     {
         await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode);
         var responses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(o.DisplayCode, [2]), Json)));
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Created); Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict); foreach (var r in responses) r.Dispose();
         var e = (await f.GetOrder(o.DisplayCode)).ExportSlips.Single(); var edit = new EditExportSlipRequest { RequestId = Guid.NewGuid(), Version = e.Version, FacilityCode = "NCC_WORKSHOP_B", ItemNos = [2, 3] };
         var both = await Task.WhenAll(f.Staff.PutAsJsonAsync(Exports + "/" + e.DisplayCode, edit, Json), f.Staff.PostAsJsonAsync(Exports + "/" + e.DisplayCode + "/cancel", new CancelServiceOrderRequest { RequestId = Guid.NewGuid(), Version = e.Version, Reason = "Cancel" }, Json));
-        Assert.Single(both, r => r.StatusCode == HttpStatusCode.NoContent); Assert.Single(both, r => r.StatusCode == HttpStatusCode.Conflict); foreach (var r in both) r.Dispose();
+        Assert.All(both, r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode)); foreach (var r in both) r.Dispose();
     }
 
     [PostgreSqlFact]
-    public async Task Pending_cancel_releases_only_owned_guards_and_keeps_audit_and_source_hold()
+    public async Task Unrecorded_cancel_releases_only_owned_guards_and_keeps_audit_and_source_hold()
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var a = await f.CreateExport(o.DisplayCode, [2]); var b = await f.CreateExport(o.DisplayCode, [3]);
+        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var a = await f.SeedPendingExport(o.DisplayCode, [2]); var b = await f.SeedPendingExport(o.DisplayCode, [3]);
         var cancel = new CancelServiceOrderRequest { RequestId = Guid.NewGuid(), Version = a.Version, Reason = "Facility closed" };
         await Expect(await f.Staff.PostAsJsonAsync(Exports + "/" + a.DisplayCode + "/cancel", cancel, Json), HttpStatusCode.NoContent);
         await Expect(await f.Staff.PostAsJsonAsync(Exports + "/" + a.DisplayCode + "/cancel", cancel, Json), HttpStatusCode.NoContent);
         Assert.Equal(ServiceWorkflowStatus.Canceled, (await f.GetExport(a.DisplayCode)).Status);
         await f.InDb(async db => { Assert.Equal(2, await db.ExportSlips.CountAsync()); Assert.Single(await db.Set<ExportDeviceGuard>().ToListAsync()); Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync()); });
-        await f.ApproveExport(b.DisplayCode);
+        await f.ExportResults(b.DisplayCode, new() { RequestId = Guid.NewGuid(),
+            Items = [new() { ItemNo = 3, Result = ExportResult.Success, RecipientName = "Workshop" }] });
         await Expect(await f.Staff.PostAsJsonAsync(Exports + "/" + b.DisplayCode + "/cancel", new CancelServiceOrderRequest { RequestId = Guid.NewGuid(), Reason = "Late" }, Json), HttpStatusCode.Conflict);
     }
 
     [PostgreSqlFact]
     public async Task Mixed_export_results_do_not_finalize_source_and_failed_item_can_retry()
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode); await f.ApproveExport(e.DisplayCode);
+        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.SeedPendingExport(o.DisplayCode);
         var request = new RecordExportResultRequest { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "Receiver" }, new() { ItemNo = 3, Result = ExportResult.Failed, FailureReason = "Unavailable" }] };
         await f.ExportResults(e.DisplayCode, request); await f.ExportResults(e.DisplayCode, request);
         var finished = await f.GetExport(e.DisplayCode); Assert.Equal(ServiceWorkflowStatus.Completed, finished.Status); Assert.Equal(ExportResult.Failed, finished.Items.Single(i => i.ItemNo == 3).Result);
@@ -289,33 +333,56 @@ public sealed class ServiceOrderApiTests
         Assert.Equal(e.DisplayCode, Assert.Single(failed!.Items).DisplayCode);
         Assert.Empty(mismatched!.Items);
         await f.InDb(async db => { Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync()); Assert.Equal(ExportGuardState.AwaitingReturn, (await db.Set<ExportDeviceGuard>().SingleAsync()).GuardState); });
-        await f.CreateExport(o.DisplayCode, [3]);
+        await f.SeedPendingExport(o.DisplayCode, [3]);
         await Expect(await f.Staff.PostAsJsonAsync(Exports + "/" + e.DisplayCode + "/result", new RecordExportResultRequest { RequestId = request.RequestId, Items = [request.Items[0]] }, Json), HttpStatusCode.Conflict, "IDEMPOTENCY_CONFLICT");
     }
 
-    [PostgreSqlFact]
-    public async Task Professional_outcome_blocks_pending_export_and_retains_hold_until_return_and_reconciliation()
+    [PostgreSqlTheory]
+    [InlineData(ServiceOrderType.Maintenance)]
+    [InlineData(ServiceOrderType.Repair)]
+    public async Task Service_results_are_available_individually_after_return(ServiceOrderType type)
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode, [2]);
-        var result = new RecordServiceResultsRequest { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ServiceItemStatus.Completed, Description = "Done" }] };
-        await Expect(await f.Staff.PostAsJsonAsync(Root + "/" + o.DisplayCode + "/results", result, Json), HttpStatusCode.Conflict, "EXPORT_RESULT_PENDING");
-        await f.ApproveExport(e.DisplayCode); await f.ExportResults(e.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "Workshop" }] });
-        await f.Results(o.DisplayCode, [new() { ItemNo = 1, Result = ServiceItemStatus.Completed, Description = "Done" }, new() { ItemNo = 2, Result = ServiceItemStatus.Completed, Description = "Done" }, new() { ItemNo = 3, Result = ServiceItemStatus.NotExecuted, Description = "Not scheduled" }]);
-        Assert.Equal(ServiceWorkflowStatus.Completed, (await f.GetOrder(o.DisplayCode)).Status);
-        await f.InDb(async db => Assert.Single(await db.Set<ServiceOrderDeviceHold>().ToListAsync()));
-        var returned = await f.CreateReturn(f.ReturnRequest(e.DisplayCode, [2]));
-        Assert.Equal("Completed", returned.Status);
-        await f.InDb(async db => { Assert.Single(await db.Set<ServiceOrderDeviceHold>().ToListAsync()); Assert.Empty(await db.Set<ExportDeviceGuard>().ToListAsync()); });
-        var reconcile = new ServiceTransitionRequest { RequestId = Guid.NewGuid() };
-        using var a = await f.Staff.PostAsJsonAsync(Root + "/" + o.DisplayCode + "/reconcile-holds", reconcile, Json); Assert.Equal(HttpStatusCode.OK, a.StatusCode); Assert.Equal(1, (await a.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("released").GetInt32());
-        using var b = await f.Staff.PostAsJsonAsync(Root + "/" + o.DisplayCode + "/reconcile-holds", reconcile, Json); Assert.Equal(1, (await b.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("released").GetInt32());
-        await f.InDb(async db => { Assert.Empty(await db.Set<ServiceOrderDeviceHold>().ToListAsync()); Assert.Equal(3, await db.ServiceOrderHistories.CountAsync(h => h.ActionCode == "HOLD_RELEASED")); Assert.All(await db.Devices.ToListAsync(), d => Assert.Equal(DeviceCondition.Good, d.Condition)); });
+        await using var f = await Fixture.CreateAsync();
+        var order = await f.CreateOrder(f.Request(type));
+        await f.Approve(order.DisplayCode);
+        var export = await f.CreateExport(order.DisplayCode);
+        var route = Root + "/" + order.DisplayCode + "/results";
+
+        foreach (var outcome in new[] { ServiceItemStatus.Completed, ServiceItemStatus.Failed, ServiceItemStatus.NotExecuted })
+            await Expect(await f.Staff.PostAsJsonAsync(route, new RecordServiceResultsRequest
+            {
+                RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = outcome, Description = "Attempted before return" }]
+            }, Json), HttpStatusCode.Conflict, "EXPORT_RETURN_PENDING");
+        await f.InDb(async db =>
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() =>
+                db.Database.ExecuteSqlRawAsync("UPDATE service_order_items SET execution_status = 'Completed' WHERE item_no = 2"));
+            Assert.Equal("ck_service_result_export_custody", error.ConstraintName);
+        });
+
+        await f.CreateReturn(f.ReturnRequest(export.DisplayCode, [3]));
+        await f.Results(order.DisplayCode, [new() { ItemNo = 3, Result = ServiceItemStatus.Completed, Description = "Returned and ready" }]);
+        await Expect(await f.Staff.PostAsJsonAsync(route, new RecordServiceResultsRequest
+        {
+            RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ServiceItemStatus.Completed, Description = "Still out" }]
+        }, Json), HttpStatusCode.Conflict, "EXPORT_RETURN_PENDING");
+        Assert.Equal(ServiceWorkflowStatus.InProgress, (await f.GetOrder(order.DisplayCode)).Status);
+
+        await f.CreateReturn(f.ReturnRequest(export.DisplayCode, [2]));
+        await f.Results(order.DisplayCode, [new() { ItemNo = 2, Result = ServiceItemStatus.Completed, Description = "Returned" },
+            new() { ItemNo = 1, Result = ServiceItemStatus.Completed, Description = "Completed on site" }]);
+        Assert.Equal(ServiceWorkflowStatus.Completed, (await f.GetOrder(order.DisplayCode)).Status);
+        await f.InDb(async db =>
+        {
+            Assert.Empty(await db.Set<ExportDeviceGuard>().ToListAsync());
+            Assert.Empty(await db.Set<ServiceOrderDeviceHold>().ToListAsync());
+        });
     }
 
     [PostgreSqlFact]
     public async Task Partial_returns_are_exactly_once_and_distinguish_actor_receiver_and_times()
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode); await f.ApproveExport(e.DisplayCode);
+        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode);
         const string legacyReceiverCode = "tk_manager";
         await f.InDb(async db =>
         {
@@ -323,7 +390,6 @@ public sealed class ServiceOrderApiTests
             receiver.AccountCode = legacyReceiverCode;
             await db.SaveChangesAsync();
         });
-        await f.ExportResults(e.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }, new() { ItemNo = 3, Result = ExportResult.Success, RecipientName = "B" }] });
         var request = f.ReturnRequest(e.DisplayCode, [2]); var first = await f.CreateReturn(request); var retry = await f.CreateReturn(request); Assert.Equal(first.DisplayCode, retry.DisplayCode);
         Assert.Equal(legacyReceiverCode, first.ReceivedByAccountCode); Assert.Equal("TK_STAFF", first.CreatedByAccountCode); Assert.True(first.ReceivedAt < first.CreatedAt);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/export-return-slips", f.ReturnRequest(e.DisplayCode, [2]), Json), HttpStatusCode.Conflict);
@@ -341,7 +407,7 @@ public sealed class ServiceOrderApiTests
     [PostgreSqlFact]
     public async Task Competing_returns_have_one_winner_and_no_duplicate_release()
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode, [2]); await f.ApproveExport(e.DisplayCode); await f.ExportResults(e.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }] });
+        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode, [2]);
         var responses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => f.Staff.PostAsJsonAsync("/api/v1/export-return-slips", f.ReturnRequest(e.DisplayCode, [2]), Json)));
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Created); Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict); foreach (var r in responses) r.Dispose();
         await f.InDb(async db => { Assert.Single(await db.Set<ExportReturnSlip>().ToListAsync()); Assert.Single(await db.Set<ExportReturnSlipItem>().ToListAsync()); Assert.Equal(2, await db.Set<ExportReturnHistory>().CountAsync()); });
@@ -350,8 +416,7 @@ public sealed class ServiceOrderApiTests
     [PostgreSqlFact]
     public async Task Return_rejects_future_time_bad_condition_mixed_source_and_changed_retry()
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var a = await f.CreateExport(o.DisplayCode, [2]); var b = await f.CreateExport(o.DisplayCode, [3]); await f.ApproveExport(a.DisplayCode); await f.ApproveExport(b.DisplayCode);
-        await f.ExportResults(a.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }] });
+        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var a = await f.CreateExport(o.DisplayCode, [2]); var b = await f.CreateExport(o.DisplayCode, [3]);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/export-return-slips", f.ReturnRequest(a.DisplayCode, [2, 3]), Json), HttpStatusCode.BadRequest);
         var request = f.ReturnRequest(a.DisplayCode, [2]);
         await Expect(await f.Staff.PostAsJsonAsync("/api/v1/export-return-slips", new CreateExportReturnRequest { RequestId = Guid.NewGuid(), ExportSlipCode = a.DisplayCode, HandoverPersonName = "A", ReceivedByAccountCode = "TK_MANAGER", ReceivedAt = f.Host.Clock.GetUtcNow().AddSeconds(1), Items = request.Items }, Json), HttpStatusCode.BadRequest);
@@ -362,7 +427,7 @@ public sealed class ServiceOrderApiTests
     [PostgreSqlFact]
     public async Task Database_guards_enforce_completion_release_and_immutable_returns()
     {
-        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.CreateExport(o.DisplayCode, [2]);
+        await using var f = await Fixture.CreateAsync(); var o = await f.CreateOrder(); await f.Approve(o.DisplayCode); var e = await f.SeedPendingExport(o.DisplayCode, [2]);
         await f.InDb(async db =>
         {
             await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("DELETE FROM service_order_device_holds"));
@@ -371,7 +436,7 @@ public sealed class ServiceOrderApiTests
             await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("DELETE FROM service_order_history"));
             Assert.False(db.Database.HasPendingModelChanges());
         });
-        await f.ApproveExport(e.DisplayCode); await f.ExportResults(e.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }] }); await f.CreateReturn(f.ReturnRequest(e.DisplayCode, [2]));
+        await f.ExportResults(e.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }] }); await f.CreateReturn(f.ReturnRequest(e.DisplayCode, [2]));
         await f.InDb(async db =>
         {
             await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("UPDATE export_return_slips SET notes='changed'"));
@@ -399,23 +464,29 @@ public sealed class ServiceOrderApiTests
 
     [PostgreSqlTheory]
     [InlineData("CREATE")]
+    [InlineData("EXPORT_COMPLETED")]
     [InlineData("EDIT")]
     [InlineData("CANCEL")]
-    [InlineData("APPROVE")]
     [InlineData("ITEM_RESULT_RECORDED")]
     [InlineData("RETURN_SLIP_RECORDED")]
     public async Task Export_and_return_audit_failure_rolls_back_document_items_and_guards(string action)
     {
         await using var f = await Fixture.CreateAsync();
         var order = await f.CreateOrder(); await f.Approve(order.DisplayCode);
-        if (action == "CREATE")
+        if (action is "CREATE" or "EXPORT_COMPLETED")
         {
             f.Host.Failures.FailNextExportAction = action;
             await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(order.DisplayCode), Json), HttpStatusCode.ServiceUnavailable);
-            await f.InDb(async db => { Assert.Empty(await db.ExportSlips.ToListAsync()); Assert.Empty(await db.Set<ExportDeviceGuard>().ToListAsync()); });
+            await f.InDb(async db =>
+            {
+                Assert.Empty(await db.ExportSlips.ToListAsync());
+                Assert.Empty(await db.ExportHistories.ToListAsync());
+                Assert.Empty(await db.Set<ExportDeviceGuard>().ToListAsync());
+                Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync());
+            });
             return;
         }
-        var export = await f.CreateExport(order.DisplayCode);
+        var export = await f.SeedPendingExport(order.DisplayCode);
         HttpResponseMessage response;
         if (action == "EDIT")
         {
@@ -429,14 +500,8 @@ public sealed class ServiceOrderApiTests
             response = await f.Staff.PostAsJsonAsync(Exports + "/" + export.DisplayCode + "/cancel",
                 new CancelServiceOrderRequest { RequestId = Guid.NewGuid(), Reason = "Not needed" }, Json);
         }
-        else if (action == "APPROVE")
-        {
-            f.Host.Failures.FailNextExportAction = action;
-            response = await f.Manager.PostAsJsonAsync(Exports + "/" + export.DisplayCode + "/approve", new ServiceTransitionRequest { RequestId = Guid.NewGuid() }, Json);
-        }
         else
         {
-            await f.ApproveExport(export.DisplayCode);
             var result = new RecordExportResultRequest { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }, new() { ItemNo = 3, Result = ExportResult.Failed, FailureReason = "Closed" }] };
             if (action == "ITEM_RESULT_RECORDED")
             {
@@ -468,13 +533,12 @@ public sealed class ServiceOrderApiTests
     {
         await using var f = await Fixture.CreateAsync();
         var order = await f.CreateOrder(); await f.Approve(order.DisplayCode);
-        var first = await f.CreateExport(order.DisplayCode, [2]); await f.ApproveExport(first.DisplayCode);
-        await f.ExportResults(first.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }] });
+        var first = await f.CreateExport(order.DisplayCode, [2]);
         await f.CreateReturn(f.ReturnRequest(first.DisplayCode, [2]));
         var next = await f.CreateExport(order.DisplayCode, [2]);
         Assert.Equal(2, next.SequenceNo); Assert.NotEqual(first.DisplayCode, next.DisplayCode);
         Assert.True(Assert.Single((await f.GetExport(first.DisplayCode)).Items).Returned);
-        Assert.Null(Assert.Single(next.Items).Result);
+        Assert.Equal(ExportResult.Success, Assert.Single(next.Items).Result);
         await f.InDb(async db => { Assert.Equal(3, await db.Set<ServiceOrderDeviceHold>().CountAsync()); Assert.Single(await db.Set<ExportDeviceGuard>().ToListAsync()); });
     }
 
@@ -578,8 +642,7 @@ public sealed class ServiceOrderApiTests
     {
         await using var f = await Fixture.CreateAsync();
         var order = await f.CreateOrder(); await f.Approve(order.DisplayCode);
-        var export = await f.CreateExport(order.DisplayCode, [2]); await f.ApproveExport(export.DisplayCode);
-        await f.ExportResults(export.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }] });
+        var export = await f.CreateExport(order.DisplayCode, [2]);
         await f.CreateReturn(f.ReturnRequest(export.DisplayCode, [2]));
         var result = new RecordServiceResultsRequest { RequestId = Guid.NewGuid(), Version = 1, Items = [new() { ItemNo = 2, Result = ServiceItemStatus.Failed, Description = "Cannot repair" }] };
         f.Host.Failures.FailNextServiceAction = "HOLD_RELEASED";
@@ -608,7 +671,7 @@ public sealed class ServiceOrderApiTests
     public async Task Noop_edit_keeps_version_and_persists_retry_hash()
     {
         await using var f = await Fixture.CreateAsync(); var order = await f.CreateOrder(); await f.Approve(order.DisplayCode);
-        var export = await f.CreateExport(order.DisplayCode);
+        var export = await f.SeedPendingExport(order.DisplayCode);
         var request = new EditExportSlipRequest { RequestId = Guid.NewGuid(), Version = export.Version, FacilityCode = export.FacilityCode!, ItemNos = [2, 3] };
         await Expect(await f.Staff.PutAsJsonAsync(Exports + "/" + export.DisplayCode, request, Json), HttpStatusCode.NoContent);
         await Expect(await f.Staff.PutAsJsonAsync(Exports + "/" + export.DisplayCode, request, Json), HttpStatusCode.NoContent);
@@ -622,6 +685,8 @@ public sealed class ServiceOrderApiTests
     public async Task Permission_uses_active_session_role_and_current_equipment_department()
     {
         await using var f = await Fixture.CreateAsync();
+        var source = await f.CreateOrder(); await f.Approve(source.DisplayCode);
+        var export = await f.CreateExport(source.DisplayCode, [2]);
         await f.InDb(async db =>
         {
             var other = new CSVC.Core.Departments.Department { Code = "PB_MOVED", Name = "Moved" }; db.Add(other);
@@ -631,6 +696,12 @@ public sealed class ServiceOrderApiTests
         });
         await Expect(await f.Staff.GetAsync(Root), HttpStatusCode.Forbidden, "EQUIPMENT_ACCOUNT_DEPARTMENT_MISMATCH");
         await Expect(await f.Staff.PostAsJsonAsync(Root, f.Request(), Json), HttpStatusCode.Forbidden);
+        await Expect(await f.Staff.PostAsJsonAsync(Exports, f.ExportRequest(source.DisplayCode, [3]), Json),
+            HttpStatusCode.Forbidden, "EQUIPMENT_ACCOUNT_DEPARTMENT_MISMATCH");
+        await Expect(await f.Staff.PostAsJsonAsync(Exports + "/" + export.DisplayCode + "/result",
+            new RecordExportResultRequest { RequestId = Guid.NewGuid(),
+                Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "Courier" }] }, Json),
+            HttpStatusCode.Forbidden, "EQUIPMENT_ACCOUNT_DEPARTMENT_MISMATCH");
     }
 
     [PostgreSqlFact]
@@ -680,9 +751,6 @@ public sealed class ServiceOrderApiTests
         });
         await f.Approve(first.DisplayCode);
         var a = await f.CreateExport(first.DisplayCode, [2]); var b = await f.CreateExport(first.DisplayCode, [3]);
-        await f.ApproveExport(a.DisplayCode); await f.ApproveExport(b.DisplayCode);
-        await f.ExportResults(a.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 2, Result = ExportResult.Success, RecipientName = "A" }] });
-        await f.ExportResults(b.DisplayCode, new() { RequestId = Guid.NewGuid(), Items = [new() { ItemNo = 3, Result = ExportResult.Success, RecipientName = "B" }] });
         await f.CreateReturn(f.ReturnRequest(a.DisplayCode, [2]));
         await f.InDb(async db =>
         {
@@ -769,8 +837,40 @@ public sealed class ServiceOrderApiTests
         public CreateExportReturnRequest ReturnRequest(string code, List<int> items) => new() { RequestId = Guid.NewGuid(), ExportSlipCode = code, HandoverPersonName = "Courier", ReceivedByAccountCode = "TK_MANAGER", ReceivedAt = Host.Clock.GetUtcNow().AddHours(-1), Items = items.Select(n => new ReturnItemRequest { ItemNo = n, ConditionAtReturn = DeviceCondition.Damaged }).ToList() };
         public async Task<ExportReturnDto> CreateReturn(CreateExportReturnRequest request) { using var response = await Staff.PostAsJsonAsync("/api/v1/export-return-slips", request, Json); var text = await response.Content.ReadAsStringAsync(); Assert.True(response.StatusCode == HttpStatusCode.Created, text); return JsonSerializer.Deserialize<ExportReturnDto>(text, Json)!; }
         public async Task<ExportSlipDto> CreateExport(string code, List<int>? items = null) { using var response = await Staff.PostAsJsonAsync(Exports, ExportRequest(code, items), Json); var text = await response.Content.ReadAsStringAsync(); Assert.True(response.StatusCode == HttpStatusCode.Created, text); return JsonSerializer.Deserialize<ExportSlipDto>(text, Json)!; }
+        public async Task<ExportSlipDto> SeedPendingExport(string orderCode, List<int>? itemNumbers = null)
+        {
+            var code = "PX-LEGACY-" + Guid.NewGuid().ToString("N").ToUpperInvariant();
+            await InDb(async db =>
+            {
+                var order = await db.ServiceOrders.Include(o => o.Items).SingleAsync(o => o.DisplayCode == orderCode);
+                var supplier = await db.Suppliers.SingleAsync(x => x.DisplayCode == "NCC_WORKSHOP_A");
+                var actor = await db.Accounts.SingleAsync(x => x.AccountCode == "TK_STAFF");
+                var now = Host.Clock.GetUtcNow();
+                var sequence = await db.ExportSlips.CountAsync(x => x.ServiceOrderId == order.Id) + 1;
+                var slip = new ExportSlip
+                {
+                    DisplayCode = code, ServiceOrderId = order.Id, SequenceNo = sequence, Status = ServiceWorkflowStatus.InProgress,
+                    CreateRequestId = Guid.NewGuid(), CreateRequestHash = new string('A', 64),
+                    FacilityId = supplier.Id, FacilityNameSnapshot = supplier.Name, FacilityAddressSnapshot = supplier.Address,
+                    FacilityContactSnapshot = $"{supplier.Phone} | {supplier.Email}", CreatedByAccountId = actor.Id, CreatedAt = now
+                };
+                db.ExportSlips.Add(slip);
+                foreach (var item in order.Items.Where(i => (itemNumbers ?? [2, 3]).Contains(i.ItemNo)))
+                {
+                    var line = new ExportSlipItem { ExportSlipId = slip.Id, ServiceOrderItemId = item.Id,
+                        DeviceCodeSnapshot = item.DeviceCodeSnapshot, DeviceNameSnapshot = item.DeviceNameSnapshot };
+                    slip.Items.Add(line);
+                    db.Set<ExportDeviceGuard>().Add(new()
+                    {
+                        DeviceId = item.DeviceId, ExportSlipItemId = line.Id, GuardState = ExportGuardState.HeldForExport,
+                        AcquiredAt = now, ChangedAt = now
+                    });
+                }
+                await db.SaveChangesAsync();
+            });
+            return await GetExport(code);
+        }
         public async Task<ExportSlipDto> GetExport(string code) => (await Staff.GetFromJsonAsync<ExportSlipDto>(Exports + "/" + code, Json))!;
-        public async Task ApproveExport(string code) => await Expect(await Manager.PostAsJsonAsync(Exports + "/" + code + "/approve", new ServiceTransitionRequest { RequestId = Guid.NewGuid() }, Json), HttpStatusCode.NoContent);
         public async Task ExportResults(string code, RecordExportResultRequest request) => await Expect(await Staff.PostAsJsonAsync(Exports + "/" + code + "/result", request, Json), HttpStatusCode.NoContent);
         public async Task<ServiceOrderDto> CreateOrder(CreateServiceOrderRequest? request = null)
         {

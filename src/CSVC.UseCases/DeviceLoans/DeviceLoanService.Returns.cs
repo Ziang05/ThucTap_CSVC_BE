@@ -1,3 +1,4 @@
+using CSVC.UseCases.DamageReports;
 using CSVC.Core.Accounts;
 using CSVC.Core.Common;
 using CSVC.Core.DeviceLoans;
@@ -48,7 +49,7 @@ public sealed partial class DeviceLoanService
                 {
                     item.ConditionAtReturn = input.Condition;
                     item.ReturnNote = Clean(input.Note);
-                    device.Condition = input.Condition!.Value;
+                    device.Condition = await damageSessions.PreserveOpenDamageAsync(device.Id, input.Condition!.Value, token);
                     unitOfWork.Devices.Update(device);
                     if (!await unitOfWork.DeviceOperationHolds.ReleaseAsync(device.DeviceCode, DeviceOperationKind.Loan, loan.Id, token))
                         throw Conflict("DEVICE_BUSY", "The loan no longer owns its reservation.");

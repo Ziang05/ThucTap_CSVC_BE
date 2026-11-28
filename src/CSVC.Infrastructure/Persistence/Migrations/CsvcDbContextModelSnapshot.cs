@@ -763,6 +763,54 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.ToTable("damage_report_contexts", (string)null);
                 });
 
+            modelBuilder.Entity("CSVC.Core.DamageReports.DamageReportDecision", b =>
+                {
+                    b.Property<Guid>("DamageReportId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("damage_report_id");
+
+                    b.Property<Guid?>("DamageSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("damage_session_id");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid>("DecidedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_account_id");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("DamageReportId");
+
+                    b.HasIndex("DecidedByAccountId");
+
+                    b.HasIndex("Outcome");
+
+                    b.HasIndex("DamageSessionId", "DeviceId");
+
+                    b.ToTable("damage_report_decisions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_damage_report_decision_outcome", "(outcome = 'ConfirmedDamaged' AND damage_session_id IS NOT NULL OR outcome = 'ConfirmedNotDamaged' AND damage_session_id IS NULL) AND btrim(reason) <> ''");
+                        });
+                });
+
             modelBuilder.Entity("CSVC.Core.DamageReports.DamageReportEvidence", b =>
                 {
                     b.Property<Guid>("Id")
@@ -990,6 +1038,115 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasIndex("DamageReportId");
 
                     b.ToTable("damage_report_requests", (string)null);
+                });
+
+            modelBuilder.Entity("CSVC.Core.DamageReports.DamageSessionInspection", b =>
+                {
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<Guid>("DamageSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("damage_session_id");
+
+                    b.Property<int>("ExpectedVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("expected_version");
+
+                    b.Property<DateTimeOffset>("InspectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("inspected_at");
+
+                    b.Property<Guid>("InspectedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("inspected_by_account_id");
+
+                    b.Property<string>("Notes")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("notes");
+
+                    b.Property<bool>("Passed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("passed");
+
+                    b.Property<Guid>("ServiceOrderItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("service_order_item_id");
+
+                    b.HasKey("RequestId");
+
+                    b.HasIndex("InspectedByAccountId");
+
+                    b.HasIndex("ServiceOrderItemId")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "DamageSessionId" }, "PassedInspection")
+                        .IsUnique()
+                        .HasDatabaseName("uq_damage_session_one_passing_inspection")
+                        .HasFilter("passed");
+
+                    b.ToTable("damage_session_inspections", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_damage_session_inspection", "expected_version > 0 AND btrim(notes) <> '' AND request_id <> '00000000-0000-0000-0000-000000000000'::uuid");
+                        });
+                });
+
+            modelBuilder.Entity("CSVC.Core.DamageReports.DeviceDamageSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<Guid?>("ClosedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("closed_by_account_id");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("opened_at");
+
+                    b.Property<Guid>("OpenedByAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opened_by_account_id");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "DeviceId")
+                        .HasName("uq_device_damage_sessions_id_device");
+
+                    b.HasIndex("ClosedByAccountId");
+
+                    b.HasIndex("OpenedByAccountId");
+
+                    b.HasIndex("DeviceId", "OpenedAt");
+
+                    b.HasIndex(new[] { "DeviceId" }, "OpenDamageSession")
+                        .IsUnique()
+                        .HasDatabaseName("uq_device_damage_sessions_one_open")
+                        .HasFilter("closed_at IS NULL");
+
+                    b.ToTable("device_damage_sessions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_damage_session_closed", "(closed_at IS NULL) = (closed_by_account_id IS NULL) AND (closed_at IS NULL OR closed_at >= opened_at)");
+
+                            t.HasCheckConstraint("ck_damage_session_version", "version > 0");
+                        });
                 });
 
             modelBuilder.Entity("CSVC.Core.Departments.Department", b =>
@@ -5318,8 +5475,6 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                     b.ToTable("export_slips", null, t =>
                         {
-                            t.HasCheckConstraint("ck_export_slips_approval", "status NOT IN ('InProgress','Completed') OR (approved_by_account_id IS NOT NULL AND approved_at IS NOT NULL AND approval_request_id IS NOT NULL)");
-
                             t.HasCheckConstraint("ck_export_slips_cancel", "status <> 'Canceled' OR (canceled_by_account_id IS NOT NULL AND canceled_at IS NOT NULL AND cancel_request_id IS NOT NULL AND COALESCE(btrim(cancel_reason),'') <> '')");
 
                             t.HasCheckConstraint("ck_export_slips_completed", "(status = 'Completed') = (completed_at IS NOT NULL)");
@@ -5328,7 +5483,7 @@ namespace CSVC.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_export_slips_sequence", "sequence_no > 0");
 
-                            t.HasCheckConstraint("ck_export_slips_status", "status IN ('PendingApproval','InProgress','Completed','Canceled')");
+                            t.HasCheckConstraint("ck_export_slips_status", "status IN ('InProgress','Completed','Canceled')");
                         });
                 });
 
@@ -5712,6 +5867,10 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid?>("DamageSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("damage_session_id");
+
                     b.Property<string>("DeviceCodeSnapshot")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -5794,10 +5953,14 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("Id", "ServiceOrderId", "DeviceId")
                         .HasName("uq_service_order_item_hold_fk");
 
+                    b.HasIndex("DamageSessionId");
+
                     b.HasIndex("MaintenancePeriodId")
                         .HasDatabaseName("ix_service_items_maintenance_period");
 
                     b.HasIndex("ResultRecordedByAccountId");
+
+                    b.HasIndex("DamageSessionId", "DeviceId");
 
                     b.HasIndex("DeviceId", "ExecutionStatus");
 
@@ -6213,6 +6376,27 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("CSVC.Core.DamageReports.DamageReportDecision", b =>
+                {
+                    b.HasOne("CSVC.Core.DamageReports.DamageReport", null)
+                        .WithOne("Decision")
+                        .HasForeignKey("CSVC.Core.DamageReports.DamageReportDecision", "DamageReportId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("DecidedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.DamageReports.DeviceDamageSession", null)
+                        .WithMany()
+                        .HasForeignKey("DamageSessionId", "DeviceId")
+                        .HasPrincipalKey("Id", "DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("CSVC.Core.DamageReports.DamageReportEvidence", b =>
                 {
                     b.HasOne("CSVC.Core.DamageReports.DamageReport", null)
@@ -6289,6 +6473,47 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                     b.HasOne("CSVC.Core.DamageReports.DamageReport", null)
                         .WithMany()
                         .HasForeignKey("DamageReportId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.DamageReports.DamageSessionInspection", b =>
+                {
+                    b.HasOne("CSVC.Core.DamageReports.DeviceDamageSession", null)
+                        .WithMany()
+                        .HasForeignKey("DamageSessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("InspectedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.ServiceOrders.ServiceOrderItem", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceOrderItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSVC.Core.DamageReports.DeviceDamageSession", b =>
+                {
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ClosedByAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSVC.Core.Devices.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSVC.Core.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("OpenedByAccountId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -7494,12 +7719,20 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("CSVC.Core.DamageReports.DeviceDamageSession", "DamageSession")
+                        .WithMany()
+                        .HasForeignKey("DamageSessionId", "DeviceId")
+                        .HasPrincipalKey("Id", "DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CSVC.Core.Devices.DeviceMaintenancePeriod", "MaintenancePeriod")
                         .WithMany()
                         .HasForeignKey("MaintenancePeriodId", "DeviceId")
                         .HasPrincipalKey("Id", "DeviceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_service_item_maintenance_period");
+
+                    b.Navigation("DamageSession");
 
                     b.Navigation("MaintenancePeriod");
                 });
@@ -7554,6 +7787,8 @@ namespace CSVC.Infrastructure.Persistence.Migrations
                 {
                     b.Navigation("Context")
                         .IsRequired();
+
+                    b.Navigation("Decision");
 
                     b.Navigation("Evidence");
 

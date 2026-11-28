@@ -77,6 +77,8 @@ public sealed class ServiceOrderRepository(CsvcDbContext context) : GenericRepos
         }
         if (query.PlannedFrom?.ToUniversalTime() is { } plannedFrom) source = source.Where(x => x.PlannedExportAt >= plannedFrom);
         if (query.PlannedTo?.ToUniversalTime() is { } plannedTo) source = source.Where(x => x.PlannedExportAt <= plannedTo);
+        if (query.CreatedFrom?.ToUniversalTime() is { } createdFrom) source = source.Where(x => x.CreatedAt >= createdFrom);
+        if (query.CreatedTo?.ToUniversalTime() is { } createdTo) source = source.Where(x => x.CreatedAt <= createdTo);
         var deviceCode = FilterCode(query.DeviceCode);
         var itemResult = query.ItemResult;
         if (deviceCode is not null || itemResult is not null)

@@ -20,6 +20,8 @@ public sealed class CreateServiceOrderRequest
 public sealed class ServiceItemRequest
 {
     public Guid? MaintenancePeriodId { get; init; }
+    public Guid? DamageSessionId { get; init; }
+    public bool OutsideDamageSession { get; init; }
     [StringLength(64)] public string? SourceLineCode { get; init; }
     [Required, StringLength(32)] public string DeviceCode { get; init; } = "";
     [EnumDataType(typeof(ExecutionMethod))] public ExecutionMethod ExecutionMethod { get; init; }
@@ -156,6 +158,8 @@ public sealed class ExportSlipListQuery
     [EnumDataType(typeof(ExportResult))] public ExportResult? ItemResult { get; init; }
     public DateTimeOffset? PlannedFrom { get; init; }
     public DateTimeOffset? PlannedTo { get; init; }
+    public DateTimeOffset? CreatedFrom { get; init; }
+    public DateTimeOffset? CreatedTo { get; init; }
     [EnumDataType(typeof(ServiceWorkflowStatus))] public ServiceWorkflowStatus? Status { get; init; }
     [Range(1, 1_000_000)] public int Page { get; init; } = 1;
     [Range(1, 100)] public int PageSize { get; init; } = 20;

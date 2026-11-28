@@ -61,6 +61,7 @@ public sealed partial class ServiceOrderService
                     DeviceCodeSnapshot = line.DeviceCodeSnapshot, DeviceNameSnapshot = line.DeviceNameSnapshot, SerialSnapshot = line.SerialSnapshot,
                     ConditionAtReturn = input.ConditionAtReturn, ReturnNote = Clean(input.ReturnNote) };
                 slip.Items.Add(returned); await guards.DeleteAsync(guard, token);
+                await ApplyDamageRepairResultLockedAsync(order, item, slip.ReceivedAt, token);
                 await AuditReturnAsync(slip, returned, actor, "RETURN_ITEM_RECEIVED", token);
             }
             await returns.AddAsync(slip, token);

@@ -1,3 +1,4 @@
+using CSVC.UseCases.DamageReports;
 using CSVC.UseCases.ProcurementRequests;
 using CSVC.Core.ProcurementRequests;
 using System.ComponentModel.DataAnnotations;
@@ -20,7 +21,7 @@ namespace CSVC.UseCases.DeviceTransfers;
 
 public sealed partial class DeviceTransferService(
     IUnitOfWork unitOfWork, IInventoryTransaction transaction, ICurrentAccount current,
-    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, IRequestAssignmentPolicy assignment) : IDeviceTransferService
+    IRequestContext requestContext, TimeProvider clock, CSVC.UseCases.Settings.IEquipmentDepartmentPolicy equipmentPolicy, CSVC.UseCases.Devices.IDeviceReservationPolicy reservations, IBusinessCodeGenerator codeGenerator, IProcurementWorkflow procurement, IRequestAssignmentPolicy assignment, IDamageSessionRepository damageSessions) : IDeviceTransferService
 {
     private static readonly Regex DeviceCodePattern = new("^[A-Z0-9][A-Z0-9._/-]{0,31}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -271,7 +272,7 @@ public sealed partial class DeviceTransferService(
                 device.UseState = transfer.TransferType == DeviceTransferType.Recovery ? DeviceUseState.InStorage : DeviceUseState.InUse;
                 device.AreaId = null;
                 device.ResponsibleAccountId = transfer.TargetResponsibleAccountId;
-                device.Condition = receivedCondition;
+                device.Condition = await damageSessions.PreserveOpenDamageAsync(device.Id, receivedCondition, token);
                 unitOfWork.DeviceTransferItems.Update(item);
                 unitOfWork.Devices.Update(device);
                 await unitOfWork.DeviceHistories.AddAsync(new DeviceHistory
@@ -280,7 +281,7 @@ public sealed partial class DeviceTransferService(
                     ActionCode = (transfer.TransferType == DeviceTransferType.Recovery ? "DEVICE_RECOVERY_COMPLETED_" : "DEVICE_TRANSFER_COMPLETED_") + device.DeviceCode, Outcome = AuditOutcome.Success,
                     OccurredAt = clock.GetUtcNow(), ChangedFields = "[\"departmentCode\",\"areaCode\",\"responsibleAccountCode\",\"condition\",\"useState\"]",
                     BeforeData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = sourceCode, useState = previousUseState.ToString() }),
-                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = targetCode, responsibleAccountCode = responsibleCode, condition = receivedCondition.ToString(), useState = device.UseState.ToString(), transferCode = transfer.TransferCode, transferType = transfer.TransferType.ToString() })
+                    AfterData = JsonSerializer.Serialize(new { device.DeviceCode, departmentCode = targetCode, responsibleAccountCode = responsibleCode, condition = device.Condition.ToString(), useState = device.UseState.ToString(), transferCode = transfer.TransferCode, transferType = transfer.TransferType.ToString() })
                 }, token);
                 if (!await unitOfWork.DeviceOperationHolds.ReleaseAsync(device.DeviceCode, DeviceOperationKind.Transfer, transfer.Id, token))
                     throw Conflict("DEVICE_BUSY", "The transfer no longer owns a device reservation.");

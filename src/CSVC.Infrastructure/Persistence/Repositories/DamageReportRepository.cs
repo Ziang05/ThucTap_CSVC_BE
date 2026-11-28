@@ -13,7 +13,7 @@ public sealed class DamageReportRepository(CsvcDbContext db) : GenericRepository
     {
         var q = _context.DamageReports.Where(x => x.ReportCode == code && (scope == null || x.ReportingDepartmentId == scope));
         if (!tracked) q = q.AsNoTracking();
-        return q.Include(x => x.Context).Include(x => x.Pending).Include(x => x.Reception).Include(x => x.Evidence).AsSingleQuery().SingleOrDefaultAsync(ct);
+        return q.Include(x => x.Context).Include(x => x.Pending).Include(x => x.Reception).Include(x => x.Decision).Include(x => x.Evidence).AsSingleQuery().SingleOrDefaultAsync(ct);
     }
     public Task<DamageReportRequest?> RequestAsync(Guid id, CancellationToken ct) => _context.Set<DamageReportRequest>().AsNoTracking().SingleOrDefaultAsync(x => x.RequestId == id, ct);
     public async Task AddRequestAsync(DamageReportRequest request, CancellationToken ct) => await _context.AddAsync(request, ct);
@@ -40,8 +40,13 @@ public sealed class DamageReportRepository(CsvcDbContext db) : GenericRepository
         if (query.DetectedTo?.ToUniversalTime() is { } detectedTo) q = q.Where(x => x.DetectedAt <= detectedTo);
         if (await q.AnyAsync(x => (x.Pending == null) == (x.Reception == null) || x.Context == null || x.Pending != null && x.Pending.DeviceId != x.DeviceId, ct))
             throw new UseCaseException(FailureKind.Conflict, "REPORT_STATE_INVALID", "Report reception data is inconsistent.");
+        if (query.LegacyReceptionOnly) q = q.Where(x => x.IncidentType != DamageReportIncidentType.Damage);
         if (query.ReceptionStatus == "RECEIVED") q = q.Where(x => x.Reception != null);
         if (query.ReceptionStatus == "NOT_RECEIVED") q = q.Where(x => x.Pending != null);
+        if (query.VerificationStatus is { } verification)
+            q = verification == DamageVerificationStatus.Pending
+                ? q.Where(x => x.IncidentType == DamageReportIncidentType.Damage && x.Decision == null)
+                : q.Where(x => x.IncidentType == DamageReportIncidentType.Damage && x.Decision!.Outcome == verification);
         var count = await q.CountAsync(ct);
         var sorted = query.SortBy == "reportCode"
             ? (query.Descending ? q.OrderByDescending(x => x.ReportCode) : q.OrderBy(x => x.ReportCode))
@@ -49,11 +54,16 @@ public sealed class DamageReportRepository(CsvcDbContext db) : GenericRepository
         var rows = await sorted.Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).Select(x => new
         {
             x.ReportCode, x.Context.DeviceCodeSnapshot, x.Context.DeviceNameSnapshot, x.IncidentType,
-            x.Context.ReportingDepartmentNameSnapshot, x.Context.ReporterNameSnapshot, x.ReportedAt, Received = x.Reception != null, x.RowVersion
+            x.Context.ReportingDepartmentNameSnapshot, x.Context.ReporterNameSnapshot, x.ReportedAt, Received = x.Reception != null, x.RowVersion,
+            Outcome = (DamageVerificationStatus?)x.Decision!.Outcome, x.Decision!.DamageSessionId
         }).ToListAsync(ct);
         return new(rows.Select(x => new DamageReportSummaryDto(x.ReportCode, x.DeviceCodeSnapshot, x.DeviceNameSnapshot,
             DamageReportService.Incident(x.IncidentType), x.ReportingDepartmentNameSnapshot, x.ReporterNameSnapshot, x.ReportedAt,
-            x.Received ? "RECEIVED" : "NOT_RECEIVED", x.RowVersion)).ToArray(), count, query.Page, query.PageSize);
+            x.Received ? "RECEIVED" : "NOT_RECEIVED", x.RowVersion)
+            {
+                VerificationStatus = x.IncidentType == DamageReportIncidentType.Damage ? x.Outcome ?? DamageVerificationStatus.Pending : null,
+                DamageSessionId = x.DamageSessionId
+            }).ToArray(), count, query.Page, query.PageSize);
     }
     public async Task<PagedResult<ReportDeviceOptionDto>> DevicesAsync(int page, int size, string? search, Guid? scope, CancellationToken ct)
     {
@@ -61,7 +71,9 @@ public sealed class DamageReportRepository(CsvcDbContext db) : GenericRepository
         if (!string.IsNullOrWhiteSpace(search)) q = q.Where(x => x.DeviceCode.Contains(search) || x.Name.Contains(search));
         var count = await q.CountAsync(ct);
         var items = await q.OrderBy(x => x.DeviceCode).Skip((page - 1) * size).Take(size)
-            .Select(x => new ReportDeviceOptionDto(x.DeviceCode, x.Name, !_context.Set<DamageReportPendingDevice>().Any(p => p.DeviceId == x.Id))).ToListAsync(ct);
+            .Select(x => new ReportDeviceOptionDto(x.DeviceCode, x.Name, !_context.Set<DamageReportPendingDevice>().Any(p => p.DeviceId == x.Id),
+                _context.Departments.Where(department => department.Id == x.DepartmentId).Select(department => department.Name).FirstOrDefault()))
+            .ToListAsync(ct);
         return new(items, count, page, size);
     }
     public async Task<PagedResult<ReportHistoryDto>> HistoryAsync(Guid id, int page, int size, CancellationToken ct)

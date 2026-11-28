@@ -60,6 +60,8 @@ public sealed class ServiceOrderItem
     public Guid? MaintenancePeriodId { get; set; }
     public DeviceMaintenancePeriod? MaintenancePeriod { get; set; }
     public DateOnly? PerformedOn { get; set; }
+    public Guid? DamageSessionId { get; set; }
+    public CSVC.Core.DamageReports.DeviceDamageSession? DamageSession { get; set; }
     public RepairItemDetail? RepairDetail { get; set; }
 }
 
